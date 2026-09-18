@@ -17,7 +17,8 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: process.env.BACKEND_URL || 'http://127.0.0.1:3000',
+          // 默认直连 Python Flask 后端 (端口 5000)
+          target: process.env.BACKEND_URL || 'http://127.0.0.1:5000',
           changeOrigin: true,
         },
       },

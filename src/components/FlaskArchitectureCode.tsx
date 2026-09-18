@@ -552,6 +552,26 @@ export interface TransferLog {
 
   // 4. Docs & Architecture
   {
+    id: "doc_python_only",
+    name: "PYTHON_ONLY_GUIDE.md",
+    path: "PYTHON_ONLY_GUIDE.md",
+    category: "docs",
+    language: "markdown",
+    description: "纯 Python 专属极简开发指南：仅需启动 python app.py 与 npm run dev:frontend，全流程由 Python 驱动",
+    linesCount: 50,
+    code: `# IntelliServe 纯 Python 后端极简使用指南
+
+## 第一步：启动你的 Python 后端 (监听 5000 端口)
+cd flask_backend
+pip install -r requirements.txt
+python app.py
+
+## 第二步：启动前端网页 (新终端)
+npm run dev:frontend
+打开 http://localhost:5173 即可！
+前端已默认将所有 /api 请求直连 5000 端口的 Flask。`
+  },
+  {
     id: "doc_raw_separate",
     name: "RAW_SEPARATE_GUIDE.md",
     path: "RAW_SEPARATE_GUIDE.md",
