@@ -1,0 +1,7 @@
+{
+  "name": "智能客服与实时监控介入系统",
+  "description": "基于LangChain/LangGraph与向量数据库检索增强的智能客服系统，支持会话记忆管理、实时监控预警、人工无缝介入接管与完整的Flask/Python后端架构。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
