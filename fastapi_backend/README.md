@@ -50,7 +50,7 @@ fastapi_backend/
 │   └── routes.py             # 🔌 FastAPI RESTful 业务路由集中分发
 ├── app.py                    # 🚀 FastAPI 主服务启动入口与生命周期管理
 ├── requirements.txt          # 📦 Python 核心依赖清单
-├── Dockerfile.fastapi        # 🐳 容器化构建文件
+├── Dockerfile                # 🐳 容器化构建文件
 └── README.md                 # 📖 后端完整开发指南与架构说明
 ```
 

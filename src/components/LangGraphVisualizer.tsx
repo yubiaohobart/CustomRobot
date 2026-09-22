@@ -308,7 +308,7 @@ export const LangGraphVisualizer: React.FC = () => {
                 <FileCode className="w-4 h-4 text-emerald-400" />
                 <span className="text-xs font-semibold text-slate-200">LangGraph Python 节点函数实现</span>
               </div>
-              <span className="text-[11px] text-slate-500 font-mono">graph_pipeline.py</span>
+              <span className="text-[11px] text-slate-400 font-mono">fastapi_backend/workflow/nodes.py</span>
             </div>
 
             <pre className="text-xs font-mono text-emerald-300 bg-slate-950 p-4 rounded-xl overflow-x-auto leading-relaxed border border-slate-800">
@@ -317,7 +317,7 @@ export const LangGraphVisualizer: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-            <span>支持与 Flask 框架的 `/api/chat` 及 `/api/intervene` 无缝互通</span>
+            <span>支持与 FastAPI 异步高性能框架的 `/api/chat` 及 `/api/transfer` 路由无缝互通</span>
             <span className="text-indigo-400 font-semibold">StateGraph Standard</span>
           </div>
         </div>
