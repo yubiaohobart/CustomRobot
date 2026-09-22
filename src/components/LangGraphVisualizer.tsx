@@ -45,18 +45,18 @@ const NODES_DATA: NodeDetail[] = [
   },
   {
     id: "vector_retrieval",
-    name: "2. 向量检索与知识抽取节点 (Vector Retriever)",
+    name: "2. 向量检索与知识抽取节点 (Qdrant + BGE-M3)",
     type: "rag",
-    description: "调用 Chroma / FAISS 向量数据库，计算用户 Query 与企业知识文档的余弦相似度，召回 Top-K 知识条目与相似度分数。",
+    description: "调用本地 Ollama (bge-m3 1024维) 将用户问题编码为稠密向量，在 Qdrant 纯内存集合中计算余弦相似度，召回 Top-K 售后知识切片与分数。",
     inputs: ["user_message: str", "top_k: int = 3"],
     outputs: ["retrieved_docs: List[Document]", "top_similarity_score: float"],
-    pythonCode: `def vector_retrieve_node(state: AgentState) -> dict:
+    pythonCode: `def qdrant_retrieve_node(state: AgentState) -> dict:
     query = state["user_message"]
-    # 向量库余弦相似度检索
-    docs_with_scores = vector_db.similarity_search_with_score(query, k=3)
-    top_score = docs_with_scores[0][1] if docs_with_scores else 0.0
+    # 本地 Ollama (bge-m3) 编码 + Qdrant 纯内存检索
+    hits = qdrant_store.similarity_search(query, k=3)
+    top_score = hits[0]["score"] if hits else 0.0
     return {
-        "retrieved_docs": [d[0] for d in docs_with_scores],
+        "retrieved_docs": [h["doc"] for h in hits],
         "top_similarity_score": float(top_score)
     }`
   },
@@ -64,27 +64,32 @@ const NODES_DATA: NodeDetail[] = [
     id: "memory_synthesis",
     name: "3. 会话长期记忆与上下文融合节点 (Memory Synthesizer)",
     type: "memory",
-    description: "从 MemorySaver 提取前序滑动对话历史与压缩摘要，将客户画像、订单ID与检索到的向量知识组装为强化 Prompt。",
-    inputs: ["session_id: str", "retrieved_docs: List", "sliding_window: int = 6"],
-    outputs: ["combined_prompt: str", "customer_profile: dict"],
+    description: "从 MemorySaver 与会话存储提取前序滑动对话历史与压缩摘要，将客户画像（VIP等级/订单）、历史问答与检索到的向量知识组装为强化 Prompt。",
+    inputs: ["session_id: str", "retrieved_docs: List", "user_profile: dict"],
+    outputs: ["assembled_prompt: str", "customer_profile: dict"],
     pythonCode: `def memory_synthesis_node(state: AgentState) -> dict:
-    history = memory_saver.get_history(state["session_id"], limit=6)
-    summary = memory_saver.get_summary(state["session_id"])
-    context = assemble_rag_context(state["retrieved_docs"], history, summary)
+    summary = state.get("summary_memory", "")
+    profile = state.get("user_profile", {})
+    context = assemble_rag_context(state["retrieved_docs"], summary, profile)
     return {"assembled_prompt": context}`
   },
   {
     id: "llm_generate",
-    name: "4. 大模型生成推理节点 (LLM Generator)",
+    name: "4. 大模型生成推理节点 (DeepSeek Generator)",
     type: "llm",
-    description: "调用 Gemini 3.8 Flash 执行多源融合推理，以官方智能客服口吻生成清晰、得体、有依据的解答文本。",
+    description: "调用 DeepSeek (deepseek-chat) 执行多源融合推理，结合商城售后合规条款生成准确、有同理心、有依据的解答文本。",
     inputs: ["assembled_prompt: str", "system_prompt: str"],
     outputs: ["generated_response: str", "generation_latency_ms: int"],
-    pythonCode: `def llm_generate_node(state: AgentState) -> dict:
-    response = gemini_model.invoke(state["assembled_prompt"])
+    pythonCode: `async def deepseek_generate_node(state: AgentState) -> dict:
+    response = await deepseek_client.generate_response(
+        user_message=state["user_message"],
+        retrieved_docs=state["retrieved_docs"],
+        summary_memory=state.get("summary_memory", ""),
+        user_profile=state.get("user_profile")
+    )
     return {
-        "generated_response": response.content,
-        "llm_confidence": calculate_confidence(state)
+        "generated_response": response,
+        "escalated_to_human": False
     }`
   },
   {

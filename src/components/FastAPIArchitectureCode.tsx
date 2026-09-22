@@ -218,13 +218,82 @@ class DeepSeekLLMClient:
         ...`
   },
   {
+    id: "backend_state",
+    name: "state.py",
+    path: "fastapi_backend/models/state.py",
+    category: "fastapi_backend",
+    language: "python",
+    description: "LangGraph 状态定义 (AgentState)：定义会话生命周期中的意图、情绪、召回文档、记忆摘要与追踪链路",
+    linesCount: 36,
+    code: `"""
+LangGraph 对话状态定义 (models/state.py)
+"""
+from typing import TypedDict, List, Dict, Any, Optional
+
+class AgentState(TypedDict):
+    session_id: str
+    user_message: str
+    intent: str
+    sentiment: str
+    explicit_human_request: bool
+    retrieved_docs: List[Dict[str, Any]]
+    top_similarity_score: float
+    user_profile: Dict[str, Any]
+    summary_memory: str
+    assembled_prompt: str
+    generated_response: str
+    escalated_to_human: bool
+    escalation_reason: str
+    step_trace: List[Dict[str, Any]]`
+  },
+  {
+    id: "backend_nodes",
+    name: "nodes.py",
+    path: "fastapi_backend/workflow/nodes.py",
+    category: "fastapi_backend",
+    language: "python",
+    description: "LangGraph 核心节点实现：意图分析、Qdrant 向量检索、记忆融合、DeepSeek 生成与人工转接",
+    linesCount: 177,
+    code: `"""
+LangGraph 状态图执行节点实现 (workflow/nodes.py)
+"""
+import time
+from typing import Dict, Any, List
+from models.state import AgentState
+from core.qdrant_store import qdrant_store
+from core.llm import deepseek_client
+
+def analyze_query_node(state: AgentState) -> Dict[str, Any]:
+    # 意图识别 (7天退换/运费/保修等) + 情绪判定 (frustrated/neutral) + 转人工初筛
+    msg = state["user_message"].lower()
+    explicit = any(k in msg for k in ["转人工", "人工", "投诉", "找人工", "主管"])
+    ...
+
+def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
+    # 本地 Ollama (bge-m3 1024维) 编码 + Qdrant 内存索引检索 Top-K 切片
+    hits = qdrant_store.similarity_search(state["user_message"], k=3)
+    ...
+
+def memory_synthesis_node(state: AgentState) -> Dict[str, Any]:
+    # 融合客户画像（VIP/订单）与长期会话记忆摘要
+    ...
+
+async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
+    # DeepSeek 多源融合推理输出合规客服答复
+    ...
+
+def human_escalation_node(state: AgentState) -> Dict[str, Any]:
+    # 封存会话上下文快照并转接人工坐席
+    ...`
+  },
+  {
     id: "backend_graph",
     name: "graph.py",
     path: "fastapi_backend/workflow/graph.py",
     category: "fastapi_backend",
     language: "python",
     description: "LangGraph 工作流组装：StateGraph 状态图定义、条件路由与 MemorySaver 检查点持久化",
-    linesCount: 110,
+    linesCount: 62,
     code: `"""
 LangGraph 工作流定义与状态机编排 (workflow/graph.py)
 拓扑: START -> analyze_query -> [条件路由] -> qdrant_retrieve -> memory_synthesis -> deepseek_generate -> END
@@ -232,17 +301,59 @@ LangGraph 工作流定义与状态机编排 (workflow/graph.py)
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from models.state import AgentState
-from workflow.nodes import analyze_query_node, qdrant_retrieve_node, memory_synthesis_node, deepseek_generate_node, human_escalation_node
+from .nodes import (
+    analyze_query_node,
+    qdrant_retrieve_node,
+    memory_synthesis_node,
+    deepseek_generate_node,
+    human_escalation_node,
+    router_after_analysis,
+    router_after_retrieval
+)
 
-def build_customer_service_graph():
-    builder = StateGraph(AgentState)
-    builder.add_node("analyze_query", analyze_query_node)
-    builder.add_node("qdrant_retrieve", qdrant_retrieve_node)
-    builder.add_node("memory_synthesis", memory_synthesis_node)
-    builder.add_node("deepseek_generate", deepseek_generate_node)
-    builder.add_node("human_escalation", human_escalation_node)
-    ...
-    return builder.compile(checkpointer=MemorySaver())`
+# 内存检查点状态管理器
+memory_saver = MemorySaver()
+
+# 构建客服问答状态机
+builder = StateGraph(AgentState)
+
+# 注册所有执行节点
+builder.add_node("analyze_query", analyze_query_node)
+builder.add_node("qdrant_retrieve", qdrant_retrieve_node)
+builder.add_node("memory_synthesis", memory_synthesis_node)
+builder.add_node("deepseek_generate", deepseek_generate_node)
+builder.add_node("human_escalation", human_escalation_node)
+
+# 定义状态流转
+builder.add_edge(START, "analyze_query")
+
+# 节点 1 后的条件分支: 若客户要求人工或情绪愤怒直接转人工
+builder.add_conditional_edges(
+    "analyze_query",
+    router_after_analysis,
+    {
+        "human_escalation": "human_escalation",
+        "qdrant_retrieve": "qdrant_retrieve"
+    }
+)
+
+# 节点 2 后的条件分支: 若相似度低于阈值自动升级转人工
+builder.add_conditional_edges(
+    "qdrant_retrieve",
+    router_after_retrieval,
+    {
+        "human_escalation": "human_escalation",
+        "memory_synthesis": "memory_synthesis"
+    }
+)
+
+# 正常问答生成路径
+builder.add_edge("memory_synthesis", "deepseek_generate")
+builder.add_edge("deepseek_generate", END)
+builder.add_edge("human_escalation", END)
+
+# 编译为可调用的 Graph 应用
+customer_service_graph = builder.compile(checkpointer=memory_saver)`
   },
   {
     id: "backend_routes",

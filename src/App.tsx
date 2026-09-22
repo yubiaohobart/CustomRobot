@@ -69,7 +69,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <span className="font-bold text-base text-slate-900 tracking-tight">IntelliServe</span>
               <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 font-semibold rounded-full border border-blue-100">
-                LangGraph + Flask 客服系统
+                LangGraph + FastAPI 客服系统
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
