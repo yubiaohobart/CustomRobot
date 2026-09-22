@@ -1,0 +1,19 @@
+# FastAPI 核心与 ASGI 高性能服务器
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.0.0
+httpx>=0.27.0
+
+# 向量数据库与客户端 (Qdrant)
+qdrant-client>=1.9.0
+
+# 大语言模型 SDK (DeepSeek / OpenAI 兼容接口)
+openai>=1.20.0
+
+# LangGraph 状态图工作流编排
+langgraph>=0.2.0
+langchain-core>=0.2.0
+
+# BGE-M3 向量模型支持 (可选本地推理加速)
+# FlagEmbedding>=1.2.8
+# sentence-transformers>=2.2.2
