@@ -4,8 +4,41 @@
 """
 
 import os
+from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, Field
+
+# 自动寻找并加载 .env 文件 (支持 fastapi_backend 目录内以及项目根目录的 .env)
+try:
+    from dotenv import load_dotenv
+    # 优先加载当前 fastapi_backend/.env，其次加载上一级根目录 .env
+    current_dir = Path(__file__).resolve().parent
+    env_paths = [
+        current_dir / ".env",
+        current_dir.parent / ".env",
+        Path.cwd() / ".env"
+    ]
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=False)
+except ImportError:
+    # 若未安装 python-dotenv，尝试最简手动解析 .env
+    current_dir = Path(__file__).resolve().parent
+    env_paths = [current_dir / ".env", current_dir.parent / ".env", Path.cwd() / ".env"]
+    for env_path in env_paths:
+        if env_path.exists():
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
 
 class Settings(BaseModel):
     # 服务端基础配置
