@@ -48,6 +48,13 @@ fastapi_backend/
 ├── api/
 │   ├── __init__.py
 │   └── routes.py             # 🔌 FastAPI RESTful 业务路由集中分发
+├── tests/                    # 🧪 接口自动化单元测试套件
+│   ├── conftest.py           # 测试全局夹具与内存隔离
+│   ├── test_health_and_root.py   # 健康探活与自检测试
+│   ├── test_knowledge_search.py  # 知识库切片与检索测试
+│   ├── test_sessions_and_human.py# 会话与人机协同测试
+│   ├── test_chat_pipeline.py     # 核心智能问答流水线测试
+│   └── run_tests.py          # 一键免配置测试驱动
 ├── app.py                    # 🚀 FastAPI 主服务启动入口与生命周期管理
 ├── requirements.txt          # 📦 Python 核心依赖清单
 ├── Dockerfile                # 🐳 容器化构建文件
@@ -167,6 +174,22 @@ docker run -d -p 5000:5000 -e DEEPSEEK_API_KEY="your_key" intelliserve-fastapi:l
 - `GET /api/transfer-logs`：审计日志
 - `GET /api/metrics`：监控大盘指标
 - `POST /api/generate-suggestion`：AI 坐席副驾驶回复草稿推荐
+
+---
+
+## 🧪 接口自动化单元测试
+
+系统在 `fastapi_backend/tests/` 目录下提供了完整的单元测试套件，全面覆盖以上所有接口和状态机逻辑：
+
+```bash
+# 方式一：一键免配置运行（自动测试全部接口，无需配置 Pytest）
+python tests/run_tests.py
+
+# 方式二：使用标准 Pytest 执行
+pytest tests/ -v
+```
+
+详细用例说明请参阅：`fastapi_backend/tests/README.md`。
 
 ---
 

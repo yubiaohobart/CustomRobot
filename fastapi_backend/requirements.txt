@@ -15,5 +15,6 @@ langgraph>=0.2.0
 langchain-core>=0.2.0
 
 # BGE-M3 向量模型支持 (可选本地推理加速)
-# FlagEmbedding>=1.2.8
-# sentence-transformers>=2.2.2
+# 单元测试与异步测试框架
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
