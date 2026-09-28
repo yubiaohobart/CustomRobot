@@ -17,3 +17,4 @@ env/
 venv/
 .venv/
 ENV/
+z_summary/
