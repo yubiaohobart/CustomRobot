@@ -18,26 +18,32 @@ if CURRENT_DIR not in sys.path:
 from config import settings
 from api.routes import router as api_router
 from core.qdrant_store import qdrant_store
+from core.logger import log, cprint, LogColor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """服务生命周期管理：服务启动时初始化 Qdrant 知识库"""
-    print("\n" + "=" * 65)
-    print(f"🚀 {settings.APP_NAME} v{settings.VERSION} 正在启动...")
-    print(f"🔹 大语言模型 (LLM):       DeepSeek ({settings.DEEPSEEK_MODEL})")
-    print(f"🔹 向量模型 (Embedding):  本地 Ollama (模型: {settings.OLLAMA_EMBED_MODEL}, 地址: {settings.OLLAMA_BASE_URL}, 维度: {settings.EMBEDDING_DIM})")
-    print(f"🔹 向量数据库 (Vector DB): Qdrant 纯内存模式 (In-Memory :memory:，无需 Docker 部署)")
-    print(f"🔹 默认知识库:             XX商城售后服务与退换货政策（2026版）")
-    print("=" * 65)
+    cprint.banner(
+        f"{settings.APP_NAME} v{settings.VERSION} 正在启动...",
+        f"FastAPI + LangGraph + Qdrant (BGE-M3) + DeepSeek 智能客服中枢"
+    )
+
+    api_key_status = f"{LogColor.BRIGHT_GREEN}已配置 ({settings.DEEPSEEK_API_KEY[:4]}...){LogColor.RESET}" if settings.DEEPSEEK_API_KEY else f"{LogColor.BRIGHT_YELLOW}未配置 (自动使用智能规则兜底){LogColor.RESET}"
+    
+    print(f"🔹 大语言模型 (LLM):       {LogColor.BRIGHT_CYAN}DeepSeek ({settings.DEEPSEEK_MODEL}){LogColor.RESET} [API Key: {api_key_status}]")
+    print(f"🔹 向量模型 (Embedding):  {LogColor.BRIGHT_BLUE}本地 Ollama (模型: {settings.OLLAMA_EMBED_MODEL}, 地址: {settings.OLLAMA_BASE_URL}, 维度: {settings.EMBEDDING_DIM}){LogColor.RESET}")
+    print(f"🔹 向量数据库 (Vector DB): {LogColor.BRIGHT_GREEN}Qdrant 纯内存模式 (In-Memory :memory:，无需 Docker 部署){LogColor.RESET}")
+    print(f"🔹 默认知识库:             {LogColor.WHITE}XX商城售后服务与退换货政策（2026版）{LogColor.RESET}")
+    print(f"{LogColor.BRIGHT_CYAN}{'=' * 68}{LogColor.RESET}")
     
     # 确保 Qdrant 集合就绪
     qdrant_store.init_collection_with_faq()
-    print("✅ Qdrant 向量知识库初始化完成，FAQ 语义切片已注入！")
-    print(f"🌐 服务监听地址: http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}")
-    print(f"📖 Swagger 交互文档: http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/docs\n")
+    cprint.success("Qdrant 向量知识库初始化完成，FAQ 语义切片已注入！")
+    print(f"🌐 服务监听地址: {LogColor.BRIGHT_CYAN}http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}{LogColor.RESET}")
+    print(f"📖 Swagger 交互文档: {LogColor.BRIGHT_CYAN}http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/docs{LogColor.RESET}\n")
     
     yield
-    print("\n🛑 服务正常关闭中...")
+    cprint.warning("服务正常关闭中，释放内存资源...")
 
 app = FastAPI(
     title=settings.APP_NAME,

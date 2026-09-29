@@ -6,6 +6,7 @@
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Tuple
+from core.logger import log, cprint, LogColor
 
 AVAILABLE_AGENTS = [
     {
@@ -248,6 +249,8 @@ class MemoryService:
 
         # 增加坐席负载
         agent["currentWorkload"] += 1
+
+        cprint.transfer(session_id, f"{agent['name']} ({agent['id']})", reason)
 
         # 增加系统转接消息
         self.add_message(

@@ -23,6 +23,7 @@ from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
 from services.memory_service import memory_service
 from workflow.graph import customer_service_graph
+from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
 
@@ -51,6 +52,11 @@ async def chat_endpoint(req: ChatRequest):
     t_start = time.time()
     session = memory_service.get_or_create_session(req.sessionId, req.userProfile)
     
+    tier = session.get("customerProfile", {}).get("tier", "NORMAL")
+    user_name = session.get("customerProfile", {}).get("userName", "访客")
+    print(f"\n{LogColor.BOLD}{LogColor.BRIGHT_CYAN}💬 [收到客户问答请求]{LogColor.RESET} 会话: {req.sessionId} | 客户: {user_name} ({tier})")
+    print(f"   {LogColor.WHITE}❓ 消息内容: \"{req.message}\"{LogColor.RESET}")
+
     # 记录客户输入消息
     memory_service.add_message(req.sessionId, "user", req.message)
 
@@ -121,6 +127,8 @@ async def chat_endpoint(req: ChatRequest):
     # 若状态机判定需要人工接入
     if final_state.get("escalated_to_human") and session["status"] == "AI_HANDLING":
         session["status"] = "NEEDS_INTERVENTION"
+
+    cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)})")
 
     return ChatResponse(
         sessionId=req.sessionId,

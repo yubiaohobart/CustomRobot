@@ -5,9 +5,11 @@ DeepSeek 大模型客户端 (DeepSeek LLM Client)
 """
 
 import os
+import time
 from typing import List, Dict, Any, Optional
 import httpx
 from config import settings
+from core.logger import cprint, LogColor
 
 class DeepSeekLLMClient:
     def __init__(
@@ -81,22 +83,26 @@ class DeepSeekLLMClient:
                     "temperature": settings.DEEPSEEK_TEMPERATURE,
                     "max_tokens": settings.DEEPSEEK_MAX_TOKENS
                 }
+                t_req = time.time()
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     resp = await client.post(
                         f"{self.base_url}/chat/completions",
                         json=payload,
                         headers=headers
                     )
+                    latency = time.time() - t_req
                     if resp.status_code == 200:
                         data = resp.json()
                         reply = data["choices"][0]["message"]["content"].strip()
+                        cprint.llm(self.model, len(system_prompt), latency, is_fallback=False)
                         return reply
                     else:
-                        print(f"[DeepSeek API Warning] Status: {resp.status_code}, {resp.text}")
+                        cprint.warning(f"DeepSeek API 响应异常 (HTTP {resp.status_code}): {resp.text[:100]}，切入兜底引擎")
             except Exception as e:
-                print(f"[DeepSeek API Error] {e}. Falling back to internal smart engine.")
+                cprint.error(f"DeepSeek 请求异常 ({e})，已优雅降级至内建政策引擎")
 
         # 兜底智能回答生成 (基于 XX商城官方 2026 政策规则准确回复)
+        cprint.llm(f"{self.model}(规则兜底)", 0, 0.01, is_fallback=True)
         return self._generate_fallback_response(user_message, retrieved_docs, vip_level, customer_name)
 
     def _generate_fallback_response(

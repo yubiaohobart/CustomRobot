@@ -14,6 +14,7 @@ from models.state import AgentState
 from core.qdrant_store import qdrant_store
 from core.llm import deepseek_client
 from config import settings
+from core.logger import cprint, LogColor
 
 def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     """1. 意图分类、情绪识别与人工呼叫检测节点"""
@@ -43,11 +44,18 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     elif any(k in msg for k in ["保修", "维修", "坏了", "换新", "质保", "联保", "进水", "摔坏"]):
         intent = "1年联保与硬件保修条款"
 
+    duration = int((time.time() - t0) * 1000)
+    cprint.node(
+        "analyze_query",
+        f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}",
+        f"显式人工请求: {explicit} (耗时 {duration}ms)"
+    )
+
     trace = state.get("step_trace", [])
     trace.append({
         "node": "analyze_query",
         "description": f"意图识别: {intent} | 情绪: {sentiment} | 显式人工请求: {explicit}",
-        "durationMs": int((time.time() - t0) * 1000),
+        "durationMs": duration,
         "status": "success"
     })
 
@@ -68,12 +76,16 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     
     docs = [h["doc"] for h in hits]
     top_score = hits[0]["score"] if hits else 0.0
+    top_title = docs[0].get("title", "无直接匹配") if docs else "无"
+
+    duration = int((time.time() - t0) * 1000)
+    cprint.rag(query, len(docs), top_score, top_title)
 
     trace = state.get("step_trace", [])
     trace.append({
         "node": "qdrant_retrieve",
         "description": f"Qdrant (BGE-M3 1024维) 检索召回 {len(docs)} 条条款，最高相似度: {top_score}",
-        "durationMs": int((time.time() - t0) * 1000),
+        "durationMs": duration,
         "status": "success" if top_score >= settings.SIMILARITY_THRESHOLD else "warning"
     })
 
@@ -88,12 +100,19 @@ def memory_synthesis_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     docs = state.get("retrieved_docs", [])
     doc_titles = [d.get("title", "") for d in docs]
-    
+    duration = int((time.time() - t0) * 1000)
+
+    cprint.node(
+        "memory_synthesis",
+        f"记忆与画像装配完成 (关联条款: {len(doc_titles)} 条)",
+        f"耗时: {duration}ms"
+    )
+
     trace = state.get("step_trace", [])
     trace.append({
         "node": "memory_synthesis",
         "description": f"合成上下文：关联条款 [{', '.join(doc_titles)}]，注入长期记忆与VIP画像",
-        "durationMs": int((time.time() - t0) * 1000),
+        "durationMs": duration,
         "status": "success"
     })
 
@@ -116,11 +135,18 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
         user_profile=profile
     )
 
+    duration = int((time.time() - t0) * 1000)
+    cprint.node(
+        "deepseek_generate",
+        f"DeepSeek 推理完成，生成回复: {LogColor.BRIGHT_GREEN}{len(reply)} 字{LogColor.RESET}",
+        f"耗时: {duration}ms"
+    )
+
     trace = state.get("step_trace", [])
     trace.append({
         "node": "deepseek_generate",
         "description": f"DeepSeek ({settings.DEEPSEEK_MODEL}) 完成针对性答复生成 (共 {len(reply)} 字)",
-        "durationMs": int((time.time() - t0) * 1000),
+        "durationMs": duration,
         "status": "success"
     })
 
@@ -141,6 +167,9 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
         reason = f"Qdrant 向量匹配得分较低 (< {settings.SIMILARITY_THRESHOLD})，转人工以防误答"
     else:
         reason = "客户负向情绪预警，启动人工跟进"
+
+    session_id = state.get("session_id", "当前会话")
+    cprint.transfer(session_id, "值班客服专员", reason)
 
     reply = "【智能管家温馨提示】收到您的需求，正在为您无缝转接 XX商城 官方售后值班专员。我们将保留您的完整对话快照与政策咨询记录，请稍候片刻..."
 
