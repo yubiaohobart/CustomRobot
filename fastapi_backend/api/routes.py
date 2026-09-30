@@ -23,6 +23,12 @@ from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
 from services.memory_service import memory_service
 from workflow.graph import customer_service_graph
+from workflow.nodes import (
+    analyze_query_node,
+    qdrant_retrieve_node,
+    deepseek_generate_node,
+    human_escalation_node
+)
 from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
@@ -85,18 +91,39 @@ async def chat_endpoint(req: ChatRequest):
             config={"configurable": {"thread_id": req.sessionId}}
         )
     except Exception as e:
-        print(f"[Graph Execution Error] {e}")
-        # 降级直接调用 LLM
-        final_state = initial_state
-        hits = qdrant_store.similarity_search(req.message, k=3)
-        final_state["retrieved_docs"] = [h["doc"] for h in hits]
-        final_state["top_similarity_score"] = hits[0]["score"] if hits else 0.0
-        final_state["generated_response"] = await deepseek_client.generate_response(
-            req.message,
-            final_state["retrieved_docs"],
-            session["summaryMemory"],
-            session["customerProfile"]
-        )
+        cprint.error(f"[LangGraph 调度层异常，启动方案B-节点级优雅降级]: {e}")
+        # 方案 B：直接复用 LangGraph 节点纯函数，避免重复硬编码检索与生成逻辑
+        final_state = initial_state.copy()
+        final_state["step_trace"] = list(initial_state.get("step_trace", []))
+        final_state["step_trace"].append({
+            "node": "graph_fallback",
+            "description": f"LangGraph图调度引擎异常 ({str(e)[:50]}) -> 执行方案B节点直连降级管线",
+            "durationMs": 0,
+            "status": "warning"
+        })
+
+        try:
+            # 1. 复用意图识别与情绪分析节点（识别是否用户强烈要求转人工）
+            analysis_patch = analyze_query_node(final_state)
+            final_state.update(analysis_patch)
+
+            # 若判定用户明确要求转人工，无缝转入人工升级节点
+            if final_state.get("explicit_human_request"):
+                escalation_patch = human_escalation_node(final_state)
+                final_state.update(escalation_patch)
+            else:
+                # 2. 复用 Qdrant 知识检索节点 (复用相同的嵌入模型、Top-K与相似度过滤)
+                retrieval_patch = qdrant_retrieve_node(final_state)
+                final_state.update(retrieval_patch)
+
+                # 3. 复用 DeepSeek 大模型答复生成节点 (复用相同的上下文装配与 Prompt 模板)
+                generation_patch = await deepseek_generate_node(final_state)
+                final_state.update(generation_patch)
+        except Exception as fallback_err:
+            cprint.error(f"[节点直连降级发生二次异常，触发安全转人工兜底]: {fallback_err}")
+            escalation_patch = human_escalation_node(final_state)
+            final_state.update(escalation_patch)
+            final_state["escalation_reason"] = f"核心服务异常 ({str(fallback_err)[:50]})"
 
     latency_ms = int((time.time() - t_start) * 1000)
     reply = final_state.get("generated_response", "非常抱歉，暂时未能查询到对应政策，请联系人工服务。")
