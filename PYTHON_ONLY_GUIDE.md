@@ -77,21 +77,22 @@ npm run dev:frontend
 
 ## 🌟 额外利器：使用 Chainlit 启动原生对话自测控制台
 
-Chainlit 相关的独立后端代码已统一收拢至独立目录 `chainlit_backend/`：
+Chainlit 对话自测应用已与核心后端无缝统一存放于 `fastapi_backend/`（无需单独列多余目录）：
 
 ```bash
-# 1. 进入 Chainlit 专属后端目录
-cd chainlit_backend
+# 1. 进入后端目录
+cd fastapi_backend
 
-# 2. 安装依赖 (如尚未安装)
+# 2. 安装依赖 (requirements.txt 已内含 chainlit)
 pip install -r requirements.txt
 
 # 3. 启动 Chainlit 对话界面 (监听 8000 端口并支持热重载)
-chainlit run app.py -w --port 8000
-# 或者直接运行一键脚本: ./run.sh
+chainlit run chainlit_app.py -w --port 8000
+# 或者直接运行一键脚本: ./run_chainlit.sh
 ```
 
 打开浏览器 `http://localhost:8000`：
+- 配备完整的对话输入框与交互聊天流
 - 支持 **原生 `cl.Step`** 树状观察 LangGraph 状态图的每一步执行耗时与中间变量
 - 支持 **预设 6 组典型自测用例** 1键点击发送与自测
 - 支持 **Qdrant 向量召回条款** 与余弦相似度分数侧边抽屉展示

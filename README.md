@@ -46,18 +46,14 @@
 │   ├── api/
 │   │   ├── __init__.py
 │   │   └── routes.py                   # 🔌 FastAPI RESTful 业务路由集中分发
+│   ├── .chainlit/config.toml           # 💬 Chainlit 界面主题与参数配置
+│   ├── chainlit_app.py                 # 💬 Chainlit 交互式全链路对话自测应用
+│   ├── chainlit.md                     # 💬 Chainlit 首屏说明面板
+│   ├── run_chainlit.sh                 # 🚀 一键启动 Chainlit 自测脚本
 │   ├── app.py                          # 🚀 FastAPI 主服务启动入口与生命周期管理
-│   ├── requirements.txt                # 📦 Python 核心依赖清单
-│   ├── Dockerfile.fastapi              # 🐳 容器化构建文件 (FastAPI)
+│   ├── requirements.txt                # 📦 Python 核心依赖清单 (含 FastAPI/LangGraph/Qdrant/Chainlit)
+│   ├── Dockerfile                      # 🐳 容器化构建文件
 │   └── README.md                       # 📖 后端完整开发指南与架构说明
-│
-├── 📁 chainlit_backend/                # 💬 Chainlit 独立交互式自测端 (高内聚独立目录)
-│   ├── app.py                          # Chainlit 核心会话与树状链路追踪入口
-│   ├── .chainlit/config.toml           # Chainlit 界面主题与参数配置
-│   ├── chainlit.md                     # 对话首屏说明面板
-│   ├── requirements.txt                # Chainlit 运行依赖清单
-│   ├── run.sh                          # 一键启动脚本
-│   └── README.md                       # 模块自测指南与用例说明
 │
 ├── server.ts                           # 前端反向代理与静态资源宿主服务 (端口 3000 -> 代理至 5000)
 ├── package.json                        # 前端构建依赖与 NPM 启动脚本

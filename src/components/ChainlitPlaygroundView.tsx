@@ -1099,16 +1099,16 @@ export function ChainlitPlaygroundView() {
 
             <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
               <p>
-                Chainlit 相关的独立后端代码已完整收拢于专有目录（<code>chainlit_backend/</code>），
-                可在本地终端通过以下命令一键启动：
+                Chainlit 对话自测模块已无缝集成于后端目录（<code>fastapi_backend/chainlit_app.py</code>），
+                与 LangGraph 状态图及 Qdrant 知识库共享一套代码，可在本地终端一键启动：
               </p>
 
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] space-y-2 text-slate-200">
-                <div className="text-slate-400"># 1. 进入 Chainlit 专属后端目录</div>
-                <div className="text-orange-400">cd chainlit_backend</div>
-                <div className="text-slate-400 mt-2"># 2. 安装依赖并一键启动 Chainlit</div>
+                <div className="text-slate-400"># 1. 进入统一后端目录</div>
+                <div className="text-orange-400">cd fastapi_backend</div>
+                <div className="text-slate-400 mt-2"># 2. 安装依赖并一键启动 Chainlit 对话界面</div>
                 <div className="text-orange-400">pip install -r requirements.txt</div>
-                <div className="text-orange-400">chainlit run app.py -w --port 8000</div>
+                <div className="text-orange-400">chainlit run chainlit_app.py -w --port 8000</div>
               </div>
 
               <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 space-y-1 text-[11px]">

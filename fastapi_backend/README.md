@@ -55,6 +55,10 @@ fastapi_backend/
 │   ├── test_sessions_and_human.py# 会话与人机协同测试
 │   ├── test_chat_pipeline.py     # 核心智能问答流水线测试
 │   └── run_tests.py          # 一键免配置测试驱动
+├── .chainlit/                # 💬 Chainlit 配置文件 (config.toml)
+├── chainlit_app.py           # 💬 Chainlit 交互式对话自测应用 (集成 LangGraph + Qdrant + Step追踪)
+├── chainlit.md               # 💬 Chainlit 欢迎卡片与介绍
+├── run_chainlit.sh           # 🚀 一键启动 Chainlit 交互式自测脚本
 ├── app.py                    # 🚀 FastAPI 主服务启动入口与生命周期管理
 ├── requirements.txt          # 📦 Python 核心依赖清单
 ├── Dockerfile                # 🐳 容器化构建文件
@@ -123,7 +127,25 @@ python app.py
 # 📖 Swagger 交互文档: http://0.0.0.0:5000/docs
 ```
 
-### 2. Docker 容器化运行
+### 2. 启动 Chainlit 交互式全链路对话自测台
+
+无需单独创建目录，Chainlit 已直接内嵌于本后端目录，直接基于同一个工作流与向量库运行：
+
+```bash
+# 在 fastapi_backend 目录下运行:
+chainlit run chainlit_app.py -w --port 8000
+
+# 或使用一键脚本:
+chmod +x run_chainlit.sh && ./run_chainlit.sh
+
+# 浏览器访问: http://localhost:8000
+# 内置特性: 
+#  1. 完整输入对话框与预设测试动作
+#  2. cl.Step 树状折叠展示意图分析、Qdrant 向量召回分值与 DeepSeek 生成耗时
+#  3. 侧边栏实时检查 AgentState 状态流转与向量匹配条文
+```
+
+### 3. Docker 容器化运行
 
 ```bash
 docker build -f Dockerfile.fastapi -t intelliserve-fastapi:latest .
@@ -195,10 +217,11 @@ pytest tests/ -v
 
 ## 🌟 Chainlit 交互式自测端
 
-针对 Chainlit 对话界面自测，相关后端代码已独立归档至专门目录：
-👉 **`chainlit_backend/`**
-- 包含 `app.py`、`chainlit.md`、`.chainlit/config.toml`、`requirements.txt` 及一键启动脚本 `run.sh`。
-- 详情请查阅：`chainlit_backend/README.md`。
+针对 Chainlit 对话界面自测，相关代码已直接收拢在当前后端目录：
+👉 **`fastapi_backend/chainlit_app.py`**
+- 共享全局 `config.py`、LangGraph 状态图 `workflow/`、Qdrant 知识库 `core/` 与会话记忆 `services/`。
+- 配备 `.chainlit/config.toml`、`chainlit.md` 首屏说明与一键启动脚本 `run_chainlit.sh`。
+- 启动命令：`chainlit run chainlit_app.py -w --port 8000`。
 
 ---
 
