@@ -28,7 +28,7 @@ def main():
     
     try:
         from config import settings
-        backend_port = settings.FASTAPI_PORT
+        backend_port = settings.FASTAPI_PORT if settings.FASTAPI_PORT != 5000 else 8000
     except Exception:
         backend_port = 8000
 

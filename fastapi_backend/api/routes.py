@@ -44,6 +44,19 @@ async def health_check():
         "active_sessions": len(memory_service.list_sessions())
     }
 
+@router.get("/chat")
+async def chat_get_info():
+    """浏览器直接访问 GET /api/chat 时的状态提示"""
+    return {
+        "status": "online",
+        "service": settings.APP_NAME,
+        "version": settings.VERSION,
+        "endpoint": "/api/chat",
+        "accepted_method": "POST",
+        "message": "FastAPI 智能客服核心服务运行正常！请使用 POST 请求提交问答，或访问 Chainlit (http://localhost:8001) 进行交互测试。",
+        "docs": "/docs"
+    }
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
     """
