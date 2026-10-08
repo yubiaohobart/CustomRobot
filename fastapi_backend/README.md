@@ -123,16 +123,16 @@ python app.py
 # 🔹 向量模型 (Embedding):  本地 Ollama (模型: bge-m3, 地址: http://localhost:11434, 维度: 1024)
 # 🔹 向量数据库 (Vector DB): Qdrant 纯内存模式 (In-Memory :memory:，无需 Docker 部署)
 # 🔹 默认知识库:             XX商城售后服务与退换货政策（2026版）
-# 🌐 服务监听地址: http://0.0.0.0:5000
-# 📖 Swagger 交互文档: http://0.0.0.0:5000/docs
+# 🌐 服务监听地址: http://0.0.0.0:8000
+# 📖 Swagger 交互文档: http://0.0.0.0:8000/docs
 ```
 
 ### 2. 启动 Chainlit 交互式对话自测台 (HTTP 客户端模式)
 
-Chainlit 作为交互式自测端，直接通过 HTTP 请求对接 FastAPI 核心服务（`http://127.0.0.1:5000/api/chat`），实现真实前后端联调：
+Chainlit 作为交互式自测端，直接通过 HTTP 请求对接 FastAPI 核心服务（`http://127.0.0.1:8000/api/chat`），实现真实前后端联调（已默认使用 8000 端口，避开 macOS 5000 端口 AirPlay Receiver 冲突）：
 
 ```bash
-# 1. 确保先在第一个终端启动后端服务 (端口 5000):
+# 1. 确保先在第一个终端启动后端服务 (端口 8000):
 python app.py
 
 # 2. 在第二个终端启动 Chainlit 自测端 (端口 8001):

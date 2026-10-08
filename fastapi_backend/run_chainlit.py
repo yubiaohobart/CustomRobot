@@ -30,11 +30,11 @@ def main():
         from config import settings
         backend_port = settings.FASTAPI_PORT
     except Exception:
-        backend_port = 5000
+        backend_port = 8000
 
     print("==================================================")
     print("🚀 启动 IntelliServe Chainlit 对话自测客户端")
-    print(f"👉 后端 API 地址: http://127.0.0.1:{backend_port}")
+    print(f"👉 后端 API 地址: http://127.0.0.1:{backend_port} (默认 8000，避开 macOS 5000 AirPlay 冲突)")
     print("👉 自测 UI 地址:  http://localhost:8001")
     print("==================================================")
     

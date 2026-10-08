@@ -45,7 +45,8 @@ class Settings(BaseModel):
     APP_NAME: str = "IntelliServe 智能客服系统"
     VERSION: str = "3.0.0"
     FASTAPI_HOST: str = os.getenv("FASTAPI_HOST", "0.0.0.0")
-    FASTAPI_PORT: int = int(os.getenv("FASTAPI_PORT", os.getenv("PORT", "5000")))
+    # 默认 8000 端口（避免 macOS 默认隔空播放 AirPlay Receiver 占用 5000 端口导致 502 Bad Gateway）
+    FASTAPI_PORT: int = int(os.getenv("FASTAPI_PORT", os.getenv("PORT", "8000")))
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     # 大语言模型配置 (DeepSeek)
