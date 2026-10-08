@@ -129,15 +129,15 @@ python app.py
 
 ### 2. 启动 Chainlit 交互式对话自测台 (HTTP 客户端模式)
 
-Chainlit 作为交互式自测端，直接通过 HTTP 请求对接 FastAPI 核心服务（`http://127.0.0.1:8000/api/chat`），实现真实前后端联调：
+Chainlit 作为交互式自测端，直接通过 HTTP 请求对接 FastAPI 核心服务（`http://127.0.0.1:5000/api/chat`），实现真实前后端联调：
 
 ```bash
-# 1. 确保先在第一个终端启动后端服务 (端口 8000):
+# 1. 确保先在第一个终端启动后端服务 (端口 5000):
 python app.py
 
 # 2. 在第二个终端启动 Chainlit 自测端 (端口 8001):
-chainlit run chainlit_app.py -w --port 8001
-# 或直接运行: ./run_chainlit.sh
+python run_chainlit.py
+# 或运行: ./run_chainlit.sh (或 chainlit run chainlit_app.py -w --port 8001)
 
 # 3. 浏览器访问: http://localhost:8001
 # 特性:

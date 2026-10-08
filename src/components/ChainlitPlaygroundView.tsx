@@ -1103,10 +1103,10 @@ export function ChainlitPlaygroundView() {
               </p>
 
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] space-y-2 text-slate-200">
-                <div className="text-slate-400"># 1. 终端1：启动 FastAPI 核心后端 (端口 8000)</div>
+                <div className="text-slate-400"># 1. 终端1：启动 FastAPI 核心后端 (端口 5000)</div>
                 <div className="text-orange-400">cd fastapi_backend && python app.py</div>
                 <div className="text-slate-400 mt-2"># 2. 终端2：启动 Chainlit 对话客户端 (端口 8001)</div>
-                <div className="text-orange-400">cd fastapi_backend && chainlit run chainlit_app.py -w --port 8001</div>
+                <div className="text-orange-400">cd fastapi_backend && python run_chainlit.py</div>
               </div>
 
               <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 space-y-1 text-[11px]">

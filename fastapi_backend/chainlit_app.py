@@ -8,8 +8,14 @@ import time
 import httpx
 import chainlit as cl
 
-# 后端 FastAPI 服务的基地址（可由环境变量覆盖）
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+# 动态读取 FastAPI 后端地址：优先取 BACKEND_URL 环境变量，其次读取 config.py 中的 FASTAPI_PORT (默认 5000)
+try:
+    from config import settings
+    _DEFAULT_PORT = settings.FASTAPI_PORT
+except Exception:
+    _DEFAULT_PORT = 5000
+
+BACKEND_URL = os.getenv("BACKEND_URL", f"http://127.0.0.1:{_DEFAULT_PORT}")
 
 # 预设测试画像
 PROFILES = {

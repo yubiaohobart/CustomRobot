@@ -18,3 +18,4 @@ venv/
 .venv/
 ENV/
 z_summary/
+.chainlit/

@@ -77,17 +77,17 @@ npm run dev:frontend
 
 ## 🌟 额外利器：使用 Chainlit 启动原生对话自测控制台
 
-Chainlit 对话自测应用作为测试客户端，直接通过 HTTP 调用 FastAPI 后端（`http://127.0.0.1:8000/api/chat`）：
+Chainlit 对话自测应用作为测试客户端，直接通过 HTTP 调用 FastAPI 后端（`http://127.0.0.1:5000/api/chat`）：
 
 ```bash
-# 1. 终端 1：启动 FastAPI 核心后端 (端口 8000)
+# 1. 终端 1：启动 FastAPI 核心后端 (端口 5000)
 cd fastapi_backend
 python app.py
 
 # 2. 终端 2：启动 Chainlit 对话自测客户端 (端口 8001)
 cd fastapi_backend
-chainlit run chainlit_app.py -w --port 8001
-# 或者直接运行一键脚本: ./run_chainlit.sh
+python run_chainlit.py
+# 或者运行: ./run_chainlit.sh (或 chainlit run chainlit_app.py -w --port 8001)
 ```
 
 打开浏览器 `http://localhost:8001`：
