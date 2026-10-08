@@ -72,3 +72,28 @@ npm run dev:frontend
 - `GET /api/knowledge`：知识库全量列表；
 - `POST /api/knowledge/search`：向量知识库检索；
 - `POST /api/generate-suggestion`：AI Copilot 坐席辅助建议生成。
+
+---
+
+## 🌟 额外利器：使用 Chainlit 启动原生对话自测控制台
+
+Chainlit 相关的独立后端代码已统一收拢至独立目录 `chainlit_backend/`：
+
+```bash
+# 1. 进入 Chainlit 专属后端目录
+cd chainlit_backend
+
+# 2. 安装依赖 (如尚未安装)
+pip install -r requirements.txt
+
+# 3. 启动 Chainlit 对话界面 (监听 8000 端口并支持热重载)
+chainlit run app.py -w --port 8000
+# 或者直接运行一键脚本: ./run.sh
+```
+
+打开浏览器 `http://localhost:8000`：
+- 支持 **原生 `cl.Step`** 树状观察 LangGraph 状态图的每一步执行耗时与中间变量
+- 支持 **预设 6 组典型自测用例** 1键点击发送与自测
+- 支持 **Qdrant 向量召回条款** 与余弦相似度分数侧边抽屉展示
+- 支持 **`AgentState` 实时状态检查点** 调试查看
+

@@ -51,6 +51,14 @@
 │   ├── Dockerfile.fastapi              # 🐳 容器化构建文件 (FastAPI)
 │   └── README.md                       # 📖 后端完整开发指南与架构说明
 │
+├── 📁 chainlit_backend/                # 💬 Chainlit 独立交互式自测端 (高内聚独立目录)
+│   ├── app.py                          # Chainlit 核心会话与树状链路追踪入口
+│   ├── .chainlit/config.toml           # Chainlit 界面主题与参数配置
+│   ├── chainlit.md                     # 对话首屏说明面板
+│   ├── requirements.txt                # Chainlit 运行依赖清单
+│   ├── run.sh                          # 一键启动脚本
+│   └── README.md                       # 模块自测指南与用例说明
+│
 ├── server.ts                           # 前端反向代理与静态资源宿主服务 (端口 3000 -> 代理至 5000)
 ├── package.json                        # 前端构建依赖与 NPM 启动脚本
 ├── vite.config.ts                      # Vite 构建配置

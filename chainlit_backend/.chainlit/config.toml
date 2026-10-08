@@ -1,0 +1,15 @@
+[project]
+name = "IntelliServe 智能客服自测台"
+description = "基于 Chainlit + LangGraph + Qdrant + DeepSeek 构建的智能客服全链路测试平台"
+
+[UI]
+name = "IntelliServe Chainlit 自测台"
+default_theme = "light"
+show_readme_at_startup = true
+
+[features]
+prompt_playground = false
+unsafe_allow_html = true
+
+[features.spontaneous_file_upload]
+enabled = false

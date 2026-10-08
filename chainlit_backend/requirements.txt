@@ -1,0 +1,8 @@
+# IntelliServe Chainlit 对话界面自测环境依赖
+chainlit>=1.1.0
+langgraph>=0.0.30
+langchain-core>=0.1.30
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+httpx>=0.27.0
+numpy>=1.26.0

@@ -19,3 +19,7 @@ langchain-core>=0.2.0
 # 单元测试与异步测试框架
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# Chainlit 对话界面与交互式自测平台
+chainlit>=1.1.0
+

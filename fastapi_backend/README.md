@@ -193,6 +193,15 @@ pytest tests/ -v
 
 ---
 
+## 🌟 Chainlit 交互式自测端
+
+针对 Chainlit 对话界面自测，相关后端代码已独立归档至专门目录：
+👉 **`chainlit_backend/`**
+- 包含 `app.py`、`chainlit.md`、`.chainlit/config.toml`、`requirements.txt` 及一键启动脚本 `run.sh`。
+- 详情请查阅：`chainlit_backend/README.md`。
+
+---
+
 ## 附录：公司 FAQ 知识库内容（2026版）
 
 系统内置在 `fastapi_backend/data/faq_document.py` 中的完整政策：

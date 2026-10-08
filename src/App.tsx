@@ -10,9 +10,11 @@ import {
   User, 
   Sparkles,
   ChevronDown,
-  Code2
+  Code2,
+  Flame
 } from "lucide-react";
 import { CustomerChatView } from "./components/CustomerChatView";
+import { ChainlitPlaygroundView } from "./components/ChainlitPlaygroundView";
 import { AgentWorkbench } from "./components/AgentWorkbench";
 import { MonitoringDashboard } from "./components/MonitoringDashboard";
 import { VectorKnowledgeBase } from "./components/VectorKnowledgeBase";
@@ -21,8 +23,8 @@ import { FastAPIArchitectureCode } from "./components/FastAPIArchitectureCode";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "chat" | "workbench" | "monitoring" | "vector" | "langgraph" | "fastapi"
-  >("chat");
+    "chat" | "chainlit" | "workbench" | "monitoring" | "vector" | "langgraph" | "fastapi"
+  >("chainlit");
 
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
@@ -91,6 +93,22 @@ export default function App() {
           >
             <Bot className="w-3.5 h-3.5" />
             <span>客户对话端</span>
+          </button>
+
+          <button
+            id="tab-chainlit"
+            onClick={() => setActiveTab("chainlit")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer relative ${
+              activeTab === "chainlit"
+                ? "bg-white text-orange-600 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-600" />
+            <span>Chainlit 对话自测</span>
+            <span className="px-1 py-0.1 bg-orange-100 text-orange-700 text-[9px] font-bold rounded">
+              自测台
+            </span>
           </button>
 
           <button
@@ -195,6 +213,8 @@ export default function App() {
             }}
           />
         )}
+
+        {activeTab === "chainlit" && <ChainlitPlaygroundView />}
 
         {activeTab === "workbench" && (
           <AgentWorkbench
