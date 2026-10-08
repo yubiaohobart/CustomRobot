@@ -77,24 +77,23 @@ npm run dev:frontend
 
 ## 🌟 额外利器：使用 Chainlit 启动原生对话自测控制台
 
-Chainlit 对话自测应用已与核心后端无缝统一存放于 `fastapi_backend/`（无需单独列多余目录）：
+Chainlit 对话自测应用作为测试客户端，直接通过 HTTP 调用 FastAPI 后端（`http://127.0.0.1:8000/api/chat`）：
 
 ```bash
-# 1. 进入后端目录
+# 1. 终端 1：启动 FastAPI 核心后端 (端口 8000)
 cd fastapi_backend
+python app.py
 
-# 2. 安装依赖 (requirements.txt 已内含 chainlit)
-pip install -r requirements.txt
-
-# 3. 启动 Chainlit 对话界面 (监听 8000 端口并支持热重载)
-chainlit run chainlit_app.py -w --port 8000
+# 2. 终端 2：启动 Chainlit 对话自测客户端 (端口 8001)
+cd fastapi_backend
+chainlit run chainlit_app.py -w --port 8001
 # 或者直接运行一键脚本: ./run_chainlit.sh
 ```
 
-打开浏览器 `http://localhost:8000`：
+打开浏览器 `http://localhost:8001`：
 - 配备完整的对话输入框与交互聊天流
-- 支持 **原生 `cl.Step`** 树状观察 LangGraph 状态图的每一步执行耗时与中间变量
-- 支持 **预设 6 组典型自测用例** 1键点击发送与自测
-- 支持 **Qdrant 向量召回条款** 与余弦相似度分数侧边抽屉展示
-- 支持 **`AgentState` 实时状态检查点** 调试查看
+- **真正与后端交互**：发送真实 HTTP 请求测试 `/api/chat` 接口，包括 Pydantic 数据验证与网络响应
+- 支持 **原生 `cl.Step`** 树状还原后端 LangGraph 状态图流转轨迹（`stepTrace`）
+- 支持 **预设 5 组典型自测用例** 1键点击发送与会员画像切换
+- 支持 **Qdrant 向量召回条款** 侧边抽屉展示后端匹配结果
 

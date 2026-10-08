@@ -127,22 +127,23 @@ python app.py
 # 📖 Swagger 交互文档: http://0.0.0.0:5000/docs
 ```
 
-### 2. 启动 Chainlit 交互式全链路对话自测台
+### 2. 启动 Chainlit 交互式对话自测台 (HTTP 客户端模式)
 
-无需单独创建目录，Chainlit 已直接内嵌于本后端目录，直接基于同一个工作流与向量库运行：
+Chainlit 作为交互式自测端，直接通过 HTTP 请求对接 FastAPI 核心服务（`http://127.0.0.1:8000/api/chat`），实现真实前后端联调：
 
 ```bash
-# 在 fastapi_backend 目录下运行:
-chainlit run chainlit_app.py -w --port 8000
+# 1. 确保先在第一个终端启动后端服务 (端口 8000):
+python app.py
 
-# 或使用一键脚本:
-chmod +x run_chainlit.sh && ./run_chainlit.sh
+# 2. 在第二个终端启动 Chainlit 自测端 (端口 8001):
+chainlit run chainlit_app.py -w --port 8001
+# 或直接运行: ./run_chainlit.sh
 
-# 浏览器访问: http://localhost:8000
-# 内置特性: 
-#  1. 完整输入对话框与预设测试动作
-#  2. cl.Step 树状折叠展示意图分析、Qdrant 向量召回分值与 DeepSeek 生成耗时
-#  3. 侧边栏实时检查 AgentState 状态流转与向量匹配条文
+# 3. 浏览器访问: http://localhost:8001
+# 特性:
+#  - 直接向 /api/chat 发送请求，验证实际网络通信与 Pydantic 校验
+#  - 通过 cl.Step 还原展示后端 LangGraph 执行链路 (stepTrace)
+#  - 侧边栏展示后端检索召回的知识库原文 (references)
 ```
 
 ### 3. Docker 容器化运行

@@ -1099,16 +1099,14 @@ export function ChainlitPlaygroundView() {
 
             <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
               <p>
-                Chainlit 对话自测模块已无缝集成于后端目录（<code>fastapi_backend/chainlit_app.py</code>），
-                与 LangGraph 状态图及 Qdrant 知识库共享一套代码，可在本地终端一键启动：
+                Chainlit 对话自测客户端（<code>fastapi_backend/chainlit_app.py</code>）已改为直接通过 <strong>HTTP 请求与 FastAPI 后端交互</strong>，端到端测试 <code>/api/chat</code> 接口与 LangGraph 编排：
               </p>
 
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] space-y-2 text-slate-200">
-                <div className="text-slate-400"># 1. 进入统一后端目录</div>
-                <div className="text-orange-400">cd fastapi_backend</div>
-                <div className="text-slate-400 mt-2"># 2. 安装依赖并一键启动 Chainlit 对话界面</div>
-                <div className="text-orange-400">pip install -r requirements.txt</div>
-                <div className="text-orange-400">chainlit run chainlit_app.py -w --port 8000</div>
+                <div className="text-slate-400"># 1. 终端1：启动 FastAPI 核心后端 (端口 8000)</div>
+                <div className="text-orange-400">cd fastapi_backend && python app.py</div>
+                <div className="text-slate-400 mt-2"># 2. 终端2：启动 Chainlit 对话客户端 (端口 8001)</div>
+                <div className="text-orange-400">cd fastapi_backend && chainlit run chainlit_app.py -w --port 8001</div>
               </div>
 
               <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 space-y-1 text-[11px]">
@@ -1117,10 +1115,10 @@ export function ChainlitPlaygroundView() {
                   已内置全套特性：
                 </div>
                 <ul className="list-disc list-inside text-slate-400 space-y-0.5">
-                  <li>原生 <code>cl.Step</code> 展示 LangGraph 节点树状执行过程</li>
-                  <li><code>cl.Action</code> 预设 6 个一键自测题目按钮</li>
-                  <li>Qdrant 向量检索证据卡片与相似度余弦得分侧边展示</li>
-                  <li><code>AgentState</code> 检查点 JSON 实时调试</li>
+                  <li>真实 HTTP 通信测试（验证 Pydantic Schema 校验与网络延迟）</li>
+                  <li>原生 <code>cl.Step</code> 还原后端返回的 LangGraph 状态图执行轨迹</li>
+                  <li><code>cl.Action</code> 预设典型用例按钮与会员画像一键切换</li>
+                  <li>侧边栏抽屉展示后端检索召回的知识库原文引用</li>
                 </ul>
               </div>
             </div>
