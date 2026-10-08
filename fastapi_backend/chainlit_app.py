@@ -10,6 +10,14 @@ from typing import Dict, Any, Tuple
 import httpx
 import chainlit as cl
 
+# 关键：彻底禁用系统/环境代理拦截（如 macOS 上的 Clash/Surge/V2Ray 等网络代理工具）
+# 代理软件通常会将 localhost/127.0.0.1 转发至本地代理端口（如 7890），从而返回 HTTP 502 Bad Gateway
+os.environ["NO_PROXY"] = "127.0.0.1,localhost,0.0.0.0"
+os.environ["no_proxy"] = "127.0.0.1,localhost,0.0.0.0"
+# 清除当前进程中可能存在的本地代理设置
+for proxy_key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]:
+    os.environ.pop(proxy_key, None)
+
 # 确定 FastAPI 后端基础端口（默认为 8000）
 # 注：macOS 系统默认将 5000 端口分配给 AirPlay Receiver（隔空播放），请求 5000 会被系统拦截并返回 502 Bad Gateway
 # 因此无论本地配置如何，客户端默认优先直连 8000 端口
@@ -55,7 +63,7 @@ async def probe_backend_endpoint() -> Tuple[str, bool, str]:
 
     for base_url in candidates:
         try:
-            async with httpx.AsyncClient(timeout=1.5) as client:
+            async with httpx.AsyncClient(timeout=1.5, trust_env=False) as client:
                 # 优先请求 /api/health，若 404 则检查 /api/chat
                 res = await client.get(f"{base_url}/api/health")
                 if res.status_code == 200:
@@ -181,7 +189,7 @@ async def handle_chat(user_input: str):
         last_error = None
         for target in client_candidates:
             try:
-                async with httpx.AsyncClient(timeout=35.0) as client:
+                async with httpx.AsyncClient(timeout=35.0, trust_env=False) as client:
                     res = await client.post(f"{target}/api/chat", json=payload)
                     
                     if res.status_code == 200:

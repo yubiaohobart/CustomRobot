@@ -25,6 +25,12 @@ def auto_heal_config():
 
 def main():
     auto_heal_config()
+
+    # 禁用系统代理干扰 localhost
+    os.environ["NO_PROXY"] = "127.0.0.1,localhost,0.0.0.0"
+    os.environ["no_proxy"] = "127.0.0.1,localhost,0.0.0.0"
+    for proxy_key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]:
+        os.environ.pop(proxy_key, None)
     
     try:
         from config import settings
