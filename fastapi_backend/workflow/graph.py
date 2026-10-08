@@ -8,6 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from models.state import AgentState
 from .nodes import (
     analyze_query_node,
+    order_query_node,
     qdrant_retrieve_node,
     memory_synthesis_node,
     deepseek_generate_node,
@@ -24,6 +25,7 @@ builder = StateGraph(AgentState)
 
 # 注册所有执行节点
 builder.add_node("analyze_query", analyze_query_node)
+builder.add_node("order_query", order_query_node)
 builder.add_node("qdrant_retrieve", qdrant_retrieve_node)
 builder.add_node("memory_synthesis", memory_synthesis_node)
 builder.add_node("deepseek_generate", deepseek_generate_node)
@@ -32,15 +34,19 @@ builder.add_node("human_escalation", human_escalation_node)
 # 定义状态流转
 builder.add_edge(START, "analyze_query")
 
-# 节点 1 后的条件分支
+# 节点 1 后的条件分支 (意图分析 -> 人工转接 / 订单查询 / 知识检索)
 builder.add_conditional_edges(
     "analyze_query",
     router_after_analysis,
     {
         "human_escalation": "human_escalation",
+        "order_query": "order_query",
         "qdrant_retrieve": "qdrant_retrieve"
     }
 )
+
+# 订单查询完成后，进入政策与知识检索（实现订单信息与售后条款联通）
+builder.add_edge("order_query", "qdrant_retrieve")
 
 # 节点 2 后的条件分支
 builder.add_conditional_edges(

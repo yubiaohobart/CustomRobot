@@ -247,6 +247,33 @@ class AgentState(TypedDict):
     step_trace: List[Dict[str, Any]]`
   },
   {
+    id: "backend_order_service",
+    name: "order_service.py",
+    path: "fastapi_backend/services/order_service.py",
+    category: "fastapi_backend",
+    language: "python",
+    description: "订单与物流中台服务：订单抽取、顺丰/京东物流轨迹追踪、7天无理由退换期限计算与联保权益判定",
+    linesCount: 160,
+    code: `"""
+XX商城 订单与物流中台服务 (services/order_service.py)
+"""
+from typing import Dict, Any, List, Optional
+
+class OrderService:
+    def __init__(self):
+        self.orders = { ... }
+
+    def detect_and_query_order(self, message: str, user_profile: dict = None) -> Optional[dict]:
+        # 正则抽取 ORD-2026-88992、关键词匹配商品或拉取当前客户最新订单
+        ...
+
+    def format_order_summary_text(self, order: dict) -> str:
+        # 生成规范事实文本，为 DeepSeek 提供结构化订单/物流上下文
+        ...
+
+order_service = OrderService()`
+  },
+  {
     id: "backend_nodes",
     name: "nodes.py",
     path: "fastapi_backend/workflow/nodes.py",

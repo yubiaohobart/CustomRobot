@@ -26,7 +26,9 @@ import {
   Layers,
   X,
   FileCheck,
-  UserCheck
+  UserCheck,
+  Package,
+  Truck
 } from "lucide-react";
 import { 
   ConversationSession, 
@@ -34,7 +36,8 @@ import {
   SessionStatus, 
   TransferLog, 
   AvailableAgent,
-  TransferContextSnapshot
+  TransferContextSnapshot,
+  OrderData
 } from "../types";
 
 interface AgentWorkbenchProps {
@@ -58,8 +61,10 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   const [quickSearchQuery, setQuickSearchQuery] = useState("");
   const [quickSearchResults, setQuickSearchResults] = useState<any[]>([]);
 
-  // Transfer-specific states
-  const [rightTab, setRightTab] = useState<"dossier" | "profile" | "logs">("dossier");
+  // Transfer and Orders specific states
+  const [rightTab, setRightTab] = useState<"dossier" | "profile" | "orders" | "logs">("dossier");
+  const [customerOrders, setCustomerOrders] = useState<OrderData[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [transferLogs, setTransferLogs] = useState<TransferLog[]>([]);
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>([]);
   const [selectedAuditLog, setSelectedAuditLog] = useState<TransferLog | null>(null);
@@ -69,6 +74,18 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   const [reTransferNote, setReTransferNote] = useState("");
   const [reTransferring, setReTransferring] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const handleQuoteOrder = (order: OrderData) => {
+    const itemNames = order.items.map((i) => i.title).join("、");
+    const exp = order.express;
+    const latestTrack = exp.timeline?.[0]?.context || exp.statusDescription;
+    const returnInfo = order.afterSales.canReturn7Days
+      ? `签收第${order.afterSales.signedDays}天，支持7天无理由退货（剩余${order.afterSales.returnDaysRemaining}天）`
+      : order.afterSales.returnPolicy;
+    const quoteText = `${activeSession?.userName || "客户"}您好！已为您核查订单【${order.orderId}】（${itemNames}）：\n• 状态：【${order.statusText}】\n• 物流：${exp.company} (运单号: ${exp.trackingNumber})\n• 最新进展：${latestTrack}\n• 售后规则：${returnInfo}，${order.afterSales.shippingSubsidy}。\n请问需要为您进一步办理退货退款还是加急催单？`;
+    setAgentInput(quoteText);
+    showToast(`已引用订单 ${order.orderId} 详情至回复框`);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +157,27 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       setRightTab("dossier");
     }
   }, [activeSession?.id]);
+
+  // Fetch orders for active session customer
+  useEffect(() => {
+    const loadOrders = async () => {
+      if (!activeSession) return;
+      setOrdersLoading(true);
+      try {
+        const uName = activeSession.userName || activeSession.customerProfile?.name || "";
+        const res = await fetch(`/api/orders?userName=${encodeURIComponent(uName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCustomerOrders(data.orders || []);
+        }
+      } catch (err) {
+        console.error("Failed to load customer orders:", err);
+      } finally {
+        setOrdersLoading(false);
+      }
+    };
+    loadOrders();
+  }, [activeSession?.id, activeSession?.userName]);
 
   const handleTakeover = async () => {
     if (!activeSession) return;
@@ -761,7 +799,19 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
               }`}
             >
               <Tag className="w-3.5 h-3.5" />
-              <span>客户画像/检索</span>
+              <span>客户画像</span>
+            </button>
+
+            <button
+              onClick={() => setRightTab("orders")}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                rightTab === "orders" 
+                  ? "bg-indigo-600 text-white shadow-xs" 
+                  : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+              }`}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>关联订单 ({customerOrders.length})</span>
             </button>
 
             <button
@@ -1025,7 +1075,145 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
             </div>
           )}
 
-          {/* TAB 3: Global Transfer Audit Logs */}
+          {/* TAB 3: Customer Associated Orders & Express Logistics */}
+          {rightTab === "orders" && (
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between text-xs text-slate-500 pb-1 border-b border-slate-200">
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-indigo-600" />
+                  <span>客户关联订单 ({customerOrders.length} 笔)</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">中台数据同步</span>
+              </div>
+
+              {ordersLoading ? (
+                <div className="p-8 text-center text-slate-400 space-y-2">
+                  <RefreshCw className="w-5 h-5 mx-auto animate-spin text-indigo-600" />
+                  <p className="text-xs">正在从中台拉取客户订单与顺丰/京东实时物流...</p>
+                </div>
+              ) : customerOrders.length === 0 ? (
+                <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-1.5 text-xs text-slate-400">
+                  <Package className="w-7 h-7 mx-auto text-slate-300" />
+                  <p className="font-medium text-slate-600">当前客户暂无关联订单记录</p>
+                  <p className="text-[11px]">可在客户报出订单号后，由系统智能解析匹配</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {customerOrders.map((order) => {
+                    const isDelivered = order.status === "DELIVERED";
+                    const isInTransit = order.status === "IN_TRANSIT";
+                    return (
+                      <div
+                        key={order.orderId}
+                        className="p-3.5 bg-gradient-to-b from-white to-slate-50/80 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 hover:border-indigo-300 transition-colors"
+                      >
+                        {/* Order Header */}
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                          <div>
+                            <div className="font-mono font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                              <span>{order.orderId}</span>
+                              <button
+                                onClick={() => {
+                                  if (navigator.clipboard) {
+                                    navigator.clipboard.writeText(order.orderId);
+                                    showToast(`已复制订单号 ${order.orderId}`);
+                                  }
+                                }}
+                                title="复制订单号"
+                                className="text-slate-400 hover:text-indigo-600 cursor-pointer p-0.5 rounded"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">{order.createTime}</span>
+                          </div>
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                            isDelivered
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                              : isInTransit
+                              ? "bg-blue-100 text-blue-800 border border-blue-200"
+                              : "bg-amber-100 text-amber-800 border border-amber-200"
+                          }`}>
+                            {order.statusText}
+                          </span>
+                        </div>
+
+                        {/* Items */}
+                        <div className="space-y-1.5">
+                          {order.items.map((item, iIdx) => (
+                            <div key={iIdx} className="flex items-center gap-2.5 bg-white p-2 rounded-lg border border-slate-100">
+                              <div className="w-10 h-10 rounded-md bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-200">
+                                {item.imageUrl ? (
+                                  <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Package className="w-4 h-4 text-slate-400" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0 text-[11px]">
+                                <div className="font-semibold text-slate-800 truncate">{item.title}</div>
+                                <div className="text-[10px] text-slate-400 truncate">{item.spec}</div>
+                                <div className="flex items-center justify-between text-[11px] mt-0.5">
+                                  <span className="text-rose-600 font-bold">¥{item.price.toFixed(2)}</span>
+                                  <span className="text-slate-400 text-[10px]">x{item.quantity}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Express & Tracking */}
+                        <div className="p-2 bg-slate-100/70 rounded-lg text-[11px] space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-800 flex items-center gap-1">
+                              <Truck className="w-3.5 h-3.5 text-indigo-600" />
+                              {order.express.company}
+                            </span>
+                            <span className="font-mono text-[10px] text-slate-500">{order.express.trackingNumber}</span>
+                          </div>
+                          {order.express.timeline && order.express.timeline.length > 0 && (
+                            <p className="text-[10px] text-slate-600 leading-tight">
+                              • 最新: {order.express.timeline[0].context}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Policy Rules */}
+                        <div className="space-y-1 text-[11px] bg-indigo-50/50 p-2 rounded-lg border border-indigo-100">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">7天无理由:</span>
+                            <span className={order.afterSales.canReturn7Days ? "text-emerald-700 font-semibold" : "text-slate-600"}>
+                              {order.afterSales.canReturn7Days
+                                ? `支持 (签收第${order.afterSales.signedDays}天，剩${order.afterSales.returnDaysRemaining}天)`
+                                : "不予退换"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">运费特权:</span>
+                            <span className="text-amber-800 font-semibold">{order.afterSales.shippingSubsidy}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">联保条款:</span>
+                            <span className="text-slate-700">{order.afterSales.warrantyPolicy}</span>
+                          </div>
+                        </div>
+
+                        {/* Fast Quote Button */}
+                        <button
+                          onClick={() => handleQuoteOrder(order)}
+                          className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>一键引用此订单物流至回复框</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: Global Transfer Audit Logs */}
           {rightTab === "logs" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-500 pb-1 border-b border-slate-200">

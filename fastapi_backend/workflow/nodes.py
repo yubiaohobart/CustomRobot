@@ -8,11 +8,12 @@ LangGraph 状态图执行节点实现 (Workflow Nodes)
 5. 人工坐席升级判定 (human_escalation)
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import time
 from models.state import AgentState
 from core.qdrant_store import qdrant_store
 from core.llm import deepseek_client
+from services.order_service import order_service
 from config import settings
 from core.logger import cprint, LogColor
 
@@ -33,7 +34,9 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
 
     # XX商城 2026 售后核心意图分类
     intent = "常规售后咨询"
-    if any(k in msg for k in ["运费", "谁出", "谁付", "包邮", "免运费"]):
+    if any(k in msg for k in ["订单", "查订单", "物流", "快递", "运单", "发货", "到哪了", "什么时候到", "送达", "签收", "收件地址", "ord-", "88992", "90412", "77310"]):
+        intent = "订单查询与物流追踪"
+    elif any(k in msg for k in ["运费", "谁出", "谁付", "包邮", "免运费"]):
         intent = "退换货运费承担与会员权益"
     elif any(k in msg for k in ["7天", "七天", "无理由", "退货", "退换"]):
         intent = "7天无理由退货政策"
@@ -63,6 +66,42 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
         "intent": intent,
         "sentiment": sentiment,
         "explicit_human_request": explicit,
+        "step_trace": trace
+    }
+
+def order_query_node(state: AgentState) -> Dict[str, Any]:
+    """2. 订单与物流中台实时检索节点 (Order Query Node)"""
+    t0 = time.time()
+    user_msg = state["user_message"]
+    profile = state.get("user_profile", {})
+    
+    order = order_service.detect_and_query_order(user_msg, profile)
+    order_summary = ""
+    if order:
+        order_summary = order_service.format_order_summary_text(order)
+        item_title = order["items"][0]["title"] if order.get("items") else "未知商品"
+        cprint.node(
+            "order_query",
+            f"成功调取订单: {LogColor.BRIGHT_CYAN}{order['orderId']}{LogColor.RESET} ({order['statusText']})",
+            f"商品: {item_title}"
+        )
+        desc = f"中台检索到关联订单 [{order['orderId']}]，状态: {order['statusText']}，物流: {order.get('express', {}).get('company')} ({order.get('express', {}).get('trackingNumber')})"
+    else:
+        cprint.node("order_query", "未匹配到指定订单", "按常规售后知识库策略流转")
+        desc = "未提供或未匹配到具体订单编号，继续进行政策库检索"
+
+    duration = int((time.time() - t0) * 1000)
+    trace = state.get("step_trace", [])
+    trace.append({
+        "node": "order_query",
+        "description": desc,
+        "durationMs": duration,
+        "status": "success" if order else "warning"
+    })
+
+    return {
+        "queried_order": order,
+        "order_query_info": order_summary,
         "step_trace": trace
     }
 
@@ -100,18 +139,20 @@ def memory_synthesis_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     docs = state.get("retrieved_docs", [])
     doc_titles = [d.get("title", "") for d in docs]
+    order = state.get("queried_order")
+    order_tag = f"关联订单 [{order.get('orderId')}]，" if order else ""
     duration = int((time.time() - t0) * 1000)
 
     cprint.node(
         "memory_synthesis",
-        f"记忆与画像装配完成 (关联条款: {len(doc_titles)} 条)",
+        f"记忆与画像装配完成 ({order_tag}关联政策: {len(doc_titles)} 条)",
         f"耗时: {duration}ms"
     )
 
     trace = state.get("step_trace", [])
     trace.append({
         "node": "memory_synthesis",
-        "description": f"合成上下文：关联条款 [{', '.join(doc_titles)}]，注入长期记忆与VIP画像",
+        "description": f"合成上下文：{order_tag}关联条款 [{', '.join(doc_titles)}]，注入长期记忆与VIP画像",
         "durationMs": duration,
         "status": "success"
     })
@@ -127,12 +168,16 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     docs = state.get("retrieved_docs", [])
     memory = state.get("summary_memory", "")
     profile = state.get("user_profile", {})
+    order = state.get("queried_order")
+    order_summary = state.get("order_query_info", "")
 
     reply = await deepseek_client.generate_response(
         user_message=user_msg,
         retrieved_docs=docs,
         summary_memory=memory,
-        user_profile=profile
+        user_profile=profile,
+        order_info=order,
+        order_summary=order_summary
     )
 
     duration = int((time.time() - t0) * 1000)
@@ -191,9 +236,11 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
 # ================= 路由条件分支 =================
 
 def router_after_analysis(state: AgentState) -> str:
-    """第一级路由：若用户强指令要求人工，则直接路由至人工升级"""
+    """第一级路由：若用户强指令要求人工，则直接路由至人工升级；若涉及订单/物流查询，则路由到订单查询节点"""
     if state.get("explicit_human_request"):
         return "human_escalation"
+    if state.get("intent") == "订单查询与物流追踪":
+        return "order_query"
     return "qdrant_retrieve"
 
 def router_after_retrieval(state: AgentState) -> str:

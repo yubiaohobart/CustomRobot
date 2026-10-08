@@ -28,7 +28,9 @@ class DeepSeekLLMClient:
         user_message: str,
         retrieved_docs: List[Dict[str, Any]],
         summary_memory: str = "",
-        user_profile: Optional[Dict[str, Any]] = None
+        user_profile: Optional[Dict[str, Any]] = None,
+        order_info: Optional[Dict[str, Any]] = None,
+        order_summary: str = ""
     ) -> str:
         """
         调用 DeepSeek API 生成客服答复
@@ -46,14 +48,19 @@ class DeepSeekLLMClient:
             context_blocks.append(f"【参考条款 {idx} - {title}】\n{content}")
         context_str = "\n\n".join(context_blocks) if context_blocks else "暂无直接匹配的知识库条款。"
 
+        order_context_str = order_summary if order_summary else "当前用户未指定具体查询订单。"
+
         # 构建高标准客服 Prompt
         system_prompt = f"""你是一名【XX商城】的官方资深金牌智能客服主管。
-你的职责是严谨、专业、礼貌、温和地解答客户有关售后退换、运费、保修、特殊商品及退款到账的咨询。
+你的职责是严谨、专业、礼貌、温和地解答客户有关订单查询、物流进度、售后退换、运费、保修、特殊商品及退款到账的咨询。
 
 【客户画像】
 - 称呼：{customer_name}
 - 会员等级：{vip_level}
 （提示：如果客户是【黄金会员】或以上，请务必主动提醒其享有“退货免运费”专属特权，退货运费由平台全额补贴！）
+
+【关联订单与物流信息】
+{order_context_str}
 
 【XX商城官方售后与退换货政策参考 (2026版)】
 {context_str}
@@ -62,10 +69,11 @@ class DeepSeekLLMClient:
 {summary_memory if summary_memory else "新用户接入，初次提问。"}
 
 【回答纪律】：
-1. 必须完全基于上述【XX商城官方售后与退换货政策】作答，严禁编造不存在的政策；
-2. 针对 7 天无理由、运费分担、特殊不可退商品、48小时质检及到账时间、1年联保/15天换新，务必准确阐明时效与条件；
-3. 口吻温暖热情、换位思考，条理清晰；
-4. 如客户表达强烈不满、催促或明确要求人工，表达理解并告知已为您做好加急人工转接准备。"""
+1. 若客户咨询订单或物流，请务必直接结合【关联订单与物流信息】清晰告知订单号、商品、配送状态（运单号与最新物流节点）及售后权益；
+2. 必须完全基于上述【XX商城官方售后与退换货政策】作答，严禁编造不存在的政策；
+3. 针对 7 天无理由、运费分担、特殊不可退商品、48小时质检及到账时间、1年联保/15天换新，务必准确阐明时效与条件；
+4. 口吻温暖热情、换位思考，条理清晰；
+5. 如客户表达强烈不满、催促或明确要求人工，表达理解并告知已为您做好加急人工转接准备。"""
 
         # 尝试调用真实 DeepSeek API
         if self.api_key:
@@ -103,20 +111,64 @@ class DeepSeekLLMClient:
 
         # 兜底智能回答生成 (基于 XX商城官方 2026 政策规则准确回复)
         cprint.llm(f"{self.model}(规则兜底)", 0, 0.01, is_fallback=True)
-        return self._generate_fallback_response(user_message, retrieved_docs, vip_level, customer_name)
+        return self._generate_fallback_response(
+            user_message,
+            retrieved_docs,
+            vip_level,
+            customer_name,
+            order_info=order_info
+        )
 
     def _generate_fallback_response(
         self,
         user_message: str,
         retrieved_docs: List[Dict[str, Any]],
         vip_level: str,
-        customer_name: str
+        customer_name: str,
+        order_info: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         无 API Key 或网络离线时的精准智能答复兜底，确保 100% 贴合 XX商城 2026 政策
         """
         msg = user_message.lower()
         is_gold_vip = "黄金" in vip_level or "钻石" in vip_level
+
+        # 0. 优先处理订单与物流查询
+        if order_info and any(k in msg for k in ["订单", "物流", "发货", "运单", "快递", "到哪了", "什么时候到", "送达", "签收", "ord-", "88992", "90412", "77310"]):
+            items_text = "、".join([f"{it['title']} (x{it['quantity']})" for it in order_info.get("items", [])])
+            express = order_info.get("express", {})
+            timeline = express.get("timeline", [])
+            latest_status = timeline[0].get("context", express.get("statusDescription", "暂无最新物流")) if timeline else express.get("statusDescription", "暂无最新物流")
+            after_sales = order_info.get("afterSales", {})
+            can_return = after_sales.get("canReturn7Days", False)
+            signed_days = after_sales.get("signedDays", 0)
+            remaining_days = after_sales.get("returnDaysRemaining", 0)
+
+            reply = (
+                f"{customer_name}您好！已为您成功查询到订单信息：\n\n"
+                f"📦 **订单编号**：`{order_info.get('orderId')}`\n"
+                f"🛍️ **购买商品**：{items_text}\n"
+                f"💰 **实付金额**：¥{order_info.get('paidAmount', 0):.2f}\n"
+                f"🏷️ **当前状态**：**【{order_info.get('statusText', '处理中')}】**\n\n"
+                f"🚚 **物流承运**：{express.get('company', '顺丰速运')}（运单号：`{express.get('trackingNumber', '暂无')}`）\n"
+                f"📍 **最新轨迹**：{latest_status}\n\n"
+                f"📋 **售后政策与保障**：\n"
+            )
+            if can_return:
+                reply += (
+                    f"• **7天无理由退换**：当前商品已签收第 {signed_days} 天，**仍在无理由退换期内（剩余 {remaining_days} 天）**。\n"
+                    f"• **退货运费权益**："
+                )
+                if is_gold_vip:
+                    reply += f"检测到您是【{vip_level}】，享有**平台全额补贴的『退货免运费』特权**，申请退货无需承担寄回运费！\n"
+                else:
+                    reply += f"根据商城政策，个人原因退货需由买家承担寄回运费。\n"
+            else:
+                reply += f"• **退换提示**：{after_sales.get('returnPolicy', '非质量问题暂不支持7天无理由退换')}。\n"
+
+            reply += f"• **保修条款**：{after_sales.get('warrantyPolicy', '全系电子产品享1年全国联保')}。\n\n"
+            reply += "如需办理退换货申请或催促配送，请随时告诉我，智能管家随时为您服务！"
+            return reply
 
         # 1. 运费与7天无理由退货
         if any(k in msg for k in ["运费", "谁出", "谁付", "退货运费", "包邮", "免运费"]):

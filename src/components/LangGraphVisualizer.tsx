@@ -44,6 +44,24 @@ const NODES_DATA: NodeDetail[] = [
     }`
   },
   {
+    id: "order_query",
+    name: "1.5 订单中台与物流追踪节点 (Order Query)",
+    type: "rag",
+    description: "从自然语言中识别订单号或商品名，实时调用订单中台调取顺丰/京东物流轨迹、7天退货剩余天数与联保生效状态。",
+    inputs: ["user_message: str", "user_profile: dict"],
+    outputs: ["queried_order: Optional[OrderData]", "order_query_info: str"],
+    pythonCode: `def order_query_node(state: AgentState) -> dict:
+    order = order_service.detect_and_query_order(
+        state["user_message"], 
+        state.get("user_profile", {})
+    )
+    summary = order_service.format_order_summary_text(order) if order else ""
+    return {
+        "queried_order": order,
+        "order_query_info": summary
+    }`
+  },
+  {
     id: "vector_retrieval",
     name: "2. 向量检索与知识抽取节点 (Qdrant + BGE-M3)",
     type: "rag",

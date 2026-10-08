@@ -28,6 +28,7 @@ class ChatResponse(BaseModel):
     escalatedToHuman: bool = False
     escalationReason: Optional[str] = None
     references: List[Dict[str, Any]] = Field(default_factory=list)
+    queriedOrder: Optional[Dict[str, Any]] = None
     latencyMs: int = 35
     stepTrace: List[Dict[str, Any]] = Field(default_factory=list)
     session: Optional[Dict[str, Any]] = None

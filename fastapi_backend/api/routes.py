@@ -22,8 +22,9 @@ from core.qdrant_store import qdrant_store
 from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
 from services.memory_service import memory_service
+from services.order_service import order_service
 from workflow.graph import customer_service_graph
-from workflow.nodes import qdrant_retrieve_node, deepseek_generate_node
+from workflow.nodes import qdrant_retrieve_node, deepseek_generate_node, order_query_node
 from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
@@ -89,6 +90,8 @@ async def chat_endpoint(req: ChatRequest):
         "generated_response": "",
         "escalated_to_human": False,
         "escalation_reason": "",
+        "queried_order": None,
+        "order_query_info": "",
         "step_trace": []
     }
 
@@ -102,6 +105,7 @@ async def chat_endpoint(req: ChatRequest):
         cprint.error(f"[Graph Fallback 降级]: {e}")
         # 极简方案 B：直接复用图节点纯函数，无需重复编写检索与组装逻辑
         final_state = initial_state
+        final_state.update(order_query_node(final_state))
         final_state.update(qdrant_retrieve_node(final_state))
         final_state.update(await deepseek_generate_node(final_state))
 
@@ -110,6 +114,7 @@ async def chat_endpoint(req: ChatRequest):
     conf_score = final_state.get("top_similarity_score", 0.90)
     docs = final_state.get("retrieved_docs", [])
     step_trace = final_state.get("step_trace", [])
+    queried_order = final_state.get("queried_order")
 
     # 包装参考文档来源
     references = []
@@ -135,7 +140,7 @@ async def chat_endpoint(req: ChatRequest):
     if final_state.get("escalated_to_human") and session["status"] == "AI_HANDLING":
         session["status"] = "NEEDS_INTERVENTION"
 
-    cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)})")
+    cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(queried_order)})")
 
     return ChatResponse(
         sessionId=req.sessionId,
@@ -146,6 +151,7 @@ async def chat_endpoint(req: ChatRequest):
         escalatedToHuman=final_state.get("escalated_to_human", False),
         escalationReason=final_state.get("escalation_reason", None),
         references=references,
+        queriedOrder=queried_order,
         latencyMs=latency_ms,
         stepTrace=step_trace,
         session=session
@@ -230,6 +236,51 @@ async def get_dashboard_metrics():
         "ollamaEndpoint": settings.OLLAMA_BASE_URL,
         "vectorDatabase": "Qdrant",
         "collection": settings.QDRANT_COLLECTION
+    }
+
+@router.get("/orders")
+async def list_orders(
+    userName: Optional[str] = None,
+    status: Optional[str] = None,
+    keyword: Optional[str] = None
+):
+    """
+    订单中台查询接口：
+    按用户姓名、订单状态（DELIVERED / IN_TRANSIT / RETURNING_INSPECTION / COMPLETED）或关键词检索
+    """
+    orders = order_service.list_orders(user_name=userName, status=status, keyword=keyword)
+    return {
+        "success": True,
+        "total": len(orders),
+        "orders": orders
+    }
+
+@router.get("/orders/{order_id}")
+async def get_order_detail(order_id: str):
+    """获取指定订单详情、商品清单、收件人信息与完整物流轨迹"""
+    order = order_service.get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在")
+    return {
+        "success": True,
+        "order": order
+    }
+
+@router.get("/orders/{order_id}/track")
+async def get_order_tracking(order_id: str):
+    """获取订单专属物流节点追踪轨迹"""
+    order = order_service.get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在")
+    express = order.get("express", {})
+    return {
+        "success": True,
+        "orderId": order["orderId"],
+        "expressCompany": express.get("company"),
+        "trackingNumber": express.get("trackingNumber"),
+        "status": express.get("status"),
+        "statusDescription": express.get("statusDescription"),
+        "timeline": express.get("timeline", [])
     }
 
 @router.get("/knowledge")

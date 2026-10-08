@@ -22,7 +22,12 @@ import {
   Check,
   X,
   ShieldAlert,
-  Star
+  Star,
+  Package,
+  Truck,
+  Copy,
+  MapPin,
+  Search
 } from "lucide-react";
 import { ChatMessage, ConversationSession, AvailableAgent, TransferTriggerType, TransferLog } from "../types";
 
@@ -122,8 +127,15 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (data.session) {
+          const rawMessages: ChatMessage[] = data.session.messages || [];
+          if (data.queriedOrder && rawMessages.length > 0) {
+            const lastMsg = rawMessages[rawMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              lastMsg.queriedOrder = data.queriedOrder;
+            }
+          }
           setSession(data.session);
-          setMessages(data.session.messages || []);
+          setMessages(rawMessages);
         } else {
           await fetchSession();
         }
@@ -221,10 +233,11 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const needsIntervention = session?.status === "NEEDS_INTERVENTION";
 
   const quickQuestions = [
+    "帮我查一下订单 ORD-2026-88992 的最新物流状态到哪了？还能申请退货吗？",
     "7天无理由退货的运费谁承担？黄金会员有免运费权益吗？",
-    "哪些特殊商品不支持7天无理由退换货？定制和生鲜可以退吗？",
+    "哪些特殊商品不支持7天无理由退换货？定制紫砂壶能退吗？",
     "退货后质检合格退款大概几天到账？微信零钱和借记卡一样吗？",
-    "电子产品全国联保多久？15天内硬件坏了能换新机吗？",
+    "扫地机器人全国联保多久？15天内硬件坏了能免费换新机吗？",
     "人工客服！处理售后争议，马上帮我转人工！",
   ];
 
@@ -436,6 +449,141 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                    {/* Interactive Order & Logistics Card */}
+                    {msg.queriedOrder && (
+                      <div className="mt-3.5 p-3.5 bg-gradient-to-b from-blue-50/80 via-slate-50 to-white rounded-xl border border-blue-200/90 shadow-2xs text-slate-800">
+                        {/* Order Header */}
+                        <div className="flex items-center justify-between pb-2.5 border-b border-blue-100">
+                          <div className="flex items-center gap-2">
+                            <Package className="w-4 h-4 text-blue-600" />
+                            <span className="font-semibold text-xs text-slate-800">
+                              订单号: <span className="font-mono text-blue-900">{msg.queriedOrder.orderId}</span>
+                            </span>
+                            <button
+                              onClick={() => {
+                                if (navigator.clipboard) {
+                                  navigator.clipboard.writeText(msg.queriedOrder!.orderId);
+                                }
+                              }}
+                              title="复制订单号"
+                              className="text-slate-400 hover:text-blue-600 text-[10px] p-0.5 rounded cursor-pointer transition-colors"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full flex items-center gap-1 ${
+                            msg.queriedOrder.status === "DELIVERED"
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                              : msg.queriedOrder.status === "IN_TRANSIT"
+                              ? "bg-blue-100 text-blue-800 border border-blue-200"
+                              : "bg-amber-100 text-amber-800 border border-amber-200"
+                          }`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                            {msg.queriedOrder.statusText}
+                          </span>
+                        </div>
+
+                        {/* Product Items */}
+                        <div className="py-2.5 space-y-2">
+                          {msg.queriedOrder.items?.map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-3 bg-white p-2 rounded-lg border border-slate-100">
+                              <div className="w-11 h-11 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-200">
+                                {item.imageUrl ? (
+                                  <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Package className="w-5 h-5 text-slate-400" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-slate-800 truncate">{item.title}</div>
+                                <div className="text-[10px] text-slate-400 truncate mt-0.5">{item.spec}</div>
+                                <div className="flex items-center justify-between mt-1 text-xs">
+                                  <span className="font-bold text-rose-600">¥{item.price.toFixed(2)}</span>
+                                  <span className="text-slate-400 text-[10px]">x{item.quantity}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Express & Logistics Tracker */}
+                        {msg.queriedOrder.express && (
+                          <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-1.5 text-slate-700">
+                                <Truck className="w-3.5 h-3.5 text-blue-600" />
+                                <span className="font-semibold text-xs">{msg.queriedOrder.express.company}</span>
+                                <span className="text-slate-400 font-mono text-[10px]">({msg.queriedOrder.express.trackingNumber})</span>
+                              </div>
+                              <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
+                                {msg.queriedOrder.express.statusDescription}
+                              </span>
+                            </div>
+
+                            {/* Latest Tracking Milestone */}
+                            {msg.queriedOrder.express.timeline && msg.queriedOrder.express.timeline.length > 0 && (
+                              <div className="bg-white p-2.5 rounded-lg border border-slate-100 text-[11px] space-y-1">
+                                <div className="flex items-start gap-2">
+                                  <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0"></div>
+                                  <div className="flex-1">
+                                    <div className="font-semibold text-slate-800 text-[11px]">
+                                      {msg.queriedOrder.express.timeline[0].status}
+                                    </div>
+                                    <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
+                                      {msg.queriedOrder.express.timeline[0].context}
+                                    </p>
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      {msg.queriedOrder.express.timeline[0].time}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* AfterSales Policy Badge */}
+                        {msg.queriedOrder.afterSales && (
+                          <div className="mt-2.5 pt-2 border-t border-blue-100 flex flex-wrap items-center justify-between gap-1 text-[11px]">
+                            <div className="flex items-center gap-1 text-slate-700 font-medium text-[11px]">
+                              <ShieldAlert className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                              <span>
+                                {msg.queriedOrder.afterSales.canReturn7Days
+                                  ? `7天无理由：剩余 ${msg.queriedOrder.afterSales.returnDaysRemaining} 天`
+                                  : "7天无理由：已超过期限或特殊商品"}
+                              </span>
+                            </div>
+                            <span className="text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
+                              {msg.queriedOrder.afterSales.shippingSubsidy}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Quick Follow-up Buttons */}
+                        <div className="mt-2.5 pt-2 border-t border-blue-100 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-slate-400 font-medium">快捷操作:</span>
+                          <button
+                            onClick={() => handleSendMessage(`我要为订单 ${msg.queriedOrder!.orderId} 申请7天无理由退货，请问退货运费和流程是什么？`)}
+                            className="px-2 py-0.5 text-[11px] text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
+                          >
+                            申请7天退换
+                          </button>
+                          <button
+                            onClick={() => handleSendMessage(`请问订单 ${msg.queriedOrder!.orderId} 目前具体在哪个分拨中心？还能催单派送吗？`)}
+                            className="px-2 py-0.5 text-[11px] text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
+                          >
+                            催促配送
+                          </button>
+                          <button
+                            onClick={() => handleSendMessage(`订单 ${msg.queriedOrder!.orderId} 的全国联保多久？如果出现故障如何保修？`)}
+                            className="px-2 py-0.5 text-[11px] text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
+                          >
+                            咨询联保
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Reference Sources Accordion (RAG hits) */}
                     {msg.references && msg.references.length > 0 && (
@@ -663,6 +811,50 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 ))}
               </div>
             </div>
+
+            {/* Associated Order & Express Details Card */}
+            {session?.customerProfile.orderId && (
+              <div className="p-3 bg-gradient-to-br from-blue-50/80 to-indigo-50/50 rounded-xl border border-blue-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-blue-900 font-bold text-[11px] flex items-center gap-1">
+                    <Package className="w-3.5 h-3.5 text-blue-600" />
+                    <span>关联订单与物流信息</span>
+                  </span>
+                  <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-semibold rounded">
+                    已签收 (第3天)
+                  </span>
+                </div>
+                <div className="space-y-1 text-[11px]">
+                  <div className="flex justify-between items-center bg-white p-1.5 rounded border border-blue-100">
+                    <span className="text-slate-400">订单号:</span>
+                    <span className="font-mono font-bold text-blue-900">{session.customerProfile.orderId}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-700 pt-0.5">
+                    <span className="text-slate-500">已购商品:</span>
+                    <span className="font-medium text-slate-900">扫地机器人 Pro</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-700">
+                    <span className="text-slate-500">承运物流:</span>
+                    <span className="text-slate-900 font-mono">顺丰 SF1882049281</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-700">
+                    <span className="text-slate-500">退换权益:</span>
+                    <span className="text-emerald-700 font-semibold">支持7天退货 (剩余4天)</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-700">
+                    <span className="text-slate-500">运费补贴:</span>
+                    <span className="text-amber-700 font-semibold">黄金会员免运费</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleSendMessage(`请帮我查询订单 ${session.customerProfile.orderId} 的物流追踪及退换货详细规则`)}
+                  className="w-full mt-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-2xs"
+                >
+                  <Search className="w-3 h-3" />
+                  <span>一键查询此订单物流与政策</span>
+                </button>
+              </div>
+            )}
 
             {/* Dynamic Conversation Summary (LangGraph Memory) */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">

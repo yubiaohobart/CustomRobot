@@ -24,6 +24,71 @@ export interface StepTraceItem {
   status: "success" | "warning" | "error";
 }
 
+export interface OrderItem {
+  skuId: string;
+  title: string;
+  category: string;
+  spec: string;
+  price: number;
+  quantity: number;
+  imageUrl?: string;
+  isSpecialProduct?: boolean;
+  isCustomized?: boolean;
+}
+
+export interface TrackingEvent {
+  time: string;
+  status: string;
+  context: string;
+}
+
+export interface OrderExpress {
+  company: string;
+  companyCode?: string;
+  trackingNumber: string;
+  status: "DELIVERED" | "IN_TRANSIT" | "WAREHOUSE_RECEIVED" | "PENDING_PICKUP";
+  statusDescription: string;
+  timeline: TrackingEvent[];
+}
+
+export interface OrderAfterSales {
+  canReturn7Days: boolean;
+  returnDaysRemaining: number;
+  signedDays: number;
+  returnPolicy: string;
+  shippingSubsidy: string;
+  warrantyStatus: string;
+  warrantyExpiredDate: string;
+  warrantyPolicy: string;
+}
+
+export interface OrderData {
+  orderId: string;
+  orderSn: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  vipLevel: string;
+  status: "DELIVERED" | "IN_TRANSIT" | "RETURNING_INSPECTION" | "COMPLETED" | "PENDING_PAYMENT";
+  statusText: string;
+  statusCode?: number;
+  createTime: string;
+  payTime?: string;
+  shipTime?: string;
+  deliveryTime?: string | null;
+  items: OrderItem[];
+  totalAmount: number;
+  paidAmount: number;
+  shippingFee: number;
+  express: OrderExpress;
+  receiver: {
+    name: string;
+    phone: string;
+    address: string;
+  };
+  afterSales: OrderAfterSales;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -39,6 +104,7 @@ export interface ChatMessage {
   sentiment?: "positive" | "neutral" | "negative" | "frustrated";
   intent?: string;
   stepTrace?: StepTraceItem[];
+  queriedOrder?: OrderData;
 }
 
 export interface CustomerProfile {

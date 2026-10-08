@@ -39,6 +39,7 @@ PROFILES: Dict[str, Dict[str, Any]] = {
 
 # 预设自测典型用例
 BENCHMARKS = [
+    ("📦 订单物流追踪", "帮我查一下订单 ORD-2026-88992 的最新物流状态到哪了？还能申请退货吗？"),
     ("7天无理由退货", "我刚收到商品不喜欢，可以在7天内申请无理由退货吗？运费谁出？"),
     ("黄金会员免运费", "我是黄金会员，退货的话运费平台会补贴吗？"),
     ("生鲜定制不可退", "我买的刻字定制水杯和生鲜水果能申请7天无理由退货吗？"),
@@ -238,9 +239,32 @@ async def handle_chat(user_input: str):
             ]
             trace_step.output = "\n".join(trace_logs)
 
-    # 侧边栏展示后端检索召回的知识库条款
+    # 侧边栏展示后端检索召回的知识库条款与订单卡片
     refs = data.get("references", [])
+    order_info = data.get("queriedOrder")
     elements = []
+
+    if order_info:
+        items_str = "\n".join([f"- **{it['title']}** (¥{it['price']} x{it['quantity']})" for it in order_info.get("items", [])])
+        express = order_info.get("express", {})
+        timeline_str = "\n".join([f"- `{t.get('time', '')}`: {t.get('context', '')}" for t in express.get("timeline", [])[:3]])
+        after_sale = order_info.get("afterSales", {})
+        
+        order_md = (
+            f"### 📦 关联订单详情 [{order_info.get('orderId')}]\n\n"
+            f"- **当前状态**: **【{order_info.get('statusText', '已签收')}】**\n"
+            f"- **买家姓名**: {order_info.get('userName')} ({order_info.get('vipLevel')})\n"
+            f"- **实付金额**: ¥{order_info.get('paidAmount', 0):.2f}\n"
+            f"- **物流公司**: {express.get('company', '顺丰速运')} (单号: `{express.get('trackingNumber', '')}`)\n\n"
+            f"#### 🛍️ 购买商品\n{items_str}\n\n"
+            f"#### 🚚 最新物流轨迹\n{timeline_str}\n\n"
+            f"#### 🛡️ 售后权益\n"
+            f"- **7天退换**: {'支持 (剩余 ' + str(after_sale.get('returnDaysRemaining', 0)) + ' 天)' if after_sale.get('canReturn7Days') else '不支持 (' + after_sale.get('returnPolicy', '') + ')'}\n"
+            f"- **运费政策**: {after_sale.get('shippingSubsidy', '')}\n"
+            f"- **保修条款**: {after_sale.get('warrantyPolicy', '')}\n"
+        )
+        elements.append(cl.Text(name="📦 订单与物流卡片", content=order_md, display="side"))
+
     if refs:
         refs_content = "### 📚 Qdrant 检索知识条款 (后端实时召回)\n\n" + "\n\n".join(
             f"**[{i}] {r.get('title', '知识点')}** (匹配度: {r.get('score', 0):.2f})\n> {r.get('snippet', '')}"
