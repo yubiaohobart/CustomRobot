@@ -24,6 +24,11 @@ from core.llm import deepseek_client
 from services.memory_service import memory_service
 from services.order_service import order_service
 from workflow.graph import customer_service_graph
+from workflow.nodes import (
+    order_query_node,
+    qdrant_retrieve_node,
+    deepseek_generate_node
+)
 from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
