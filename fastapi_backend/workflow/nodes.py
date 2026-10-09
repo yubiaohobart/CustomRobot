@@ -115,19 +115,29 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     # 调用 Qdrant 检索
     hits = qdrant_store.similarity_search(query, k=settings.TOP_K_RETRIEVAL)
     
-    docs = [h["doc"] for h in hits]
     top_score = hits[0]["score"] if hits else 0.0
-    top_title = docs[0].get("title", "无直接匹配") if docs else "无"
+    top_title = hits[0]["doc"].get("title", "无直接匹配") if hits else "无"
+
+    # 工业级 RAG 阈值门禁：仅保留达到相似度阈值的文档，过滤低相关度噪声，防止污染 Prompt 上下文
+    valid_hits = [h for h in hits if h.get("score", 0.0) >= settings.SIMILARITY_THRESHOLD]
+    docs = [h["doc"] for h in valid_hits]
 
     duration = int((time.time() - t0) * 1000)
     cprint.rag(query, len(docs), top_score, top_title)
 
     trace = state.get("step_trace", [])
+    if docs:
+        trace_desc = f"Qdrant (BGE-M3 1024维) 命中 {len(docs)} 条强相关条款 (最高分: {top_score:.2f} >= 阈值 {settings.SIMILARITY_THRESHOLD})"
+        trace_status = "success"
+    else:
+        trace_desc = f"Qdrant 检索最高相似度 {top_score:.2f} 低于阈值 {settings.SIMILARITY_THRESHOLD}，判定无相关政策，未注入条款"
+        trace_status = "warning"
+
     trace.append({
         "node": "qdrant_retrieve",
-        "description": f"Qdrant (BGE-M3 1024维) 检索召回 {len(docs)} 条条款，最高相似度: {top_score}",
+        "description": trace_desc,
         "durationMs": duration,
-        "status": "success" if top_score >= settings.SIMILARITY_THRESHOLD else "warning"
+        "status": trace_status
     })
 
     return {
