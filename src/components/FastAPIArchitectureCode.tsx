@@ -323,13 +323,14 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
     linesCount: 62,
     code: `"""
 LangGraph 工作流定义与状态机编排 (workflow/graph.py)
-拓扑: START -> analyze_query -> [条件路由] -> qdrant_retrieve -> memory_synthesis -> deepseek_generate -> END
+拓扑: START -> analyze_query -> [条件路由] -> (order_query -> qdrant_retrieve) / qdrant_retrieve -> memory_synthesis -> deepseek_generate -> END
 """
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from models.state import AgentState
 from .nodes import (
     analyze_query_node,
+    order_query_node,
     qdrant_retrieve_node,
     memory_synthesis_node,
     deepseek_generate_node,
@@ -344,8 +345,9 @@ memory_saver = MemorySaver()
 # 构建客服问答状态机
 builder = StateGraph(AgentState)
 
-# 注册所有执行节点
+# 注册所有执行节点 (方案1: 业务中台节点独立拔插)
 builder.add_node("analyze_query", analyze_query_node)
+builder.add_node("order_query", order_query_node)
 builder.add_node("qdrant_retrieve", qdrant_retrieve_node)
 builder.add_node("memory_synthesis", memory_synthesis_node)
 builder.add_node("deepseek_generate", deepseek_generate_node)
@@ -354,17 +356,21 @@ builder.add_node("human_escalation", human_escalation_node)
 # 定义状态流转
 builder.add_edge(START, "analyze_query")
 
-# 节点 1 后的条件分支: 若客户要求人工或情绪愤怒直接转人工
+# 节点 1 后的条件分支: 若客户要求人工转人工；若涉及订单/物流查询流转至订单中台
 builder.add_conditional_edges(
     "analyze_query",
     router_after_analysis,
     {
         "human_escalation": "human_escalation",
+        "order_query": "order_query",
         "qdrant_retrieve": "qdrant_retrieve"
     }
 )
 
-# 节点 2 后的条件分支: 若相似度低于阈值自动升级转人工
+# 订单中台处理完毕后，联动知识库检索（获取7天退换、联保等相关政策）
+builder.add_edge("order_query", "qdrant_retrieve")
+
+# 节点 2 后的条件分支: 若相似度极低且带有负向情绪则转人工
 builder.add_conditional_edges(
     "qdrant_retrieve",
     router_after_retrieval,
@@ -374,7 +380,7 @@ builder.add_conditional_edges(
     }
 )
 
-# 正常问答生成路径
+# 正常问答生成路径 (注入事实槽位与政策)
 builder.add_edge("memory_synthesis", "deepseek_generate")
 builder.add_edge("deepseek_generate", END)
 builder.add_edge("human_escalation", END)
@@ -519,137 +525,6 @@ export interface TransferLog {
 
   // 4. Docs & Architecture
   {
-    id: "doc_python_only",
-    name: "PYTHON_ONLY_GUIDE.md",
-    path: "PYTHON_ONLY_GUIDE.md",
-    category: "docs",
-    language: "markdown",
-    description: "纯 Python 专属极简开发指南：仅需启动 python app.py 与 npm run dev:frontend，全流程由 Python 驱动",
-    linesCount: 50,
-    code: `# IntelliServe 纯 Python 后端极简使用指南
-
-## 第一步：启动你的 Python 后端 (监听 5000 端口)
-cd fastapi_backend
-pip install -r requirements.txt
-python app.py
-
-## 第二步：启动前端网页 (新终端)
-npm run dev:frontend
-打开 http://localhost:5173 即可！
-前端已默认将所有 /api 请求直连 5000 端口的 FastAPI。`
-  },
-  {
-    id: "doc_raw_separate",
-    name: "RAW_SEPARATE_GUIDE.md",
-    path: "RAW_SEPARATE_GUIDE.md",
-    category: "docs",
-    language: "markdown",
-    description: "裸机前后端分离指南（无 Docker、无 Nginx）：使用 npm run dev:backend 与 dev:frontend 或轻量进程工具独立运行",
-    linesCount: 85,
-    code: `# IntelliServe 极简前后端独立运行与部署（无 Docker、无 Nginx）
-
-只需一台或两台机器，开两个终端端口即可跑起独立的前端和后端服务：
-
-## 模式一：本地/开发分开启动（最直观）
-- 终端 1 (后端 3000 端口): npm run dev:backend
-- 终端 2 (前端 5173 端口): npm run dev:frontend
-
-Vite 已预置 /api 自动反代至后端 3000 端口，浏览器直接打开 http://localhost:5173 即可！
-
-## 模式二：云服务器裸机常驻运行（使用 PM2 守护）
-1. 编译:
-   npm run build:frontend
-   npm run build:backend
-
-2. 启动独立后端 (3000 端口):
-   pm2 start dist/server.cjs --name "cs-backend"
-
-3. 启动独立前端 (无需 Nginx，使用 serve 或 preview):
-   npm install -g serve
-   pm2 start "serve -s dist -l 80" --name "cs-frontend"`
-  },
-  {
-    id: "doc_separate_deploy",
-    name: "SEPARATE_DEPLOYMENT.md",
-    path: "SEPARATE_DEPLOYMENT.md",
-    category: "docs",
-    language: "markdown",
-    description: "极简前后端分离部署指南：包含 Nginx 静态托管前端 + 独立 API 后端反代、双容器 Docker Compose 等最简配置",
-    linesCount: 110,
-    code: `# IntelliServe 极简前后端分离部署指南
-
-本项目前端基于 React 19 + Vite，后端提供 Node.js 与 Python FastAPI 独立服务。
-
-## 极速 3 步：最纯粹的前后端分离 (Nginx + 静态前端 + API 后端)
-
-### 步骤 1：构建前端静态页面
-npm run build
-产物输出在 dist 目录，直接上传到服务器 /var/www/intelliserve/dist
-
-### 步骤 2：启动后端 API 服务
-# Node.js 后端：
-pm2 start dist/server.cjs --name "intelliserve-api"
-# 或 Python FastAPI 后端：
-cd fastapi_backend && uvicorn app:app --host 0.0.0.0 --port 5000
-
-### 步骤 3：配置 Nginx 分发 (前端直接分发，/api/ 反代到后端)
-server {
-    listen 80;
-    server_name cs.yourdomain.com;
-
-    location / {
-        root /var/www/intelliserve/dist;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:5000; # 5000 (FastAPI)
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}`
-  },
-  {
-    id: "doc_docker_compose_sep",
-    name: "docker-compose.separated.yml",
-    path: "docker-compose.separated.yml",
-    category: "docs",
-    language: "markdown",
-    description: "Docker 独立容器编排：包含独立的前端 Nginx 静态服务容器与独立的后端 API 容器",
-    linesCount: 35,
-    code: `version: '3.8'
-
-services:
-  # 后端独立 API 容器
-  backend-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: intelliserve_backend_api
-    restart: always
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - GEMINI_API_KEY=\${GEMINI_API_KEY:-}
-    expose:
-      - "3000"
-
-  # 前端独立 Nginx 容器
-  frontend-web:
-    image: nginx:alpine
-    container_name: intelliserve_frontend_web
-    restart: always
-    ports:
-      - "80:80"
-    volumes:
-      - ./dist:/usr/share/nginx/html:ro
-      - ./nginx.separated.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - backend-api`
-  },
-  {
     id: "doc_readme",
     name: "README.md",
     path: "README.md",
@@ -659,12 +534,48 @@ services:
     linesCount: 120,
     code: `# IntelliServe - 智能客服与实时监控人工介入系统 (全栈代码架构)
 
-本项目提供了一套完整的前后端协同智能客服系统架构，包含基于 LangChain / LangGraph 的对话状态机、向量数据库语义检索增强 (RAG)、会话记忆管理、实时监控大盘以及无缝人工介入与转接接口。
+本项目提供了一套完整的前后端协同智能客服系统架构，后端全面基于 FastAPI + LangGraph + Qdrant + BGE-M3 + DeepSeek 打造，结合向量知识库语义检索 (RAG)、多轮会话记忆管理、实时监控大盘以及无缝人工介入与转接交接单快照。
 
-## 目录结构
-- /src: 前端 React 19 + TypeScript 界面与交互层
-- /fastapi_backend: 生产级 Python FastAPI + LangGraph 后端独立工程 (已全量作为系统唯一后端)
-- PYTHON_ONLY_GUIDE.md: 纯 Python FastAPI 开发与一键部署指南`
+内置装载官方《XX商城售后服务与退换货政策（2026版）》知识库，支持 7 天无理由、运费分担规则、黄金会员免运费特权、特殊商品、48小时质检退款与全国联保条款。`
+  },
+  {
+    id: "doc_deployment",
+    name: "DEPLOYMENT.md",
+    path: "DEPLOYMENT.md",
+    category: "docs",
+    language: "markdown",
+    description: "生产环境部署指南：涵盖 Uvicorn / Systemd 常驻进程、Nginx 静态反代分发、Docker 容器化等标准交付模式",
+    linesCount: 250,
+    code: `# IntelliServe 智能客服系统生产环境部署与上线指南
+
+## 核心形态：Python FastAPI + LangGraph 后端独立部署
+- 前端：React 19 + TypeScript + Vite，编译后为纯静态 dist/ 静态资源；
+- 后端：Python FastAPI + LangGraph 状态图引擎，监听 5000 端口；
+- 向量引擎：Qdrant In-Memory 纯内存模式 (:memory:)，无需额外安装 Docker；
+- Nginx 反向代理将 /api/ 转发至 127.0.0.1:5000，静态页面直接极速分发。`
+  },
+  {
+    id: "doc_docker_compose",
+    name: "docker-compose.yml",
+    path: "docker-compose.yml",
+    category: "docs",
+    language: "markdown",
+    description: "标准 Docker 容器编排文件：一键构建并部署完整系统服务",
+    linesCount: 25,
+    code: `version: '3.8'
+
+services:
+  intelliserve-app:
+    build: .
+    container_name: intelliserve_app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - FASTAPI_PORT=5000
+      - DEEPSEEK_API_KEY=\${DEEPSEEK_API_KEY:-}`
   }
 ];
 

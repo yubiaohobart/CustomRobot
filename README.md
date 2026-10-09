@@ -58,9 +58,8 @@
 ├── server.ts                           # 前端反向代理与静态资源宿主服务 (端口 3000 -> 代理至 5000)
 ├── package.json                        # 前端构建依赖与 NPM 启动脚本
 ├── vite.config.ts                      # Vite 构建配置
-├── DEPLOYMENT.md                       # 生产环境综合部署手册 (Docker / Nginx / Uvicorn)
-├── SEPARATE_DEPLOYMENT.md              # 前后端解耦独立部署指南
-└── RAW_SEPARATE_GUIDE.md               # 裸机独立运行与双终端极速启动指南
+├── docker-compose.yml                  # Docker 容器编排文件
+└── DEPLOYMENT.md                       # 生产环境综合部署手册 (Docker / Nginx / Uvicorn)
 ```
 
 ---

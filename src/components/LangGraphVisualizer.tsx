@@ -161,15 +161,17 @@ export const LangGraphVisualizer: React.FC = () => {
   const [selectedNode, setSelectedNode] = useState<NodeDetail>(NODES_DATA[0]);
   const [simulating, setSimulating] = useState(false);
   const [activeStep, setActiveStep] = useState<number | null>(null);
-  const [simScenario, setSimScenario] = useState<"normal" | "escalate">("escalate");
+  const [simScenario, setSimScenario] = useState<"normal" | "escalate" | "order">("order");
 
   const runSimulation = () => {
     setSimulating(true);
     setActiveStep(0);
 
     const steps = simScenario === "escalate" 
-      ? [0, 1, 2, 3, 4, 5, 6] // triggers escalation
-      : [0, 1, 2, 3, 4, 6];   // normal flow skips human escalation
+      ? [0, 5, 6] // 意图分析 -> 触发人工升级 -> 检查点固化
+      : simScenario === "order"
+      ? [0, 1, 2, 3, 4, 6] // 意图分析 -> 订单与物流中台 -> 知识检索 -> 上下文合成 -> DeepSeek生成 -> 检查点固化
+      : [0, 2, 3, 4, 6];   // 常规政策问答：意图分析 -> 知识检索 -> 上下文合成 -> DeepSeek生成 -> 检查点固化
 
     let currentIdx = 0;
     const interval = setInterval(() => {
@@ -194,7 +196,7 @@ export const LangGraphVisualizer: React.FC = () => {
             <h1 className="text-xl font-bold text-slate-900">LangGraph 智能客服状态图全链路编排</h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            基于 StateGraph 构建的条件分支状态机：动态路由、向量 RAG 检索、记忆合成、质量护栏与人工介入决策
+            基于 StateGraph 构建的条件分支状态机：动态路由、订单中台抽取、向量 RAG 检索、事实融合、质量护栏与人工决策
           </p>
         </div>
 
@@ -205,8 +207,9 @@ export const LangGraphVisualizer: React.FC = () => {
             onChange={(e) => setSimScenario(e.target.value as any)}
             className="px-3 py-1.5 bg-white border border-slate-200 text-xs text-slate-700 rounded-xl focus:outline-hidden"
           >
-            <option value="escalate">模拟场景：客户投诉/低置信度（触发人工介入）</option>
-            <option value="normal">模拟场景：常规知识库问答（AI直接结单）</option>
+            <option value="order">模拟场景：📦 订单物流追踪（订单中台 + 售后政策联动）</option>
+            <option value="escalate">模拟场景：🚨 客户投诉/负向情绪（触发人工介入）</option>
+            <option value="normal">模拟场景：📚 常规退换政策问答（AI直接结单）</option>
           </select>
           <button
             onClick={runSimulation}

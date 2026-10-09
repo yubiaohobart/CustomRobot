@@ -102,6 +102,8 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
     return {
         "queried_order": order,
         "order_query_info": order_summary,
+        "business_facts_text": order_summary,
+        "business_facts_list": [order] if order else [],
         "step_trace": trace
     }
 
@@ -135,34 +137,41 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     }
 
 def memory_synthesis_node(state: AgentState) -> Dict[str, Any]:
-    """3. 结合长期会话记忆、用户画像与 Qdrant 检索结果构建提示上下文"""
+    """3. 结合长期会话记忆、用户画像与 Qdrant 检索结果构建提示上下文 (方案1: 业务实体事实抽象)"""
     t0 = time.time()
     docs = state.get("retrieved_docs", [])
     doc_titles = [d.get("title", "") for d in docs]
+    
+    # 汇总通用业务事实（订单、物流、发票等中台数据统一汇聚）
+    facts_text = (state.get("business_facts_text") or state.get("order_query_info") or "").strip()
     order = state.get("queried_order")
-    order_tag = f"关联订单 [{order.get('orderId')}]，" if order else ""
+    if not facts_text and order:
+        facts_text = order_service.format_order_summary_text(order)
+
+    facts_summary = f"注入业务实体事实 ({len(facts_text)}字)，" if facts_text else "无特定业务实体数据，"
     duration = int((time.time() - t0) * 1000)
 
     cprint.node(
         "memory_synthesis",
-        f"记忆与画像装配完成 ({order_tag}关联政策: {len(doc_titles)} 条)",
+        f"通用事实与画像装配完成 ({facts_summary}关联政策: {len(doc_titles)} 条)",
         f"耗时: {duration}ms"
     )
 
     trace = state.get("step_trace", [])
     trace.append({
         "node": "memory_synthesis",
-        "description": f"合成上下文：{order_tag}关联条款 [{', '.join(doc_titles)}]，注入长期记忆与VIP画像",
+        "description": f"合成上下文：{facts_summary}关联政策 [{', '.join(doc_titles)}]，注入长期记忆与VIP画像",
         "durationMs": duration,
         "status": "success"
     })
 
     return {
+        "business_facts_text": facts_text,
         "step_trace": trace
     }
 
 async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
-    """4. 调用 DeepSeek 大模型生成温暖、严谨且符合政策的专业回答"""
+    """4. 调用 DeepSeek 大模型生成温暖、严谨且符合政策的专业回答 (方案1: 接入通用业务事实槽位)"""
     t0 = time.time()
     user_msg = state["user_message"]
     docs = state.get("retrieved_docs", [])
@@ -170,12 +179,14 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     profile = state.get("user_profile", {})
     order = state.get("queried_order")
     order_summary = state.get("order_query_info", "")
+    business_facts = state.get("business_facts_text", "") or order_summary
 
     reply = await deepseek_client.generate_response(
         user_message=user_msg,
         retrieved_docs=docs,
         summary_memory=memory,
         user_profile=profile,
+        business_facts=business_facts,
         order_info=order,
         order_summary=order_summary
     )
