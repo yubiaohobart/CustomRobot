@@ -73,12 +73,14 @@ class QdrantKnowledgeStore:
         query_vector = bge_m3_engine.embed_query(query)
         threshold = score_threshold if score_threshold > 0 else None
 
-        hits = self.client.search(
+        # 直接使用 Qdrant 官方最新标准的 query_points 接口进行向量检索
+        res = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             limit=k,
             score_threshold=threshold
         )
+        hits = res.points
 
         formatted = []
         for hit in hits:

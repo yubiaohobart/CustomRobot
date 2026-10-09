@@ -198,7 +198,7 @@ class QdrantKnowledgeStore:
     category: "fastapi_backend",
     language: "python",
     description: "DeepSeek 大模型客户端：deepseek-chat 接入、专业客服 System Prompt 约束与严谨防幻觉兜底",
-    linesCount: 140,
+    linesCount: 118,
     code: `"""
 DeepSeek 大模型客户端 (core/llm.py)
 模型: deepseek-chat / deepseek-reasoner
