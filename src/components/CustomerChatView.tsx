@@ -773,13 +773,16 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                               <span>LangGraph Pipeline State Transitions</span>
                               <span className="text-emerald-400">STATE_NORMAL</span>
                             </div>
-                            {msg.stepTrace.map((st, sIdx) => (
-                              <div key={sIdx} className="flex items-start gap-2 text-[11px] border-l-2 border-indigo-500 pl-2 py-0.5">
-                                <span className="text-indigo-300 font-semibold">{st.node}</span>
-                                <span className="text-slate-300 flex-1">{st.description}</span>
-                                <span className="text-slate-400 text-[10px]">{st.durationMs}ms</span>
-                              </div>
-                            ))}
+                            {msg.stepTrace.map((rawSt: any, sIdx: number) => {
+                              const st = typeof rawSt === "string" ? { node: "trace", description: rawSt, durationMs: 1 } : rawSt;
+                              return (
+                                <div key={sIdx} className="flex items-start gap-2 text-[11px] border-l-2 border-indigo-500 pl-2 py-0.5">
+                                  <span className="text-indigo-300 font-semibold">{st.node}</span>
+                                  <span className="text-slate-300 flex-1">{st.description}</span>
+                                  <span className="text-slate-400 text-[10px]">{st.durationMs}ms</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>

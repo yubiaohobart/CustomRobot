@@ -105,7 +105,10 @@ async def chat_endpoint(req: ChatRequest):
             references=[],
             queriedOrder=None,
             latencyMs=int((time.time() - t_start) * 1000),
-            stepTrace=["[WebSocket] 客户消息已广播至坐席工作台", "[Session] 处于人工接管锁定状态，AI 暂停自动介入"],
+            stepTrace=[
+                {"node": "websocket_broadcast", "description": "[WebSocket] 客户消息已广播至坐席工作台", "durationMs": 1, "status": "success"},
+                {"node": "human_mode_guard", "description": "[Session] 处于人工接管锁定状态，AI 暂停自动介入", "durationMs": 1, "status": "active"}
+            ],
             session=session
         )
 

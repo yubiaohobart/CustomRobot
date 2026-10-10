@@ -2,7 +2,7 @@
 Pydantic 业务请求与响应模型定义 (Schemas)
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field
 
 class KnowledgeDocItem(BaseModel):
@@ -30,7 +30,7 @@ class ChatResponse(BaseModel):
     references: List[Dict[str, Any]] = Field(default_factory=list)
     queriedOrder: Optional[Dict[str, Any]] = None
     latencyMs: int = 35
-    stepTrace: List[Dict[str, Any]] = Field(default_factory=list)
+    stepTrace: List[Union[Dict[str, Any], str]] = Field(default_factory=list)
     session: Optional[Dict[str, Any]] = None
 
 class TransferRequest(BaseModel):
