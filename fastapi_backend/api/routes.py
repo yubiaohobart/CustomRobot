@@ -4,7 +4,7 @@ FastAPI 核心业务路由分发器 (API Routes)
 
 import time
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from config import settings
 from models.schemas import (
@@ -23,6 +23,7 @@ from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
 from services.memory_service import memory_service
 from services.order_service import order_service
+from services.websocket_manager import ws_manager
 from workflow.graph import customer_service_graph
 from workflow.nodes import (
     order_query_node,
@@ -200,6 +201,13 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
         agent_id=req.agentId or "agent_101",
         note=req.note or ""
     )
+    # 实时 WebSocket 广播状态流转
+    await ws_manager.broadcast_to_session(session_id, {
+        "type": "session:update",
+        "sessionId": session_id,
+        "action": req.action,
+        "session": session
+    })
     return {"success": True, "session": session}
 
 @router.post("/sessions/{session_id}/human-message")
@@ -210,6 +218,13 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
     msg = memory_service.add_message(session_id, "human_agent", text)
     session = memory_service.get_session(session_id)
+    # 实时 WebSocket 推送给客户与工作台
+    await ws_manager.broadcast_to_session(session_id, {
+        "type": "message:new",
+        "sessionId": session_id,
+        "message": msg,
+        "session": session
+    })
     return {"success": True, "message": msg, "session": session}
 
 @router.post("/sessions/{session_id}/clear")
@@ -521,4 +536,121 @@ async def system_test_post(req: TestRequest):
 
     result["total_latency_ms"] = round((time.time() - t_start) * 1000, 2)
     return result
+
+
+# ==================== WebSocket 实时双向通信端点 ====================
+
+async def handle_websocket_loop(websocket: WebSocket, initial_session_id: str):
+    """
+    FastAPI 原生 WebSocket 通信主循环：
+    负责会话注册、客户与坐席消息流转、typing 状态同步、心跳与会话广播
+    """
+    await ws_manager.connect(websocket, session_id=initial_session_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+            
+            # 获取当前连接的元数据
+            meta = ws_manager.connection_meta.get(websocket, {})
+            current_session_id = meta.get("session_id", initial_session_id)
+            
+            if msg_type in ("subscribe", "join"):
+                target_session_id = data.get("sessionId") or current_session_id
+                role = data.get("role") or meta.get("role", "customer")
+                name = data.get("name") or meta.get("name", "")
+                ws_manager.register_session(websocket, session_id=target_session_id, role=role, name=name)
+                current_session_id = target_session_id
+                
+                await websocket.send_json({
+                    "type": "subscribed",
+                    "sessionId": current_session_id,
+                    "role": role,
+                    "message": f"成功加入会话 {current_session_id}"
+                })
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong", "timestamp": time.time()})
+
+            elif msg_type == "typing":
+                # 实时同步正在输入状态给对方
+                target_session_id = data.get("sessionId") or current_session_id
+                sender_role = data.get("sender") or meta.get("role", "unknown")
+                sender_name = data.get("name") or meta.get("name", "")
+                await ws_manager.broadcast_to_session(target_session_id, {
+                    "type": "typing",
+                    "sessionId": target_session_id,
+                    "sender": sender_role,
+                    "name": sender_name,
+                    "isTyping": bool(data.get("isTyping", False))
+                }, exclude=websocket)
+
+            elif msg_type == "human_message":
+                # 人工客服发送消息
+                target_session_id = data.get("sessionId") or current_session_id
+                content = data.get("content", "").strip()
+                if content:
+                    agent_name = data.get("agentName") or meta.get("name") or "人工客服"
+                    agent_id = data.get("agentId", "agent_101")
+                    
+                    # 确保会话标记为人工已接管
+                    session = memory_service.get_session(target_session_id)
+                    if session:
+                        session["status"] = "HUMAN_INTERVENED"
+                        session["assignedAgent"] = agent_name
+                        session["assignedAgentId"] = agent_id
+
+                    msg = memory_service.add_message(target_session_id, "human_agent", content)
+                    session = memory_service.get_session(target_session_id)
+                    
+                    # 广播给会话内所有人
+                    await ws_manager.broadcast_to_session(target_session_id, {
+                        "type": "message:new",
+                        "sessionId": target_session_id,
+                        "message": msg,
+                        "session": session
+                    })
+                    # 向全局大盘同步会话状态变更
+                    await ws_manager.broadcast_all({
+                        "type": "session:update",
+                        "sessionId": target_session_id,
+                        "session": session
+                    })
+
+            elif msg_type == "customer_message":
+                # 客户发送消息广播
+                target_session_id = data.get("sessionId") or current_session_id
+                content = data.get("content", "").strip()
+                if content:
+                    msg = memory_service.add_message(target_session_id, "user", content)
+                    session = memory_service.get_session(target_session_id)
+                    await ws_manager.broadcast_to_session(target_session_id, {
+                        "type": "message:new",
+                        "sessionId": target_session_id,
+                        "message": msg,
+                        "session": session
+                    })
+                    await ws_manager.broadcast_all({
+                        "type": "session:update",
+                        "sessionId": target_session_id,
+                        "session": session
+                    })
+
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception as e:
+        ws_manager.disconnect(websocket)
+
+
+@router.websocket("/ws/{session_id}")
+async def websocket_session_endpoint(websocket: WebSocket, session_id: str):
+    """FastAPI 原生 WebSocket 端点 (按会话路由)"""
+    await handle_websocket_loop(websocket, initial_session_id=session_id)
+
+
+@router.websocket("/ws")
+async def websocket_default_endpoint(websocket: WebSocket):
+    """FastAPI 原生 WebSocket 端点 (根级默认路径，支持客户端随后发送 join 会话)"""
+    await handle_websocket_loop(websocket, initial_session_id="session_user_001")
+
 

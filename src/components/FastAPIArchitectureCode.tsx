@@ -389,32 +389,83 @@ builder.add_edge("human_escalation", END)
 customer_service_graph = builder.compile(checkpointer=memory_saver)`
   },
   {
+    id: "backend_websocket_manager",
+    name: "websocket_manager.py",
+    path: "fastapi_backend/services/websocket_manager.py",
+    category: "fastapi_backend",
+    language: "python",
+    description: "Python 原生 WebSocket 连接池管理器：支持客户与坐席长连接订阅、正在输入(typing)毫秒级感知、全员实时广播与优雅心跳保活",
+    linesCount: 110,
+    code: `"""
+FastAPI 原生 WebSocket 连接池与实时广播管理器 (services/websocket_manager.py)
+纯 Python 后端全双工实时通信中枢 (Single Source of Truth)
+"""
+from typing import Dict, List, Set, Any, Optional
+from fastapi import WebSocket, WebSocketDisconnect
+
+class WebSocketConnectionManager:
+    """管理活跃的 WebSocket 长连接，支持按会话分组广播与全局广播"""
+    def __init__(self):
+        self.session_connections: Dict[str, Set[WebSocket]] = {}
+        self.connection_meta: Dict[WebSocket, Dict[str, Any]] = {}
+        self.all_connections: Set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket, session_id: str = "default", role: str = "customer", name: str = ""):
+        await websocket.accept()
+        self.all_connections.add(websocket)
+        self.register_session(websocket, session_id=session_id, role=role, name=name)
+        await websocket.send_json({
+            "type": "subscribed",
+            "sessionId": session_id,
+            "role": role,
+            "message": f"Python FastAPI WebSocket 长连接已就绪"
+        })
+
+    def register_session(self, websocket: WebSocket, session_id: str, role: Optional[str] = None, name: Optional[str] = None):
+        # 动态绑定或迁移会话 (支持坐席切换跟进客户)
+        ...
+
+    async def broadcast_to_session(self, session_id: str, payload: Dict[str, Any], exclude: Optional[WebSocket] = None):
+        # 向会话内所有连接广播 (打字提示、新消息、坐席介入)
+        ...
+
+    async def broadcast_all(self, payload: Dict[str, Any]):
+        # 向所有连接广播大盘数据与工单状态变更
+        ...
+
+ws_manager = WebSocketConnectionManager()`
+  },
+  {
     id: "backend_routes",
     name: "routes.py",
     path: "fastapi_backend/api/routes.py",
     category: "fastapi_backend",
     language: "python",
-    description: "FastAPI RESTful API 路由层：/api/chat、/api/knowledge/search、/api/transfer 等全功能接口",
-    linesCount: 280,
+    description: "FastAPI RESTful API 路由与 WebSocket 双向长连接端点：/api/chat、/api/transfer、/ws/{session_id} 等全功能接口",
+    linesCount: 320,
     code: `"""
-FastAPI 业务路由层 (api/routes.py)
+FastAPI 业务路由层与原生 WebSocket 端点 (api/routes.py)
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from models.schemas import ChatRequest, ChatResponse, TransferRequest
 from services.memory_service import memory_service
+from services.websocket_manager import ws_manager
 from workflow.graph import customer_service_graph
 
 router = APIRouter(prefix="/api")
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest):
-    # 驱动 LangGraph 状态图 + Qdrant 检索 + DeepSeek 答复
-    ...
+@router.websocket("/ws/{session_id}")
+async def websocket_session_endpoint(websocket: WebSocket, session_id: str):
+    # Python 原生 WebSocket 全双工长连接循环：实时输入感知、坐席消息广播、心跳
+    await handle_websocket_loop(websocket, initial_session_id=session_id)
 
-@router.get("/test")
-async def system_test_get():
-    # 一键全链路子系统自检：本地 Ollama(bge-m3) 探活、Qdrant 纯内存检索、DeepSeek 配置检测
-    ...`
+@router.post("/sessions/{session_id}/human-message")
+async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
+    # 坐席发消息，持久化到 MemoryService，并触发 Python WebSocket 广播
+    msg = memory_service.add_message(session_id, "human_agent", req.content)
+    session = memory_service.get_session(session_id)
+    await ws_manager.broadcast_to_session(session_id, {"type": "message:new", "message": msg, "session": session})
+    return {"success": True, "message": msg}`
   },
   {
     id: "backend_app",

@@ -6,7 +6,7 @@ FastAPI 主服务启动入口 (Main Application Entrypoint)
 import sys
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -16,7 +16,7 @@ if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
 from config import settings
-from api.routes import router as api_router
+from api.routes import router as api_router, websocket_session_endpoint
 from core.qdrant_store import qdrant_store
 from core.logger import log, cprint, LogColor
 
@@ -63,6 +63,15 @@ app.add_middleware(
 
 # 挂载 API 业务路由
 app.include_router(api_router)
+
+# 挂载根级 WebSocket 实时双向通信路由 (与 /api/ws 保持一致)
+@app.websocket("/ws/{session_id}")
+async def root_ws_with_session(websocket: WebSocket, session_id: str):
+    await websocket_session_endpoint(websocket, session_id)
+
+@app.websocket("/ws")
+async def root_ws_default(websocket: WebSocket):
+    await websocket_session_endpoint(websocket, session_id="session_user_001")
 
 @app.get("/")
 async def root_index():

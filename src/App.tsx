@@ -29,8 +29,44 @@ export default function App() {
 
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
+  const [pythonStatus, setPythonStatus] = useState<{
+    connected: boolean;
+    url: string;
+    wsUrl: string;
+    checked: boolean;
+  }>({
+    connected: false,
+    url: "http://127.0.0.1:5000",
+    wsUrl: "ws://127.0.0.1:5000/ws",
+    checked: false,
+  });
+  const [showArchModal, setShowArchModal] = useState(false);
 
-  // Periodically check for alerts so the badge on "人工坐席" tab updates automatically
+  // 探测 Python FastAPI 及 WebSocket 后端状态
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const res = await fetch("/api/gateway/status");
+        if (res.ok) {
+          const data = await res.json();
+          setPythonStatus({
+            connected: !!data.pythonConnected,
+            url: data.pythonBackendUrl || "http://127.0.0.1:5000",
+            wsUrl: data.pythonWsUrl || "ws://127.0.0.1:5000/ws",
+            checked: true,
+          });
+        }
+      } catch {
+        setPythonStatus(prev => ({ ...prev, connected: false, checked: true }));
+      }
+    };
+
+    checkBackend();
+    const interval = setInterval(checkBackend, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 实时轮询会话预警状态
   useEffect(() => {
     const checkAlerts = async () => {
       try {
@@ -199,25 +235,115 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Active Session Switcher Pill */}
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-400 font-medium hidden md:inline">切换体验会话:</span>
-          <div className="relative">
-            <select
-              id="select-session"
-              value={currentSessionId}
-              onChange={(e) => setCurrentSessionId(e.target.value)}
-              className="px-3 py-1.5 text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium rounded-xl border border-slate-200 focus:outline-hidden cursor-pointer"
-            >
-              {sessionOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.name}
-                </option>
-              ))}
-            </select>
+        {/* Header Right: Backend Status & Session Switcher */}
+        <div className="flex items-center gap-2.5">
+          {/* Backend Authority Badge */}
+          <button
+            onClick={() => setShowArchModal(true)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-all cursor-pointer ${
+              pythonStatus.connected
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+            }`}
+            title="后端职责：100% 由 Python FastAPI + WebSocket 承载，点击查看架构"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                pythonStatus.connected
+                  ? "bg-emerald-500 animate-pulse"
+                  : "bg-amber-500 animate-ping"
+              }`}
+            />
+            <span>
+              {pythonStatus.connected ? "Python 后端在线 (FastAPI + WS)" : "Python 独占后端 (待连接)"}
+            </span>
+            <span className="text-[9px] px-1 py-0.2 bg-white/80 rounded font-mono">
+              :5000
+            </span>
+          </button>
+
+          <span className="text-[11px] text-slate-300 hidden md:inline">|</span>
+
+          {/* Active Session Switcher Pill */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-400 font-medium hidden lg:inline">体验会话:</span>
+            <div className="relative">
+              <select
+                id="select-session"
+                value={currentSessionId}
+                onChange={(e) => setCurrentSessionId(e.target.value)}
+                className="px-2.5 py-1 text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium rounded-lg border border-slate-200 focus:outline-hidden cursor-pointer"
+              >
+                {sessionOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </header>
+
+      {/* Backend Architecture & Startup Modal */}
+      {showArchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 text-slate-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl font-mono text-sm">🐍</span>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">Python 独占式后端架构 (FastAPI + WebSocket)</h3>
+                  <p className="text-xs text-slate-500">统一事实源 • 后端一切逻辑均由 Python 实现</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowArchModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between font-semibold text-slate-800">
+                  <span>📌 架构定位与职责划分：</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    pythonStatus.connected ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                  }`}>
+                    {pythonStatus.connected ? "Python 服务运行中" : "等待启动 Python 服务"}
+                  </span>
+                </div>
+                <p>• <strong>Python FastAPI (Port 5000/8000)</strong>：独占实现<strong>全部后端业务</strong>（Qdrant 向量匹配、LangGraph 节点流转、会话记忆持久化、人工客服分配、订单查询）以及<strong>原生 WebSocket 全双工长连接</strong>（<code>websocket_manager.py</code>）。</p>
+                <p>• <strong>Node.js (Port 3000)</strong>：仅作为纯前端 Vite 托管服务和透明代理网关（HTTP 反向代理 + WebSocket 管道穿透代理），绝不维护多余的本地模拟后端状态。</p>
+              </div>
+
+              <div>
+                <span className="font-semibold text-slate-700 block mb-1">🚀 本地启动 Python FastAPI 后端：</span>
+                <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto select-all">
+cd fastapi_backend{"\n"}
+pip install -r requirements.txt{"\n"}
+python app.py
+                </pre>
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                启动后，前端浏览器即可通过透明网关 <code>/ws</code> 自动无缝接入 Python 的 WebSocket 连接池，享受毫秒级双向打字感知与坐席协同。
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setShowArchModal(false)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl cursor-pointer"
+              >
+                我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Workspace Body */}
       <main className="flex-1 w-full h-[calc(100vh-4rem)] overflow-hidden">
