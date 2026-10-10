@@ -185,6 +185,21 @@ async def transfer_session_endpoint(session_id: str, req: TransferRequest):
         operator_note=req.operatorNote or "",
         trigger_type=req.triggerType or "user_requested"
     )
+    # 实时 WebSocket 广播：通知会话各方与全局坐席大厅
+    await ws_manager.broadcast_to_session(session_id, {
+        "type": "session:update",
+        "sessionId": session_id,
+        "action": "transfer",
+        "session": session,
+        "transferLog": transfer_log
+    })
+    await ws_manager.broadcast_all({
+        "type": "session:update",
+        "sessionId": session_id,
+        "action": "transfer",
+        "session": session,
+        "transferLog": transfer_log
+    })
     return {
         "success": True,
         "message": f"会话已成功转接给坐席工号 {req.targetAgentId}",

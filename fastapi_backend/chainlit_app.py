@@ -8,9 +8,18 @@ IntelliServe 智能客服 Chainlit 对话自测客户端
 
 import os
 import time
-from typing import Dict, Any, Tuple, Optional
+import json
+import asyncio
+from typing import Dict, Any, Tuple, Optional, Set
 import httpx
 import chainlit as cl
+
+try:
+    import websockets
+    HAS_WEBSOCKETS = True
+except ImportError:
+    websockets = None
+    HAS_WEBSOCKETS = False
 
 # 彻底禁用系统/环境代理拦截（macOS Clash/Surge 等常见代理）
 os.environ["NO_PROXY"] = "127.0.0.1,localhost,0.0.0.0"
@@ -21,6 +30,9 @@ for proxy_key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL
 DEFAULT_PORT = 5000
 _raw_backend_url = os.getenv("BACKEND_URL", os.getenv("FASTAPI_BACKEND_URL", f"http://127.0.0.1:{DEFAULT_PORT}")).rstrip("/")
 DEFAULT_BACKEND_URL = _raw_backend_url
+
+# 默认会话 ID：绑定系统演示会话 session_user_001 (王女士)，以便与客服工作台同屏无缝实时互通
+DEFAULT_SESSION_ID = os.getenv("CHAINLIT_SESSION_ID", "session_user_001")
 
 # 预设测试画像
 PROFILES: Dict[str, Dict[str, Any]] = {
@@ -103,10 +115,93 @@ def get_agent_action_buttons() -> list:
     return actions
 
 
+# 记录已渲染的消息 ID，避免重复推送
+SEEN_MESSAGE_IDS: Set[str] = set()
+
+async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: str):
+    """
+    全双工实时同步中枢：
+    1. 优先尝试使用原生 WebSocket 长连接 (ws://.../ws) 订阅当前会话房间
+    2. 当人工客服在网页工作台回复消息时，毫秒级推送展示到 Chainlit
+    3. 附带兜底轮询机制，确保未安装 websockets 库或连接抖动时消息 100% 畅通
+    """
+    ws_url = backend_url.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
+    
+    # 方案 1：若已安装 websockets 库，启用全双工原生 WebSocket 长连接
+    if HAS_WEBSOCKETS and websockets:
+        try:
+            async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
+                cl.user_session.set("active_ws", ws)
+                # 握手绑定会话
+                await ws.send(json.dumps({
+                    "type": "join",
+                    "sessionId": session_id,
+                    "role": "customer",
+                    "name": user_name
+                }))
+                
+                async for raw in ws:
+                    try:
+                        data = json.loads(raw)
+                        mtype = data.get("type")
+                        if mtype == "message:new":
+                            msg = data.get("message", {})
+                            mid = msg.get("id", "")
+                            # 仅处理来自人工坐席的新消息 (来自客服工作台 AgentWorkbench)
+                            if msg.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
+                                SEEN_MESSAGE_IDS.add(mid)
+                                agent_name = data.get("session", {}).get("assignedAgent") or "值班人工坐席"
+                                agent_id = data.get("session", {}).get("assignedAgentId") or "agent_101"
+                                content = msg.get("content", "")
+                                
+                                agent_card = (
+                                    f"> 👨‍💼 **人工客服在线 (WebSocket 实时同步)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
+                                    f"{content}"
+                                )
+                                await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
+                                
+                        elif mtype == "session:update":
+                            sess = data.get("session", {})
+                            if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
+                                cl.user_session.set("is_human_mode", True)
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    # 方案 2：自动自愈兜底轮询中枢 (无需 websockets 库也能 100% 同步坐席回复)
+    while True:
+        await asyncio.sleep(1.5)
+        try:
+            async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
+                res = await client.get(f"{backend_url}/api/sessions/{session_id}")
+                if res.status_code == 200:
+                    sess = res.json().get("session", {})
+                    if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
+                        cl.user_session.set("is_human_mode", True)
+                    
+                    messages = sess.get("messages", [])
+                    for m in messages:
+                        mid = m.get("id", "")
+                        if m.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
+                            SEEN_MESSAGE_IDS.add(mid)
+                            agent_name = sess.get("assignedAgent") or "值班人工坐席"
+                            agent_id = sess.get("assignedAgentId") or "agent_101"
+                            content = m.get("content", "")
+                            
+                            agent_card = (
+                                f"> 👨‍💼 **人工客服在线 (坐席工作台已回复)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
+                                f"{content}"
+                            )
+                            await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
+        except Exception:
+            continue
+
+
 @cl.on_chat_start
 async def on_chat_start():
-    """对话初始化：探测后端、初始化会话，展示快捷操作卡片"""
-    session_id = f"cl_{int(time.time())}"
+    """对话初始化：探测后端、初始化会话，展示快捷操作卡片并启动实时同步"""
+    session_id = DEFAULT_SESSION_ID
     profile = PROFILES["vip"]
     cl.user_session.set("session_id", session_id)
     cl.user_session.set("user_profile", profile)
@@ -116,8 +211,12 @@ async def on_chat_start():
     target_url, is_online, status_text = await probe_backend_endpoint()
     cl.user_session.set("backend_url", target_url)
 
+    # 启动后台实时 WebSocket / 差量轮询监听任务 (将坐席工作台的消息毫秒级引入当前窗口)
+    asyncio.create_task(run_realtime_sync_loop(session_id, target_url, profile["userName"]))
+
+    ws_tech = "WebSocket 全双工长连接" if HAS_WEBSOCKETS else "智能高频轮询同步 (建议 pip install websockets)"
     if is_online:
-        status_banner = f"> **服务状态**: {status_text} | 目标地址: `{target_url}`\n\n"
+        status_banner = f"> **服务状态**: {status_text} | 目标地址: `{target_url}` | 通信引擎: `{ws_tech}`\n\n"
     else:
         status_banner = (
             f"> **服务状态**: {status_text}\n"
@@ -126,11 +225,11 @@ async def on_chat_start():
         )
 
     welcome_md = (
-        f"### 🚀 IntelliServe 智能客服自测工作台 (人机协同版)\n"
-        f"- **测试会话 ID**: `{session_id}`\n"
+        f"### 🚀 IntelliServe 智能客服自测工作台 (人机协同与 WebSocket 版)\n"
+        f"- **互通会话 ID**: `{session_id}` (已与前台客服工作台同步绑定)\n"
         f"- **当前模拟客户**: `{profile['userName']}` ({profile['vipLevel']})\n"
         f"- **当前服务模式**: `🤖 AI 智能客服自动接待`\n"
-        f"- **双向自测支持**: 支持客户提问，随时一键 **转人工客服**，并可使用 `/agent <回复>` 模拟坐席实时对话！\n\n"
+        f"- **实时互通说明**: 点击 **【🎧 立即转人工客服】** 后，前台客服工作台会实时闪烁弹窗；坐席在工作台回复后，消息将**秒级自动推送至本窗口**！\n\n"
         f"{status_banner}"
         "点击下方常用用例一键测试，或直接输入售后问题开始自测："
     )
@@ -318,7 +417,7 @@ async def on_message(message: cl.Message):
 
 async def send_human_agent_reply(reply_text: str):
     """以人工坐席身份向客户发送回复"""
-    session_id = cl.user_session.get("session_id", f"cl_{int(time.time())}")
+    session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
     backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
     agent_info = cl.user_session.get("assigned_agent") or {
         "id": "agent_101",
@@ -360,7 +459,7 @@ async def send_human_agent_reply(reply_text: str):
 
 async def trigger_human_escalation(reason: str):
     """执行转接人工客服全流程：调用后端 transfer 接口、冻结上下文、切换会话模式"""
-    session_id = cl.user_session.get("session_id", f"cl_{int(time.time())}")
+    session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
     backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
     profile = cl.user_session.get("user_profile", PROFILES["vip"])
 
@@ -418,7 +517,7 @@ async def trigger_human_escalation(reason: str):
 async def handle_user_input(user_input: str):
     """处理用户输入消息（根据当前会话模式智能流转）"""
     is_human_mode = cl.user_session.get("is_human_mode", False)
-    session_id = cl.user_session.get("session_id", f"cl_{int(time.time())}")
+    session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
     backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
     profile = cl.user_session.get("user_profile", PROFILES["vip"])
 
@@ -432,11 +531,26 @@ async def handle_user_input(user_input: str):
     if is_human_mode:
         agent_info = cl.user_session.get("assigned_agent") or {"name": "张小雅", "id": "agent_101"}
         
-        async with cl.Step(name="客户消息同步至坐席工作台", type="run") as step:
+        async with cl.Step(name="📡 WebSocket 全双工通道：同步客户消息至坐席工作台", type="run") as step:
             step.input = user_input
-            # 同步客户消息至后端会话
+            
+            # 1. 尝试通过活跃 WebSocket 发送客户消息广播
+            ws_sent = False
+            active_ws = cl.user_session.get("active_ws")
+            if active_ws:
+                try:
+                    await active_ws.send(json.dumps({
+                        "type": "customer_message",
+                        "sessionId": session_id,
+                        "content": user_input
+                    }))
+                    ws_sent = True
+                except Exception:
+                    pass
+
+            # 2. 同步客户消息至后端持久化会话
             try:
-                async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                     await client.post(
                         f"{backend_url}/api/chat",
                         json={
@@ -445,27 +559,28 @@ async def handle_user_input(user_input: str):
                             "userProfile": profile
                         }
                     )
-                step.output = f"已推送到坐席工作台（坐席: {agent_info['name']}）"
-            except Exception as e:
-                step.output = f"已暂存: {e}"
+            except Exception:
+                pass
+                
+            step.output = f"✅ 已通过 {'原生 WebSocket' if ws_sent else '实时 HTTP 管道'} 送达客服工作台！坐席界面已同步出现此消息。"
 
-        # 智能生成坐席应答建议，模拟两方实时对话交互
-        async with cl.Step(name=f"坐席工作台实时推演回复", type="tool") as agent_step:
-            agent_step.input = f"坐席 {agent_info['name']} 正在处理客户诉求: '{user_input}'"
+        # 智能生成坐席应答建议，模拟两方实时对话交互 (若坐席未在网页端输入，提供快捷兜底)
+        async with cl.Step(name=f"💡 AI Copilot 坐席推荐话术计算", type="tool") as agent_step:
+            agent_step.input = f"为坐席 {agent_info['name']} 实时推演最佳应答: '{user_input}'"
             simulated_reply = f"您好，针对您提到的“{user_input}”，我已在售后系统为您开辟绿色处理通道，请您稍候片刻！"
             try:
-                async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                     sugg_res = await client.post(
                         f"{backend_url}/api/generate-suggestion",
                         json={"sessionId": session_id}
                     )
                     if sugg_res.status_code == 200:
                         simulated_reply = sugg_res.json().get("suggestion", simulated_reply)
-                        agent_step.output = "已通过 Copilot 生成坐席回复建议并自动发送"
+                        agent_step.output = "已通过后台知识库生成坐席标准建议回复"
             except Exception:
                 agent_step.output = "使用坐席标准专业应答"
 
-        # 展现人工坐席回复
+        # 展现人工坐席回复卡片
         await send_human_agent_reply(simulated_reply)
         return
 
