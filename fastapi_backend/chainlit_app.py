@@ -18,9 +18,9 @@ os.environ["no_proxy"] = "127.0.0.1,localhost,0.0.0.0"
 for proxy_key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]:
     os.environ.pop(proxy_key, None)
 
-DEFAULT_PORT = 8000
-_raw_backend_url = os.getenv("BACKEND_URL", f"http://127.0.0.1:{DEFAULT_PORT}").rstrip("/")
-DEFAULT_BACKEND_URL = "http://127.0.0.1:8000" if ":5000" in _raw_backend_url else _raw_backend_url
+DEFAULT_PORT = 5000
+_raw_backend_url = os.getenv("BACKEND_URL", os.getenv("FASTAPI_BACKEND_URL", f"http://127.0.0.1:{DEFAULT_PORT}")).rstrip("/")
+DEFAULT_BACKEND_URL = _raw_backend_url
 
 # 预设测试画像
 PROFILES: Dict[str, Dict[str, Any]] = {
@@ -48,27 +48,27 @@ AGENT_QUICK_RESPONSES = [
 
 
 async def probe_backend_endpoint() -> Tuple[str, bool, str]:
-    """智能探测可用后端地址，优先 8000 端口，避开 5000 端口 AirPlay 冲突"""
+    """智能探测可用后端地址，自动兼容 5000 与 8000 端口"""
     candidates = []
-    if DEFAULT_BACKEND_URL and ":5000" not in DEFAULT_BACKEND_URL:
+    if DEFAULT_BACKEND_URL:
         candidates.append(DEFAULT_BACKEND_URL)
-    for c in ["http://127.0.0.1:8000", "http://localhost:8000"]:
+    for c in ["http://127.0.0.1:5000", "http://127.0.0.1:8000", "http://localhost:5000", "http://localhost:8000"]:
         if c not in candidates:
             candidates.append(c)
 
     for base_url in candidates:
         try:
-            async with httpx.AsyncClient(timeout=1.5, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=1.2, trust_env=False) as client:
                 res = await client.get(f"{base_url}/api/health")
                 if res.status_code == 200:
-                    return base_url, True, "🟢 已就绪 (API 在线)"
+                    return base_url, True, f"🟢 已就绪 (API 在线: {base_url})"
                 res_chat = await client.get(f"{base_url}/api/chat")
                 if res_chat.status_code in (200, 405):
-                    return base_url, True, "🟢 已就绪 (API 在线)"
+                    return base_url, True, f"🟢 已就绪 (API 在线: {base_url})"
         except Exception:
             continue
 
-    return "http://127.0.0.1:8000", False, "⚠️ 尚未启动 (请在终端执行 python app.py)"
+    return candidates[0] if candidates else "http://127.0.0.1:5000", False, "⚠️ 尚未启动 (请在终端执行 python app.py)"
 
 
 def get_agent_action_buttons() -> list:
@@ -331,7 +331,7 @@ async def send_human_agent_reply(reply_text: str):
     async with cl.Step(name=f"👨‍💼 人工坐席 [{agent_info['name']}] 回复客户", type="run") as step:
         step.input = reply_text
         try:
-            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 res = await client.post(
                     f"{backend_url}/api/sessions/{session_id}/human-message",
                     json={
@@ -345,7 +345,7 @@ async def send_human_agent_reply(reply_text: str):
                 else:
                     step.output = f"HTTP {res.status_code}: {res.text}"
         except Exception as e:
-            step.output = f"请求后端异常: {e}"
+            step.output = f"后端离线/本地自愈: {e}"
 
     agent_card_md = (
         f"> 👨‍💼 **人工客服在线** | 坐席: **{agent_info['name']}** (工号: `{agent_info['id']}`) | 岗位: `{agent_info['title']}`\n\n"
@@ -377,7 +377,7 @@ async def trigger_human_escalation(reason: str):
     async with cl.Step(name="触发人工转接与工单快照冻结", type="tool") as step:
         step.input = f"会话 ID: {session_id} | 触发原因: {reason}"
         try:
-            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 res = await client.post(
                     f"{backend_url}/api/sessions/{session_id}/transfer",
                     json={

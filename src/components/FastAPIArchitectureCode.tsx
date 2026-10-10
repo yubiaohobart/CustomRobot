@@ -436,17 +436,65 @@ class WebSocketConnectionManager:
 ws_manager = WebSocketConnectionManager()`
   },
   {
+    id: "backend_websocket_routes",
+    name: "websocket_routes.py",
+    path: "fastapi_backend/api/websocket_routes.py",
+    category: "fastapi_backend",
+    language: "python",
+    description: "独立 WebSocket 路由与事件分发中枢：长连接生命周期管控、连接鉴权握手、打字状态同步、事件分发器 (Event Dispatcher)",
+    linesCount: 135,
+    code: `"""
+WebSocket 独立路由模块 (api/websocket_routes.py)
+职责：
+1. 管理 /ws 与 /ws/{session_id} 原生全双工长连接
+2. 连接鉴权握手与生命周期异常边界隔离
+3. 事件分发器 (Event Dispatcher): 拆解 subscribe, ping, typing, human_message, customer_message
+"""
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from services.websocket_manager import ws_manager
+from services.memory_service import memory_service
+
+ws_router = APIRouter(tags=["WebSocket 实时通信"])
+
+@ws_router.websocket("/ws/{session_id}")
+async def websocket_session_endpoint(websocket: WebSocket, session_id: str):
+    await handle_websocket_loop(websocket, initial_session_id=session_id)
+
+@ws_router.websocket("/ws")
+async def websocket_default_endpoint(websocket: WebSocket):
+    await handle_websocket_loop(websocket, initial_session_id="session_user_001")
+
+async def handle_websocket_loop(websocket: WebSocket, initial_session_id: str):
+    await ws_manager.connect(websocket, session_id=initial_session_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+            # 优雅事件分发 (Event Dispatcher)
+            if msg_type in ("subscribe", "join"):
+                await handle_subscribe_event(websocket, data, current_session_id)
+            elif msg_type == "typing":
+                await handle_typing_event(websocket, data, current_session_id)
+            elif msg_type == "human_message":
+                await handle_human_message_event(websocket, data, current_session_id)
+            elif msg_type == "customer_message":
+                await handle_customer_message_event(websocket, data, current_session_id)
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)`
+  },
+  {
     id: "backend_routes",
     name: "routes.py",
     path: "fastapi_backend/api/routes.py",
     category: "fastapi_backend",
     language: "python",
-    description: "FastAPI RESTful API 路由与 WebSocket 双向长连接端点：/api/chat、/api/transfer、/ws/{session_id} 等全功能接口",
-    linesCount: 320,
+    description: "FastAPI RESTful API 路由层：/api/chat、/api/orders、/api/knowledge/search、/api/sessions 等纯粹 REST 接口",
+    linesCount: 280,
     code: `"""
-FastAPI 业务路由层与原生 WebSocket 端点 (api/routes.py)
+FastAPI 业务路由层 (api/routes.py) - 纯粹的 RESTful 接口
+与 WebSocket 独立路由彻底解耦，遵循单一职责原则 (SRP)
 """
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException
 from models.schemas import ChatRequest, ChatResponse, TransferRequest
 from services.memory_service import memory_service
 from services.websocket_manager import ws_manager
@@ -454,10 +502,11 @@ from workflow.graph import customer_service_graph
 
 router = APIRouter(prefix="/api")
 
-@router.websocket("/ws/{session_id}")
-async def websocket_session_endpoint(websocket: WebSocket, session_id: str):
-    # Python 原生 WebSocket 全双工长连接循环：实时输入感知、坐席消息广播、心跳
-    await handle_websocket_loop(websocket, initial_session_id=session_id)
+@router.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    # 调用 LangGraph 编排工作流
+    state = await customer_service_graph.ainvoke({"user_message": request.message})
+    return ChatResponse(reply=state["generated_response"])
 
 @router.post("/sessions/{session_id}/human-message")
 async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
