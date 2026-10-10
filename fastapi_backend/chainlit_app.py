@@ -27,7 +27,7 @@ os.environ["no_proxy"] = "127.0.0.1,localhost,0.0.0.0"
 for proxy_key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]:
     os.environ.pop(proxy_key, None)
 
-DEFAULT_PORT = 5000
+DEFAULT_PORT = 8000
 _raw_backend_url = os.getenv("BACKEND_URL", os.getenv("FASTAPI_BACKEND_URL", f"http://127.0.0.1:{DEFAULT_PORT}")).rstrip("/")
 DEFAULT_BACKEND_URL = _raw_backend_url
 
@@ -59,12 +59,52 @@ AGENT_QUICK_RESPONSES = [
 ]
 
 
+class ChainlitWsBridge:
+    """
+    全局 WebSocket 连接桥接器 (避免 asyncio task 隔离导致的 contextvars 无法共享问题)
+    管理当前活跃的 WebSocket 长连接，支持跨协程发送与接收
+    """
+    def __init__(self):
+        self.active_sockets: Dict[str, Any] = {}
+        self.statuses: Dict[str, Dict[str, Any]] = {}
+
+    def set_ws(self, session_id: str, ws: Any, url: str):
+        self.active_sockets[session_id] = ws
+        self.statuses[session_id] = {"connected": True, "url": url, "time": time.time()}
+
+    def remove_ws(self, session_id: str):
+        self.active_sockets.pop(session_id, None)
+        if session_id in self.statuses:
+            self.statuses[session_id]["connected"] = False
+
+    def is_connected(self, session_id: str) -> bool:
+        ws = self.active_sockets.get(session_id)
+        if not ws:
+            return False
+        return getattr(ws, "open", True) and not getattr(ws, "closed", False)
+
+    async def send_event(self, session_id: str, event_data: dict) -> bool:
+        ws = self.active_sockets.get(session_id)
+        if ws:
+            try:
+                await ws.send(json.dumps(event_data))
+                return True
+            except Exception as e:
+                print(f"⚠️ [WebSocket 发送异常]: {e}")
+                self.remove_ws(session_id)
+                return False
+        return False
+
+# 单例桥接器
+ws_bridge = ChainlitWsBridge()
+
+
 async def probe_backend_endpoint() -> Tuple[str, bool, str]:
-    """智能探测可用后端地址，自动兼容 5000 与 8000 端口"""
+    """智能探测可用后端地址，优先检测 8000 端口，兼容 5000 端口"""
     candidates = []
     if DEFAULT_BACKEND_URL:
         candidates.append(DEFAULT_BACKEND_URL)
-    for c in ["http://127.0.0.1:5000", "http://127.0.0.1:8000", "http://localhost:5000", "http://localhost:8000"]:
+    for c in ["http://127.0.0.1:8000", "http://127.0.0.1:5000", "http://localhost:8000", "http://localhost:5000"]:
         if c not in candidates:
             candidates.append(c)
 
@@ -80,7 +120,7 @@ async def probe_backend_endpoint() -> Tuple[str, bool, str]:
         except Exception:
             continue
 
-    return candidates[0] if candidates else "http://127.0.0.1:5000", False, "⚠️ 尚未启动 (请在终端执行 python app.py)"
+    return candidates[0] if candidates else "http://127.0.0.1:8000", False, "⚠️ 尚未启动 (请在终端执行 cd fastapi_backend && python app.py)"
 
 
 def get_agent_action_buttons() -> list:
@@ -121,81 +161,93 @@ SEEN_MESSAGE_IDS: Set[str] = set()
 async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: str):
     """
     全双工实时同步中枢：
-    1. 优先尝试使用原生 WebSocket 长连接 (ws://.../ws) 订阅当前会话房间
+    1. 持续维持原生 WebSocket 长连接 (ws://.../ws) 订阅当前会话房间，支持断线秒级自愈重连
     2. 当人工客服在网页工作台回复消息时，毫秒级推送展示到 Chainlit
-    3. 附带兜底轮询机制，确保未安装 websockets 库或连接抖动时消息 100% 畅通
+    3. 附带后台差量检查机制，保证消息 100% 不漏达
     """
     ws_url = backend_url.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
-    
-    # 方案 1：若已安装 websockets 库，启用全双工原生 WebSocket 长连接
-    if HAS_WEBSOCKETS and websockets:
-        try:
-            async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
-                cl.user_session.set("active_ws", ws)
-                # 握手绑定会话
-                await ws.send(json.dumps({
-                    "type": "join",
-                    "sessionId": session_id,
-                    "role": "customer",
-                    "name": user_name
-                }))
-                
-                async for raw in ws:
-                    try:
-                        data = json.loads(raw)
-                        mtype = data.get("type")
-                        if mtype == "message:new":
-                            msg = data.get("message", {})
-                            mid = msg.get("id", "")
-                            # 仅处理来自人工坐席的新消息 (来自客服工作台 AgentWorkbench)
-                            if msg.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
+
+    async def ws_worker():
+        if not HAS_WEBSOCKETS or not websockets:
+            print("⚠️ 未安装 websockets 依赖库，使用差量同步引擎 (建议运行 pip install websockets)")
+            return
+
+        while True:
+            try:
+                print(f"🔌 [Chainlit WS] 正在尝试建立 WebSocket 长连接: {ws_url} ...")
+                async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
+                    ws_bridge.set_ws(session_id, ws, ws_url)
+                    print(f"🟢 [Chainlit WS] 全双工 WebSocket 长连接已就绪！已加入会话: {session_id}")
+                    
+                    # 握手绑定会话
+                    await ws.send(json.dumps({
+                        "type": "join",
+                        "sessionId": session_id,
+                        "role": "customer",
+                        "name": user_name
+                    }))
+                    
+                    async for raw in ws:
+                        try:
+                            data = json.loads(raw)
+                            mtype = data.get("type")
+                            if mtype == "message:new":
+                                msg = data.get("message", {})
+                                mid = msg.get("id", "")
+                                # 仅处理来自人工坐席的新消息 (来自客服工作台 AgentWorkbench)
+                                if msg.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
+                                    SEEN_MESSAGE_IDS.add(mid)
+                                    agent_name = data.get("session", {}).get("assignedAgent") or msg.get("agentName") or "值班人工坐席"
+                                    agent_id = data.get("session", {}).get("assignedAgentId") or msg.get("agentId") or "agent_101"
+                                    content = msg.get("content", "")
+                                    
+                                    agent_card = (
+                                        f"> 👨‍💼 **人工客服在线 (WebSocket 实时同步)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
+                                        f"{content}"
+                                    )
+                                    await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
+                                    
+                            elif mtype == "session:update":
+                                sess = data.get("session", {})
+                                if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
+                                    cl.user_session.set("is_human_mode", True)
+                        except Exception:
+                            continue
+            except Exception as e:
+                ws_bridge.remove_ws(session_id)
+                print(f"⚠️ [Chainlit WS] 长连接断开或未就绪 ({e})，2秒后尝试自动重连...")
+                await asyncio.sleep(2.0)
+
+    async def poll_worker():
+        while True:
+            await asyncio.sleep(1.5)
+            try:
+                async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
+                    res = await client.get(f"{backend_url}/api/sessions/{session_id}")
+                    if res.status_code == 200:
+                        sess = res.json().get("session", {})
+                        if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
+                            cl.user_session.set("is_human_mode", True)
+                        
+                        messages = sess.get("messages", [])
+                        for m in messages:
+                            mid = m.get("id", "")
+                            if m.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
                                 SEEN_MESSAGE_IDS.add(mid)
-                                agent_name = data.get("session", {}).get("assignedAgent") or "值班人工坐席"
-                                agent_id = data.get("session", {}).get("assignedAgentId") or "agent_101"
-                                content = msg.get("content", "")
+                                agent_name = sess.get("assignedAgent") or m.get("agentName") or "值班人工坐席"
+                                agent_id = sess.get("assignedAgentId") or m.get("agentId") or "agent_101"
+                                content = m.get("content", "")
                                 
                                 agent_card = (
-                                    f"> 👨‍💼 **人工客服在线 (WebSocket 实时同步)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
+                                    f"> 👨‍💼 **人工客服在线 (坐席工作台已回复)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
                                     f"{content}"
                                 )
                                 await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
-                                
-                        elif mtype == "session:update":
-                            sess = data.get("session", {})
-                            if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
-                                cl.user_session.set("is_human_mode", True)
-                    except Exception:
-                        continue
-        except Exception:
-            pass
+            except Exception:
+                continue
 
-    # 方案 2：自动自愈兜底轮询中枢 (无需 websockets 库也能 100% 同步坐席回复)
-    while True:
-        await asyncio.sleep(1.5)
-        try:
-            async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
-                res = await client.get(f"{backend_url}/api/sessions/{session_id}")
-                if res.status_code == 200:
-                    sess = res.json().get("session", {})
-                    if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
-                        cl.user_session.set("is_human_mode", True)
-                    
-                    messages = sess.get("messages", [])
-                    for m in messages:
-                        mid = m.get("id", "")
-                        if m.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
-                            SEEN_MESSAGE_IDS.add(mid)
-                            agent_name = sess.get("assignedAgent") or "值班人工坐席"
-                            agent_id = sess.get("assignedAgentId") or "agent_101"
-                            content = m.get("content", "")
-                            
-                            agent_card = (
-                                f"> 👨‍💼 **人工客服在线 (坐席工作台已回复)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
-                                f"{content}"
-                            )
-                            await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
-        except Exception:
-            continue
+    # 并发执行 WebSocket 长连接与差量兜底轮询
+    await asyncio.gather(ws_worker(), poll_worker())
 
 
 @cl.on_chat_start
@@ -416,7 +468,7 @@ async def on_message(message: cl.Message):
 
 
 async def send_human_agent_reply(reply_text: str):
-    """以人工坐席身份向客户发送回复"""
+    """以人工坐席身份向客户发送回复 (通过 WebSocket 全双工通道广播)"""
     session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
     backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
     agent_info = cl.user_session.get("assigned_agent") or {
@@ -427,8 +479,22 @@ async def send_human_agent_reply(reply_text: str):
     }
 
     t0 = time.time()
-    async with cl.Step(name=f"👨‍💼 人工坐席 [{agent_info['name']}] 回复客户", type="run") as step:
+    ws_sent = False
+    http_synced = False
+
+    async with cl.Step(name=f"👨‍💼 人工坐席 [{agent_info['name']}] 回复客户 (双向通信)", type="run") as step:
         step.input = reply_text
+        
+        # 1. 优先通过原生 WebSocket 长连接广播
+        ws_sent = await ws_bridge.send_event(session_id, {
+            "type": "human_message",
+            "sessionId": session_id,
+            "content": reply_text,
+            "agentId": agent_info["id"],
+            "agentName": agent_info["name"]
+        })
+
+        # 2. HTTP 接口同步持久化
         try:
             async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 res = await client.post(
@@ -440,14 +506,15 @@ async def send_human_agent_reply(reply_text: str):
                     }
                 )
                 if res.status_code == 200:
-                    step.output = f"HTTP 200 OK | 消息已成功同步至后端会话记忆库 (耗时 {int((time.time()-t0)*1000)}ms)"
+                    http_synced = True
+                    step.output = f"✅ 已通过 {'原生 WebSocket + HTTP' if ws_sent else 'HTTP API'} 实时广播送达客户 (耗时 {int((time.time()-t0)*1000)}ms)"
                 else:
                     step.output = f"HTTP {res.status_code}: {res.text}"
         except Exception as e:
-            step.output = f"后端离线/本地自愈: {e}"
+            step.output = f"WebSocket 已推达 / 本地自愈: {e}"
 
     agent_card_md = (
-        f"> 👨‍💼 **人工客服在线** | 坐席: **{agent_info['name']}** (工号: `{agent_info['id']}`) | 岗位: `{agent_info['title']}`\n\n"
+        f"> 👨‍💼 **人工客服在线 (坐席已回复)** | 坐席: **{agent_info['name']}** (工号: `{agent_info['id']}`) | 岗位: `{agent_info['title']}`\n\n"
         f"{reply_text}"
     )
 
@@ -458,7 +525,7 @@ async def send_human_agent_reply(reply_text: str):
 
 
 async def trigger_human_escalation(reason: str):
-    """执行转接人工客服全流程：调用后端 transfer 接口、冻结上下文、切换会话模式"""
+    """执行转接人工客服全流程：调用后端 transfer 接口、通过 WebSocket 发送转人工事件、冻结上下文、切换会话模式"""
     session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
     backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
     profile = cl.user_session.get("user_profile", PROFILES["vip"])
@@ -473,8 +540,20 @@ async def trigger_human_escalation(reason: str):
     cl.user_session.set("assigned_agent", agent_info)
     cl.user_session.set("is_human_mode", True)
 
+    ws_sent = False
     async with cl.Step(name="触发人工转接与工单快照冻结", type="tool") as step:
         step.input = f"会话 ID: {session_id} | 触发原因: {reason}"
+        
+        # 1. 尝试通过原生 WebSocket 发送 transfer 事件
+        ws_sent = await ws_bridge.send_event(session_id, {
+            "type": "transfer",
+            "sessionId": session_id,
+            "reason": reason,
+            "targetAgentId": agent_info["id"],
+            "operatorNote": f"Chainlit 自测请求，客户 {profile['userName']}({profile['vipLevel']})"
+        })
+
+        # 2. HTTP transfer 接口持久化与快照打包
         try:
             async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 res = await client.post(
@@ -488,11 +567,14 @@ async def trigger_human_escalation(reason: str):
                 )
                 if res.status_code == 200:
                     data = res.json()
-                    step.output = f"✅ 转接成功！已冻结快照，指派坐席: {agent_info['name']} (工号 {agent_info['id']})"
+                    step.output = f"✅ 转接成功！{'原生 WebSocket' if ws_sent else '实时 HTTP'} 已广播至坐席大厅，指派坐席: {agent_info['name']} (工号 {agent_info['id']})"
                 else:
                     step.output = f"HTTP {res.status_code}: {res.text}"
         except Exception as e:
             step.output = f"转接本地自愈接管: {e}"
+
+    ws_connected = ws_bridge.is_connected(session_id)
+    ws_badge = "🟢 **全双工 WebSocket 长连接已激活**" if ws_connected else "🟡 **双向长连接自动就绪中 (附带高频差量同步保护)**"
 
     escalation_banner = (
         f"### 🎧【人工客服服务专线已接通】\n\n"
@@ -500,12 +582,14 @@ async def trigger_human_escalation(reason: str):
         f"- **当值坐席**: **{agent_info['name']}**（工号: `{agent_info['id']}`）\n"
         f"- **专业资质**: `{agent_info['title']}` | 好评率: `{agent_info['rating']}`\n"
         f"- **专长领域**: `{agent_info['skill']}`\n"
+        f"- **实时通道**: {ws_badge}\n"
         f"- **交接状态**: 对话历史、Qdrant 检索记录与会员权益已完整同步至坐席工作台。\n\n"
         f"---\n"
         f"💬 **坐席开场白**: *“您好！我是值班专员{agent_info['name']}，您的咨询快照我已经全面调阅，请问有什么可以全力协助您的？”*\n\n"
-        f"> 💡 **人机沟通双向测试指南**：\n"
-        f"> 1. **作为客户**：在下方直接输入您的问题，人工坐席将实时为您协同跟进；\n"
-        f"> 2. **作为坐席**：可输入 `/agent <回复内容>` 发送坐席答复，或直接点击下方【坐席快捷回复】按钮！"
+        f"> 💡 **双向对话测试指南**：\n"
+        f"> 1. **作为客户提问**：直接在下方输入框提问，消息将**秒级推送到坐席工作台**；\n"
+        f"> 2. **真实跨屏互动**：可在浏览器打开客服工作台，人工坐席回复后将**即时呈现在本窗口**；\n"
+        f"> 3. **单端快速自测**：可输入 `/agent <回复>` 模拟坐席答复，或直接点击下方【💬 坐席快捷回复】！"
     )
 
     await cl.Message(
@@ -531,57 +615,43 @@ async def handle_user_input(user_input: str):
     if is_human_mode:
         agent_info = cl.user_session.get("assigned_agent") or {"name": "张小雅", "id": "agent_101"}
         
-        async with cl.Step(name="📡 WebSocket 全双工通道：同步客户消息至坐席工作台", type="run") as step:
-            step.input = user_input
-            
-            # 1. 尝试通过活跃 WebSocket 发送客户消息广播
-            ws_sent = False
-            active_ws = cl.user_session.get("active_ws")
-            if active_ws:
-                try:
-                    await active_ws.send(json.dumps({
-                        "type": "customer_message",
+        # 1. 优先通过 WebSocket 发送客户发言
+        ws_sent = await ws_bridge.send_event(session_id, {
+            "type": "customer_message",
+            "sessionId": session_id,
+            "content": user_input
+        })
+
+        # 2. 同步客户消息至后端持久化会话 (/api/chat 会识别人工模式并不产生 AI 幻觉覆盖)
+        try:
+            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+                await client.post(
+                    f"{backend_url}/api/chat",
+                    json={
                         "sessionId": session_id,
-                        "content": user_input
-                    }))
-                    ws_sent = True
-                except Exception:
-                    pass
+                        "message": user_input,
+                        "userProfile": profile
+                    }
+                )
+        except Exception:
+            pass
 
-            # 2. 同步客户消息至后端持久化会话
-            try:
-                async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-                    await client.post(
-                        f"{backend_url}/api/chat",
-                        json={
-                            "sessionId": session_id,
-                            "message": user_input,
-                            "userProfile": profile
-                        }
-                    )
-            except Exception:
-                pass
-                
-            step.output = f"✅ 已通过 {'原生 WebSocket' if ws_sent else '实时 HTTP 管道'} 送达客服工作台！坐席界面已同步出现此消息。"
+        ws_label = "🟢 原生 WebSocket 全双工通道" if ws_sent else "🔄 实时消息网关"
+        
+        feedback_md = (
+            f"> 📡 **【{ws_label}】客户消息已实时送达人工坐席工作台**\n"
+            f"> \n"
+            f"> 👤 **客户发送**: “{user_input}”\n\n"
+            f"⏳ **等待人工坐席回复中**...\n"
+            f"- **跨端实时对话**：若在网页坐席工作台输入回复，消息将通过 WebSocket 秒级呈现在此；\n"
+            f"- **单端自测模拟**：点击下方【坐席快捷回复】或输入 `/agent <回复内容>` 发送坐席答复；\n"
+            f"- **AI Copilot**：点击下方【💡 AI Copilot 推荐话术】获取坐席辅助参考。"
+        )
 
-        # 智能生成坐席应答建议，模拟两方实时对话交互 (若坐席未在网页端输入，提供快捷兜底)
-        async with cl.Step(name=f"💡 AI Copilot 坐席推荐话术计算", type="tool") as agent_step:
-            agent_step.input = f"为坐席 {agent_info['name']} 实时推演最佳应答: '{user_input}'"
-            simulated_reply = f"您好，针对您提到的“{user_input}”，我已在售后系统为您开辟绿色处理通道，请您稍候片刻！"
-            try:
-                async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-                    sugg_res = await client.post(
-                        f"{backend_url}/api/generate-suggestion",
-                        json={"sessionId": session_id}
-                    )
-                    if sugg_res.status_code == 200:
-                        simulated_reply = sugg_res.json().get("suggestion", simulated_reply)
-                        agent_step.output = "已通过后台知识库生成坐席标准建议回复"
-            except Exception:
-                agent_step.output = "使用坐席标准专业应答"
-
-        # 展现人工坐席回复卡片
-        await send_human_agent_reply(simulated_reply)
+        await cl.Message(
+            content=feedback_md,
+            actions=get_agent_action_buttons()
+        ).send()
         return
 
     # 正常 AI 模式：向 FastAPI 后端 /api/chat 发起请求

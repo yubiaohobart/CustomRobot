@@ -286,6 +286,20 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     if (!text || !activeSession || sending) return;
 
     setSending(true);
+
+    // 优先通过 WebSocket 发送人工坐席消息 (实现毫秒级双向广播)
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "human_message",
+          sessionId: activeSession.id,
+          content: text,
+          agentName: activeSession.assignedAgent || "人工客服 #108 - 陈主管",
+          agentId: activeSession.assignedAgentId || "agent_101",
+        })
+      );
+    }
+
     try {
       const res = await fetch(`/api/sessions/${activeSession.id}/human-message`, {
         method: "POST",

@@ -168,6 +168,17 @@ export const DualChatView: React.FC = () => {
     setCustomerInput("");
     setCustomerLoading(true);
 
+    // 优先通过 WebSocket 发送客户发言
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "customer_message",
+          sessionId: selectedSessionId,
+          content: text,
+        })
+      );
+    }
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -198,6 +209,20 @@ export const DualChatView: React.FC = () => {
     if (!text || agentSending) return;
 
     setAgentSending(true);
+
+    // 优先通过 WebSocket 发送人工客服发言
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "human_message",
+          sessionId: selectedSessionId,
+          content: text,
+          agentName: session?.assignedAgent || "陈浩 (高级售后督导)",
+          agentId: session?.assignedAgentId || "agent_101",
+        })
+      );
+    }
+
     try {
       const res = await fetch(`/api/sessions/${selectedSessionId}/human-message`, {
         method: "POST",

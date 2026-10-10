@@ -20,12 +20,44 @@ dotenv.config();
  */
 
 const PORT = 3000;
-const PYTHON_BACKEND_URL =
-  process.env.FASTAPI_BACKEND_URL ||
-  process.env.BACKEND_URL ||
-  "http://127.0.0.1:5000";
+const CANDIDATE_BACKEND_URLS = Array.from(
+  new Set(
+    [
+      process.env.FASTAPI_BACKEND_URL,
+      process.env.BACKEND_URL,
+      "http://127.0.0.1:8000",
+      "http://127.0.0.1:5000",
+      "http://localhost:8000",
+      "http://localhost:5000",
+    ].filter(Boolean) as string[]
+  )
+);
 
-const PYTHON_WS_BASE_URL = PYTHON_BACKEND_URL.replace(/^http/, "ws");
+let cachedActiveBackendUrl: string = CANDIDATE_BACKEND_URLS[0];
+let lastProbeTime = 0;
+
+async function getActivePythonBackendUrl(): Promise<string> {
+  const now = Date.now();
+  if (now - lastProbeTime < 2000) {
+    return cachedActiveBackendUrl;
+  }
+  lastProbeTime = now;
+
+  for (const url of CANDIDATE_BACKEND_URLS) {
+    try {
+      const resp = await fetch(`${url}/api/health`, {
+        signal: AbortSignal.timeout(600),
+      });
+      if (resp.ok) {
+        cachedActiveBackendUrl = url;
+        return url;
+      }
+    } catch {
+      // continue to next candidate
+    }
+  }
+  return cachedActiveBackendUrl;
+}
 
 async function startServer() {
   const app = express();
@@ -50,10 +82,11 @@ async function startServer() {
   app.get("/api/gateway/status", async (req, res) => {
     let pythonConnected = false;
     let pythonHealthData: any = null;
+    const activeUrl = await getActivePythonBackendUrl();
 
     try {
-      const resp = await fetch(`${PYTHON_BACKEND_URL}/api/health`, {
-        signal: AbortSignal.timeout(1500),
+      const resp = await fetch(`${activeUrl}/api/health`, {
+        signal: AbortSignal.timeout(1200),
       });
       if (resp.ok) {
         pythonConnected = true;
@@ -63,15 +96,18 @@ async function startServer() {
       pythonConnected = false;
     }
 
+    const wsUrl = activeUrl.replace(/^http/, "ws") + "/ws";
+
     res.json({
       gateway: "IntelliServe Node.js Gateway",
       architecture: "Python-Authoritative (All Backend & WebSocket Handled by Python FastAPI)",
-      pythonBackendUrl: PYTHON_BACKEND_URL,
-      pythonWsUrl: `${PYTHON_WS_BASE_URL}/ws`,
+      pythonBackendUrl: activeUrl,
+      pythonWsUrl: wsUrl,
       pythonConnected,
+      candidateUrls: CANDIDATE_BACKEND_URLS,
       fastapi: pythonHealthData,
       instructions: pythonConnected
-        ? "Python 后端与 WebSocket 服务运行中"
+        ? `Python 后端与 WebSocket 服务在线 (${activeUrl})`
         : "请在终端执行 'cd fastapi_backend && python app.py' 启动 Python 后端",
     });
   });
@@ -79,7 +115,8 @@ async function startServer() {
   // ==================== HTTP API 透明反向代理 ====================
   // 将所有 /api/* 请求透明穿透给 Python FastAPI
   app.all("/api/*", async (req, res) => {
-    const targetUrl = `${PYTHON_BACKEND_URL}${req.originalUrl}`;
+    const activeUrl = await getActivePythonBackendUrl();
+    const targetUrl = `${activeUrl}${req.originalUrl}`;
 
     try {
       const options: RequestInit = {
@@ -109,7 +146,6 @@ async function startServer() {
       );
       return res.send(data);
     } catch (err: any) {
-      // 当 Python 后端暂时未启动时的友好提示
       console.warn(`[Gateway Proxy] Python backend unreachable at ${targetUrl}:`, err.message);
       return res.status(503).json({
         error: "Python Backend Unavailable",
@@ -155,32 +191,49 @@ async function startServer() {
     }
   });
 
-  function proxyWebSocketToPython(clientWs: WebSocket, targetPath: string) {
-    const pythonTargetWs = `${PYTHON_WS_BASE_URL}${targetPath}`;
+  async function proxyWebSocketToPython(clientWs: WebSocket, targetPath: string) {
+    const activeUrl = await getActivePythonBackendUrl();
+    const wsBaseUrl = activeUrl.replace(/^http/, "ws");
+    const pythonTargetWs = `${wsBaseUrl}${targetPath}`;
+    
+    // 建立对 clientWs 消息的即时监听与预缓冲队列，杜绝建立连接期间的握手包丢失
+    const bufferQueue: Array<{ data: any; isBinary: boolean }> = [];
+    let isPyWsOpen = false;
     let pyWs: WebSocket | null = null;
+
+    clientWs.on("message", (data, isBinary) => {
+      if (isPyWsOpen && pyWs && pyWs.readyState === WebSocket.OPEN) {
+        pyWs.send(data, { binary: isBinary });
+      } else {
+        bufferQueue.push({ data, isBinary });
+      }
+    });
 
     try {
       pyWs = new WebSocket(pythonTargetWs);
     } catch (e: any) {
       console.warn("[WS Proxy] Failed to instantiate Python WebSocket:", e.message);
-      clientWs.send(
-        JSON.stringify({
-          type: "system_notice",
-          error: "Python WebSocket unavailable",
-          message: `无法连接到 Python FastAPI WebSocket: ${pythonTargetWs}，请确保 Python 服务正在运行。`,
-        })
-      );
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(
+          JSON.stringify({
+            type: "system_notice",
+            error: "Python WebSocket unavailable",
+            message: `无法连接到 Python FastAPI WebSocket: ${pythonTargetWs}，请确保 Python 服务正在运行。`,
+          })
+        );
+      }
       return;
     }
 
     pyWs.on("open", () => {
+      isPyWsOpen = true;
       console.log(`[WS Proxy] Connected client to Python WebSocket -> ${pythonTargetWs}`);
-      // 客户端 -> Python FastAPI
-      clientWs.on("message", (data, isBinary) => {
-        if (pyWs && pyWs.readyState === WebSocket.OPEN) {
-          pyWs.send(data, { binary: isBinary });
-        }
-      });
+      
+      // 冲刷连接前暂存的消息队列（如 client join / subscribe 握手包）
+      while (bufferQueue.length > 0) {
+        const item = bufferQueue.shift()!;
+        pyWs.send(item.data, { binary: item.isBinary });
+      }
 
       // Python FastAPI -> 客户端
       pyWs.on("message", (data, isBinary) => {
@@ -218,8 +271,7 @@ async function startServer() {
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`[IntelliServe Gateway] Running on http://0.0.0.0:${PORT}`);
-    console.log(`[IntelliServe Gateway] HTTP API Proxy -> ${PYTHON_BACKEND_URL}/api/*`);
-    console.log(`[IntelliServe Gateway] WebSocket Proxy -> ${PYTHON_WS_BASE_URL}/ws/*`);
+    console.log(`[IntelliServe Gateway] Target Candidates: ${CANDIDATE_BACKEND_URLS.join(", ")}`);
     console.log(`[IntelliServe Gateway] Backend authority: 100% Python FastAPI`);
   });
 }

@@ -106,14 +106,14 @@ async def handle_human_message_event(websocket: WebSocket, data: Dict[str, Any],
 async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
     """处理客户发言"""
     target_session_id = data.get("sessionId") or current_session_id
-    content = data.get("content", "").strip()
+    content = (data.get("content") or data.get("message") or "").strip()
     if not content:
         return
 
     msg = memory_service.add_message(target_session_id, "user", content)
     updated_session = memory_service.get_session(target_session_id)
     
-    # 广播给会话房间
+    # 广播给会话房间 (包括 echoBack 给发送端确认)
     await ws_manager.broadcast_to_session(target_session_id, {
         "type": "message:new",
         "sessionId": target_session_id,
@@ -121,12 +121,68 @@ async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, An
         "session": updated_session
     })
     
-    # 广播给全局坐席大厅
+    # 广播给全局坐席大厅 (刷新工作台会话列表的未读数与最新消息)
     await ws_manager.broadcast_all({
         "type": "session:update",
         "sessionId": target_session_id,
         "session": updated_session
     })
+
+
+async def handle_transfer_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
+    """处理主动申请转接人工事件 (WebSocket 原生事件)"""
+    target_session_id = data.get("sessionId") or current_session_id
+    reason = data.get("reason", "客户端请求人工客服接入")
+    target_agent_id = data.get("targetAgentId", "agent_101")
+    operator_note = data.get("operatorNote", "WebSocket 转人工请求")
+    trigger_type = data.get("triggerType", "user_requested")
+
+    transfer_log, session = memory_service.transfer_session(
+        session_id=target_session_id,
+        target_agent_id=target_agent_id,
+        reason=reason,
+        operator_note=operator_note,
+        trigger_type=trigger_type
+    )
+
+    update_payload = {
+        "type": "session:update",
+        "sessionId": target_session_id,
+        "action": "transfer",
+        "session": session,
+        "transferLog": transfer_log,
+        "message": f"会话已成功转接给坐席工号 {target_agent_id}"
+    }
+
+    # 1. 广播通知该会话房间内各终端 (客户界面、坐席工作台)
+    await ws_manager.broadcast_to_session(target_session_id, update_payload)
+    # 2. 广播通知全局客服大厅 (工单分配与气泡闪烁)
+    await ws_manager.broadcast_all(update_payload)
+
+
+async def handle_intervene_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
+    """处理人工坐席接管或释放回 AI 事件 (WebSocket 原生事件)"""
+    target_session_id = data.get("sessionId") or current_session_id
+    action = data.get("action", "takeover")  # "takeover" 或 "release"
+    agent_id = data.get("agentId", "agent_101")
+    note = data.get("note", "")
+
+    session = memory_service.intervene_session(
+        session_id=target_session_id,
+        action=action,
+        agent_id=agent_id,
+        note=note
+    )
+
+    update_payload = {
+        "type": "session:update",
+        "sessionId": target_session_id,
+        "action": action,
+        "session": session
+    }
+
+    await ws_manager.broadcast_to_session(target_session_id, update_payload)
+    await ws_manager.broadcast_all(update_payload)
 
 
 # ==================== WebSocket 连接主循环 ====================
@@ -156,11 +212,25 @@ async def handle_websocket_loop(websocket: WebSocket, initial_session_id: str):
             elif msg_type == "typing":
                 await handle_typing_event(websocket, data, meta, current_session_id)
                 
-            elif msg_type == "human_message":
+            elif msg_type in ("human_message", "agent_message"):
                 await handle_human_message_event(websocket, data, meta, current_session_id)
                 
-            elif msg_type == "customer_message":
+            elif msg_type in ("customer_message", "user_message"):
                 await handle_customer_message_event(websocket, data, meta, current_session_id)
+                
+            elif msg_type in ("transfer", "request_human", "escalate"):
+                await handle_transfer_event(websocket, data, meta, current_session_id)
+                
+            elif msg_type in ("intervene", "release", "takeover"):
+                await handle_intervene_event(websocket, data, meta, current_session_id)
+
+            elif msg_type in ("message", "chat"):
+                # 兼容通用泛型消息结构
+                role = data.get("role") or meta.get("role", "customer")
+                if role in ("human_agent", "agent", "supervisor"):
+                    await handle_human_message_event(websocket, data, meta, current_session_id)
+                else:
+                    await handle_customer_message_event(websocket, data, meta, current_session_id)
                 
             else:
                 logger.warning(f"收到未识别的 WebSocket 消息类型: {msg_type}")

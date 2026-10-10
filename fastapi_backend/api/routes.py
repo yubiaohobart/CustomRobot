@@ -77,8 +77,37 @@ async def chat_endpoint(req: ChatRequest):
     print(f"\n{LogColor.BOLD}{LogColor.BRIGHT_CYAN}💬 [收到客户问答请求]{LogColor.RESET} 会话: {req.sessionId} | 客户: {user_name} ({tier})")
     print(f"   {LogColor.WHITE}❓ 消息内容: \"{req.message}\"{LogColor.RESET}")
 
-    # 记录客户输入消息
-    memory_service.add_message(req.sessionId, "user", req.message)
+    # 记录客户输入消息并向 WebSocket 广播
+    user_msg = memory_service.add_message(req.sessionId, "user", req.message)
+    await ws_manager.broadcast_to_session(req.sessionId, {
+        "type": "message:new",
+        "sessionId": req.sessionId,
+        "message": user_msg,
+        "session": session
+    })
+    await ws_manager.broadcast_all({
+        "type": "session:update",
+        "sessionId": req.sessionId,
+        "session": session
+    })
+
+    # 若当前会话已被人工接管，则 AI 暂停自主作答，仅将消息推给人工客服坐席
+    if session.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
+        cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
+        return ChatResponse(
+            sessionId=req.sessionId,
+            reply="您的消息已送达人工专员，坐席正在与您实时沟通中...",
+            confidenceScore=1.0,
+            sentiment="neutral",
+            intent="人工客服协同对话",
+            escalatedToHuman=True,
+            escalationReason="会话处于人工坐席服务中",
+            references=[],
+            queriedOrder=None,
+            latencyMs=int((time.time() - t_start) * 1000),
+            stepTrace=["[WebSocket] 客户消息已广播至坐席工作台", "[Session] 处于人工接管锁定状态，AI 暂停自动介入"],
+            session=session
+        )
 
     # 组装初始 LangGraph 状态
     initial_state: AgentState = {
@@ -131,8 +160,8 @@ async def chat_endpoint(req: ChatRequest):
             "snippet": d.get("content", "")[:120] + "..."
         })
 
-    # 将 AI 答复存入会话记忆
-    memory_service.add_message(
+    # 将 AI 答复存入会话记忆并推送 WebSocket
+    assistant_msg = memory_service.add_message(
         req.sessionId,
         "assistant",
         reply,
@@ -140,6 +169,19 @@ async def chat_endpoint(req: ChatRequest):
         references=references,
         step_trace=step_trace
     )
+    
+    updated_session = memory_service.get_session(req.sessionId)
+    await ws_manager.broadcast_to_session(req.sessionId, {
+        "type": "message:new",
+        "sessionId": req.sessionId,
+        "message": assistant_msg,
+        "session": updated_session
+    })
+    await ws_manager.broadcast_all({
+        "type": "session:update",
+        "sessionId": req.sessionId,
+        "session": updated_session
+    })
 
     # 若状态机判定需要人工接入
     if final_state.get("escalated_to_human") and session["status"] == "AI_HANDLING":
