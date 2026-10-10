@@ -88,6 +88,8 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [customerTyping, setCustomerTyping] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -136,6 +138,68 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       console.error(e);
     }
   };
+
+  // WebSocket Live Connection for real-time customer and agent dialogue
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let ws: WebSocket;
+    let typingTimer: any = null;
+
+    try {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: "join",
+          sessionId: currentSessionId,
+          role: "agent",
+          name: activeSession?.assignedAgent || "人工坐席"
+        }));
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          if (payload.type === "message:new") {
+            if (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId) {
+              setActiveSession((prev) => {
+                if (!prev) return payload.session;
+                if (prev.messages.some((m) => m.id === payload.message.id)) return prev;
+                return {
+                  ...prev,
+                  messages: [...prev.messages, payload.message],
+                  status: payload.session?.status || prev.status
+                };
+              });
+            }
+            fetchSessions();
+          } else if (payload.type === "session:update") {
+            if (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId) {
+              setActiveSession(payload.session);
+            }
+            fetchSessions();
+          } else if (payload.type === "typing") {
+            if (payload.sender === "customer" && (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId)) {
+              setCustomerTyping(payload.isTyping ? "客户正在输入..." : null);
+              clearTimeout(typingTimer);
+              if (payload.isTyping) typingTimer = setTimeout(() => setCustomerTyping(null), 3500);
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+    } catch (e) {
+      // fallback
+    }
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+      clearTimeout(typingTimer);
+    };
+  }, [currentSessionId]);
 
   useEffect(() => {
     fetchSessions();
@@ -673,6 +737,12 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   </div>
                 );
               })}
+              {customerTyping && (
+                <div className="flex gap-2 mr-auto items-center text-xs text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full w-fit animate-pulse">
+                  <User className="w-3.5 h-3.5" />
+                  <span>{customerTyping}</span>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
 
@@ -740,7 +810,20 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   id="agent-chat-input"
                   rows={2}
                   value={agentInput}
-                  onChange={(e) => setAgentInput(e.target.value)}
+                  onChange={(e) => {
+                    setAgentInput(e.target.value);
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(
+                        JSON.stringify({
+                          type: "typing",
+                          sessionId: activeSession.id,
+                          sender: "agent",
+                          name: activeSession.assignedAgent || "人工坐席",
+                          isTyping: e.target.value.length > 0
+                        })
+                      );
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                       handleSendHumanMessage();

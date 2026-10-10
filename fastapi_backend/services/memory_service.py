@@ -263,14 +263,16 @@ class MemoryService:
 
     def intervene_session(self, session_id: str, action: str, agent_id: str = "agent_101", note: str = "") -> Dict[str, Any]:
         session = self.get_or_create_session(session_id)
-        if action == "takeover":
+        if action in ["takeover", "intervene"]:
             agent = next((a for a in AVAILABLE_AGENTS if a["id"] == agent_id), AVAILABLE_AGENTS[0])
             session["status"] = "HUMAN_INTERVENED"
             session["assignedAgent"] = agent["name"]
             session["assignedAgentId"] = agent["id"]
-            self.add_message(session_id, "system", f"人工坐席【{agent['name']}】已主动切入接管对话。")
+            self.add_message(session_id, "system", f"人工坐席【{agent['name']}】（工号: {agent['id']}）已主动切入接管对话。")
         elif action == "release":
             session["status"] = "AI_HANDLING"
+            session["assignedAgent"] = None
+            session["assignedAgentId"] = None
             self.add_message(session_id, "system", "人工坐席已将对话交还给 AI 智能客服继续服务。")
         return session
 

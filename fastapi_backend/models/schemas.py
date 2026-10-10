@@ -45,8 +45,10 @@ class InterveneRequest(BaseModel):
     note: Optional[str] = Field(default="")
 
 class HumanMessageRequest(BaseModel):
-    message: str = Field(..., min_length=1)
+    message: Optional[str] = None
+    content: Optional[str] = None
     agentId: Optional[str] = Field(default="agent_101")
+    agentName: Optional[str] = None
 
 class KnowledgeSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="检索文本")

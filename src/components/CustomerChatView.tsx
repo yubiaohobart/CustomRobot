@@ -62,6 +62,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const [agentTyping, setAgentTyping] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
   const fetchSession = async () => {
     try {
       const res = await fetch(`/api/sessions/${currentSessionId}`);
@@ -87,12 +90,95 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     }
   };
 
+  // WebSocket Live Connection for instantaneous real-time sync with human agents
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let ws: WebSocket;
+    let typingTimer: any = null;
+
+    try {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: "join",
+          sessionId: currentSessionId,
+          role: "customer",
+          name: session?.customerProfile?.name || "客户"
+        }));
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          if (payload.type === "message:new" && payload.message) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === payload.message.id)) return prev;
+              return [...prev, payload.message];
+            });
+            if (payload.session) {
+              setSession(payload.session);
+            }
+          } else if (payload.type === "session:update" && payload.session) {
+            if (payload.sessionId === currentSessionId || payload.session.id === currentSessionId) {
+              setSession(payload.session);
+              if (payload.session.messages) {
+                setMessages(payload.session.messages);
+              }
+            }
+          } else if (payload.type === "typing") {
+            if (payload.sender === "agent") {
+              setAgentTyping(payload.isTyping ? (payload.name || "客服专员") : null);
+              clearTimeout(typingTimer);
+              if (payload.isTyping) {
+                typingTimer = setTimeout(() => setAgentTyping(null), 4000);
+              }
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+    } catch (e) {
+      // fallback to polling
+    }
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      clearTimeout(typingTimer);
+    };
+  }, [currentSessionId]);
+
   useEffect(() => {
     fetchSession();
     fetchAgents();
     const interval = setInterval(fetchSession, 3000);
     return () => clearInterval(interval);
   }, [currentSessionId]);
+
+  const handleReleaseToAI = async () => {
+    try {
+      const res = await fetch(`/api/sessions/${currentSessionId}/intervene`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSession(data.session);
+        setMessages(data.session.messages);
+        setTransferSuccessToast("已结束人工沟通，会话已无缝交还给 AI 智能客服托管");
+        setTimeout(() => setTransferSuccessToast(null), 4000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -333,6 +419,38 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Human Agent Serving Banner */}
+        {isHumanServing && (
+          <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white px-6 py-2.5 flex items-center justify-between text-xs shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center font-bold">
+                <Headphones className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">人工专属坐席【{session?.assignedAgent || "陈浩"}】正在为您服务</span>
+                  <span className="px-1.5 py-0.2 bg-white/20 text-white text-[10px] font-semibold rounded">
+                    工号: {session?.assignedAgentId || "agent_101"}
+                  </span>
+                </div>
+                <span className="text-amber-100 text-[11px] hidden sm:inline">
+                  对话历史与会员权益已完整冻结移交，您可以直接与客服专员沟通
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+              <span className="text-[11px] font-medium text-amber-100 hidden md:inline">长连接在线</span>
+              <button
+                onClick={handleReleaseToAI}
+                className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white text-[11px] font-semibold rounded-md transition-colors cursor-pointer"
+              >
+                转回AI智能客服
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Message Stream */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
@@ -688,6 +806,22 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             </div>
           )}
 
+          {agentTyping && (
+            <div className="flex gap-3 max-w-xl mr-auto animate-pulse">
+              <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center">
+                <Headphones className="w-4 h-4" />
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl rounded-tl-xs shadow-xs text-xs text-amber-900 flex items-center gap-2">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-amber-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                  <div className="w-2 h-2 bg-amber-600 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                  <div className="w-2 h-2 bg-amber-600 rounded-full animate-bounce"></div>
+                </div>
+                <span>人工客服【{agentTyping}】正在输入回复...</span>
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
 
@@ -718,7 +852,20 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               id="customer-chat-input"
               type="text"
               value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
+              onChange={(e) => {
+                setInputMessage(e.target.value);
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(
+                    JSON.stringify({
+                      type: "typing",
+                      sessionId: currentSessionId,
+                      sender: "customer",
+                      name: session?.customerProfile?.name || "客户",
+                      isTyping: e.target.value.length > 0
+                    })
+                  );
+                }
+              }}
               placeholder={isHumanServing ? "已接通人工坐席，客服正在查看您的上下文背景，可直接在此发送..." : "请输入您想咨询的问题（例如：申请退款、补开发票、物流查询）..."}
               className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
             />

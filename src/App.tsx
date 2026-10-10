@@ -16,6 +16,7 @@ import {
 import { CustomerChatView } from "./components/CustomerChatView";
 import { ChainlitPlaygroundView } from "./components/ChainlitPlaygroundView";
 import { AgentWorkbench } from "./components/AgentWorkbench";
+import { DualChatView } from "./components/DualChatView";
 import { MonitoringDashboard } from "./components/MonitoringDashboard";
 import { VectorKnowledgeBase } from "./components/VectorKnowledgeBase";
 import { LangGraphVisualizer } from "./components/LangGraphVisualizer";
@@ -23,8 +24,8 @@ import { FastAPIArchitectureCode } from "./components/FastAPIArchitectureCode";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "chat" | "chainlit" | "workbench" | "monitoring" | "vector" | "langgraph" | "fastapi"
-  >("chainlit");
+    "dual" | "chat" | "workbench" | "chainlit" | "monitoring" | "vector" | "langgraph" | "fastapi"
+  >("dual");
 
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
@@ -82,6 +83,22 @@ export default function App() {
 
         {/* Navigation Tabs */}
         <nav className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/80">
+          <button
+            id="tab-dual"
+            onClick={() => setActiveTab("dual")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer relative ${
+              activeTab === "dual"
+                ? "bg-white text-indigo-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+            <span>双端同屏实时对话</span>
+            <span className="px-1 py-0.2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[9px] font-bold rounded">
+              双向互通
+            </span>
+          </button>
+
           <button
             id="tab-chat"
             onClick={() => setActiveTab("chat")}
@@ -204,6 +221,8 @@ export default function App() {
 
       {/* Main Workspace Body */}
       <main className="flex-1 w-full h-[calc(100vh-4rem)] overflow-hidden">
+        {activeTab === "dual" && <DualChatView />}
+
         {activeTab === "chat" && (
           <CustomerChatView
             currentSessionId={currentSessionId}

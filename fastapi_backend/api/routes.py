@@ -205,9 +205,20 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
 @router.post("/sessions/{session_id}/human-message")
 async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
     """人工坐席在工作台发送回复"""
-    msg = memory_service.add_message(session_id, "human_agent", req.message)
+    text = req.message or req.content or ""
+    if not text:
+        raise HTTPException(status_code=400, detail="Message content cannot be empty")
+    msg = memory_service.add_message(session_id, "human_agent", text)
     session = memory_service.get_session(session_id)
     return {"success": True, "message": msg, "session": session}
+
+@router.post("/sessions/{session_id}/clear")
+async def clear_session_messages(session_id: str):
+    """清空指定会话消息历史"""
+    session = memory_service.get_session(session_id)
+    if session:
+        session["messages"] = []
+    return {"success": True, "session": session}
 
 @router.get("/agents")
 async def get_agents():

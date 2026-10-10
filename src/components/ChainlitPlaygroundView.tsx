@@ -23,7 +23,8 @@ import {
   Database,
   ExternalLink,
   Code2,
-  Info
+  Info,
+  Headphones
 } from "lucide-react";
 
 // 自测基准测试用例集
@@ -121,7 +122,7 @@ interface ChainlitStep {
 
 interface ChainlitMessage {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "human_agent";
   content: string;
   timestamp: string;
   steps?: ChainlitStep[];
@@ -143,6 +144,7 @@ export function ChainlitPlaygroundView() {
   const [similarityThreshold, setSimilarityThreshold] = useState(0.65);
   const [showLocalGuide, setShowLocalGuide] = useState(false);
   const [copiedState, setCopiedState] = useState(false);
+  const [isHumanMode, setIsHumanMode] = useState(false);
 
   // 对话列表
   const [messages, setMessages] = useState<ChainlitMessage[]>([
@@ -240,9 +242,114 @@ export function ChainlitPlaygroundView() {
     };
   };
 
+  // 人工坐席转接
+  const handleTransferHuman = async (reason = "自测控制台主动申请人工客服接入") => {
+    setIsHumanMode(true);
+    const sysMsg: ChainlitMessage = {
+      id: `sys_${Date.now()}`,
+      role: "system",
+      content: `🎧 **【人工客服服务专线已接通】**\n\n已成功接入值班金牌客服专员 **张小雅**（工号: agent_101）。\n- **转接原因**: ${reason}\n- **工单快照**: 已同步会员画像、历史提问与 Qdrant 检索记录\n- **交互指引**: 您可以直接发送问题与坐席沟通，或点击下方【💬 坐席快捷回复】模拟坐席答复！`,
+      timestamp: new Date().toLocaleTimeString()
+    };
+    setMessages((prev) => [...prev, sysMsg]);
+
+    try {
+      await fetch(`/api/sessions/${sessionId}/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetAgentId: "agent_101",
+          reason,
+          triggerType: "user_escalated"
+        })
+      });
+    } catch (e) {
+      // 容灾忽略
+    }
+  };
+
+  // 坐席身份回复
+  const handleSendAgentReply = async (replyText: string) => {
+    const agentMsgId = `agent_${Date.now()}`;
+    const agentMsg: ChainlitMessage = {
+      id: agentMsgId,
+      role: "human_agent",
+      content: replyText,
+      timestamp: new Date().toLocaleTimeString(),
+      steps: [
+        {
+          name: "👨‍💼 人工坐席工作台 (张小雅 · 工号 101) 发送回复",
+          type: "run",
+          status: "success",
+          durationMs: 45,
+          output: "HTTP 200 OK | 消息已成功推送至客户对话流并同步至会话记忆"
+        }
+      ]
+    };
+    setMessages((prev) => [...prev, agentMsg]);
+
+    try {
+      await fetch(`/api/sessions/${sessionId}/human-message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: replyText,
+          agentId: "agent_101",
+          agentName: "张小雅"
+        })
+      });
+    } catch (e) {
+      // 容灾忽略
+    }
+  };
+
+  // 交还 AI 接待
+  const handleReleaseToAI = async () => {
+    setIsHumanMode(false);
+    const sysMsg: ChainlitMessage = {
+      id: `sys_${Date.now()}`,
+      role: "system",
+      content: `🤖 **【服务模式切换】已交还 AI 智能客服接待**\n\n人工坐席已结束本次服务，由 AI 智能客服继续为您提供 7x24 小时自动解答。`,
+      timestamp: new Date().toLocaleTimeString()
+    };
+    setMessages((prev) => [...prev, sysMsg]);
+
+    try {
+      await fetch(`/api/sessions/${sessionId}/intervene`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release" })
+      });
+    } catch (e) {
+      // 容灾忽略
+    }
+  };
+
   // 核心执行逻辑：发送测试请求并模拟/捕获 Chainlit 树状 Steps
   const executeQuery = async (queryText: string, caseContext?: BenchmarkCase) => {
     if (!queryText.trim() || isLoading) return;
+
+    // 命令分发
+    if (queryText.startsWith("/agent ") || queryText.startsWith("/kefu ") || queryText.startsWith("/坐席 ")) {
+      const parts = queryText.split(" ");
+      parts.shift();
+      const content = parts.join(" ").trim();
+      setInputMessage("");
+      if (content) {
+        handleSendAgentReply(content);
+      }
+      return;
+    }
+    if (queryText === "/ai" || queryText === "/reset") {
+      setInputMessage("");
+      handleReleaseToAI();
+      return;
+    }
+    if (queryText === "/human" || queryText === "/转人工") {
+      setInputMessage("");
+      handleTransferHuman("用户命令转人工");
+      return;
+    }
 
     const currentProfile = getProfileData();
     const userMsgId = `user_${Date.now()}`;
@@ -757,15 +864,28 @@ export function ChainlitPlaygroundView() {
         <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
           {messages.map((m) => {
             const isUser = m.role === "user";
+            const isHumanAgent = m.role === "human_agent";
+            const isSystem = m.role === "system";
+
+            if (isSystem) {
+              return (
+                <div key={m.id} className="w-full bg-slate-850 border border-slate-700/80 px-4 py-2.5 rounded-xl text-xs text-slate-300 shadow-xs my-2">
+                  <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={m.id}
                 className={`flex gap-3 max-w-3xl ${isUser ? "ml-auto justify-end" : "mr-auto justify-start"}`}
               >
-                {/* 助手头像 */}
+                {/* 助手或坐席头像 */}
                 {!isUser && (
-                  <div className="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm">
-                    <Flame className="w-4 h-4 fill-white" />
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm ${
+                    isHumanAgent ? "bg-amber-600" : "bg-orange-600"
+                  }`}>
+                    {isHumanAgent ? <Headphones className="w-4 h-4" /> : <Flame className="w-4 h-4 fill-white" />}
                   </div>
                 )}
 
@@ -775,6 +895,14 @@ export function ChainlitPlaygroundView() {
                   {isUser ? (
                     <div className="bg-orange-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-xs text-xs md:text-sm leading-relaxed shadow-sm">
                       {m.content}
+                    </div>
+                  ) : isHumanAgent ? (
+                    <div className="bg-gradient-to-r from-amber-950/80 to-slate-900 border border-amber-500/40 p-3.5 rounded-2xl rounded-tl-xs text-xs md:text-sm text-slate-100 shadow-sm space-y-2">
+                      <div className="text-[11px] font-semibold text-amber-300 flex items-center gap-1.5">
+                        <Headphones className="w-3.5 h-3.5" />
+                        <span>👨‍💼 人工客服专员 · 张小雅 (工号 101)</span>
+                      </div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -931,7 +1059,33 @@ export function ChainlitPlaygroundView() {
 
           {/* 快捷自测标签推荐 */}
           <div className="flex items-center gap-1.5 mt-2.5 overflow-x-auto text-[11px] text-slate-400 no-scrollbar">
-            <span className="shrink-0 text-slate-500">快捷自测:</span>
+            <span className="shrink-0 text-slate-500">快捷操作:</span>
+            <button
+              onClick={() => handleTransferHuman("自测快捷点击转人工")}
+              className="px-2.5 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 shrink-0 cursor-pointer transition-colors flex items-center gap-1 font-medium"
+            >
+              <Headphones className="w-3 h-3" />
+              <span>转人工客服</span>
+            </button>
+            <button
+              onClick={() => handleSendAgentReply("您好！我是售后主管张小雅。已为您办理顺丰免费上门取件，运费由平台先行全额补贴！")}
+              className="px-2 py-0.5 rounded-full bg-amber-950/60 hover:bg-amber-900/60 text-amber-200 border border-amber-800/40 shrink-0 cursor-pointer transition-colors"
+            >
+              💬 坐席回复: 顺丰取件
+            </button>
+            <button
+              onClick={() => handleSendAgentReply("王女士您好，鉴于您是黄金会员，系统已为您开启极速退款绿色通道，款项将在寄出商品后即时冲正到账！")}
+              className="px-2 py-0.5 rounded-full bg-amber-950/60 hover:bg-amber-900/60 text-amber-200 border border-amber-800/40 shrink-0 cursor-pointer transition-colors"
+            >
+              ⚡ 坐席回复: 极速退款
+            </button>
+            <button
+              onClick={() => handleReleaseToAI()}
+              className="px-2 py-0.5 rounded-full bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 border border-blue-800/40 shrink-0 cursor-pointer transition-colors"
+            >
+              🤖 切回 AI
+            </button>
+            <span className="text-slate-600">|</span>
             <button
               onClick={() => executeQuery("7天内可以无理由退货吗？运费怎么算？")}
               className="px-2 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 cursor-pointer transition-colors"
