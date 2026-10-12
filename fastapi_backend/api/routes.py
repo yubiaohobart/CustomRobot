@@ -278,11 +278,17 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
     msg = memory_service.add_message(session_id, "human_agent", text)
     session = memory_service.get_session(session_id)
+    cprint.websocket("坐席回复", session_id, f"人工客服发言: \"{text}\" -> WebSocket 全局广播")
     # 实时 WebSocket 推送给客户与工作台
     await ws_manager.broadcast_to_session(session_id, {
         "type": "message:new",
         "sessionId": session_id,
         "message": msg,
+        "session": session
+    })
+    await ws_manager.broadcast_all({
+        "type": "session:update",
+        "sessionId": session_id,
         "session": session
     })
     return {"success": True, "message": msg, "session": session}

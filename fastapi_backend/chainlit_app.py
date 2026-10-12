@@ -507,6 +507,10 @@ async def send_human_agent_reply(reply_text: str):
                 )
                 if res.status_code == 200:
                     http_synced = True
+                    data = res.json()
+                    msg_obj = data.get("message", {})
+                    if msg_obj.get("id"):
+                        SEEN_MESSAGE_IDS.add(msg_obj["id"])
                     step.output = f"✅ 已通过 {'原生 WebSocket + HTTP' if ws_sent else 'HTTP API'} 实时广播送达客户 (耗时 {int((time.time()-t0)*1000)}ms)"
                 else:
                     step.output = f"HTTP {res.status_code}: {res.text}"
@@ -597,6 +601,14 @@ async def trigger_human_escalation(reason: str):
         actions=get_agent_action_buttons()
     ).send()
 
+    # 坐席张小雅主动通过全双工 WebSocket 发送第一句问候语，启动双向对话
+    await asyncio.sleep(0.4)
+    await send_human_agent_reply(
+        f"您好，{profile['userName']}！我是当值人工客服专员张小雅（工号: `{agent_info['id']}`）。\n\n"
+        f"您的完整会话快照、Qdrant 知识检索记录以及订单 ORD-2026-88992 我已全面调阅完毕。\n"
+        f"请问有什么具体问题可以全力为您协助解决？（直接在下方输入框告诉我即可）"
+    )
+
 
 async def handle_user_input(user_input: str):
     """处理用户输入消息（根据当前会话模式智能流转）"""
@@ -638,20 +650,33 @@ async def handle_user_input(user_input: str):
 
         ws_label = "🟢 原生 WebSocket 全双工通道" if ws_sent else "🔄 实时消息网关"
         
-        feedback_md = (
-            f"> 📡 **【{ws_label}】客户消息已实时送达人工坐席工作台**\n"
-            f"> \n"
-            f"> 👤 **客户发送**: “{user_input}”\n\n"
-            f"⏳ **等待人工坐席回复中**...\n"
-            f"- **跨端实时对话**：若在网页坐席工作台输入回复，消息将通过 WebSocket 秒级呈现在此；\n"
-            f"- **单端自测模拟**：点击下方【坐席快捷回复】或输入 `/agent <回复内容>` 发送坐席答复；\n"
-            f"- **AI Copilot**：点击下方【💡 AI Copilot 推荐话术】获取坐席辅助参考。"
-        )
+        # 3. 坐席工作台收到提问后，实时生成专业坐席答复并通过 WebSocket 全双工通道返回
+        async def agent_auto_reply_task():
+            # 模拟人工坐席打字感知
+            await ws_bridge.send_event(session_id, {
+                "type": "typing",
+                "sessionId": session_id,
+                "sender": "agent",
+                "name": agent_info["name"],
+                "isTyping": True
+            })
+            await asyncio.sleep(0.9)
 
-        await cl.Message(
-            content=feedback_md,
-            actions=get_agent_action_buttons()
-        ).send()
+            q = user_input.lower()
+            if any(k in q for k in ["换货", "退货", "尺码", "不行", "退", "不喜欢", "怎么退"]):
+                rep = f"好的，{profile['userName']}，我看到您的诉求了。鉴于您是{profile['vipLevel']}，我马上为您办理顺丰免费上门取件退换货，运费由平台全额补贴先行垫付。快递员今天下午两点将联系您取走包裹，请问您方便取件的地址还是之前的默认收货地址吗？"
+            elif any(k in q for k in ["退款", "到账", "钱", "多久", "几天", "款"]):
+                rep = f"关于退款到账时效：系统已为您开启{profile['vipLevel']}专属极速闪电退款绿色通道，包裹寄出录入运单后，款项将原路冲正退回至您的支付账户（微信/银行卡预计1-2小时内到账），请您放心！"
+            elif any(k in q for k in ["物流", "发货", "快递", "到哪", "查单", "单号"]):
+                rep = f"经调阅您的订单 ORD-2026-88992，顺丰速运（单号: SF1688920412）显示包裹已到达华东中央转运中心，正在进行分拨派送，预计今天下午送达。我已为您添加【加急派送】督办标签！"
+            elif any(k in q for k in ["你好", "在吗", "在不在", "有人吗", "哈喽", "hello"]):
+                rep = f"在的，{profile['userName']}！专属坐席专员张小雅竭诚为您服务，请问有什么可以全力协助您的？"
+            else:
+                rep = f"明白您的意思。关于您提出的“{user_input}”，我已经为您记入售后工单跟踪档案中，质检主管正为您加速核实。您还可以点击下方快捷操作快速办理退换或催单。"
+
+            await send_human_agent_reply(rep)
+
+        asyncio.create_task(agent_auto_reply_task())
         return
 
     # 正常 AI 模式：向 FastAPI 后端 /api/chat 发起请求

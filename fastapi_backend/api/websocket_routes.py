@@ -14,6 +14,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from services.websocket_manager import ws_manager
 from services.memory_service import memory_service
+from core.logger import cprint, LogColor
 
 logger = logging.getLogger("IntelliServe.WebSocketRoutes")
 
@@ -76,6 +77,8 @@ async def handle_human_message_event(websocket: WebSocket, data: Dict[str, Any],
     agent_name = data.get("agentName") or meta.get("name") or "人工客服"
     agent_id = data.get("agentId", "agent_101")
     
+    cprint.websocket("坐席发言", target_session_id, f"收到人工坐席 [{agent_name} ({agent_id})] 回复: \"{content}\" -> 全双工实时广播")
+
     # 状态机标记：人工介入中
     session = memory_service.get_session(target_session_id)
     if session:
@@ -110,6 +113,8 @@ async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, An
     if not content:
         return
 
+    cprint.websocket("客户发言", target_session_id, f"收到客户消息: \"{content}\" -> 广播至人工坐席工作台")
+
     msg = memory_service.add_message(target_session_id, "user", content)
     updated_session = memory_service.get_session(target_session_id)
     
@@ -136,6 +141,8 @@ async def handle_transfer_event(websocket: WebSocket, data: Dict[str, Any], meta
     target_agent_id = data.get("targetAgentId", "agent_101")
     operator_note = data.get("operatorNote", "WebSocket 转人工请求")
     trigger_type = data.get("triggerType", "user_requested")
+
+    cprint.websocket("转接请求", target_session_id, f"触发人工转接: 原因=\"{reason}\" -> 指派坐席工号: {target_agent_id}")
 
     transfer_log, session = memory_service.transfer_session(
         session_id=target_session_id,

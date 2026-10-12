@@ -158,6 +158,14 @@ class ColorPrinter:
         print(f"   {LogColor.BRIGHT_YELLOW}↳ 触发原因: {reason}{LogColor.RESET}")
 
     @staticmethod
+    def websocket(event_type: str, session_id: str, detail: str):
+        """WebSocket 实时通信全双工日志 (高亮霓虹蓝/电光绿)"""
+        tag = f"{LogColor.BOLD}{LogColor.BG_BLUE}{LogColor.BRIGHT_WHITE} 🔌 [WebSocket] {LogColor.RESET}"
+        evt = f"{LogColor.BRIGHT_CYAN}{event_type:<6}{LogColor.RESET}"
+        sess = f"{LogColor.BOLD}{LogColor.BRIGHT_YELLOW}{session_id}{LogColor.RESET}"
+        print(f"{tag} [{evt}] 会话: {sess} ➜ {LogColor.BRIGHT_GREEN}{detail}{LogColor.RESET}")
+
+    @staticmethod
     def success(msg: str):
         """成功日志 (翠绿色)"""
         print(f"{LogColor.BRIGHT_GREEN}✅ {msg}{LogColor.RESET}")

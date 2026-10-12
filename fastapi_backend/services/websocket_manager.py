@@ -30,6 +30,9 @@ class WebSocketConnectionManager:
         
         self.register_session(websocket, session_id=session_id, role=role, name=name)
         
+        client_addr = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
+        cprint.websocket("握手成功", session_id, f"全双工长连接已就绪 (角色: {role}, 来源: {client_addr}, 在线连接数: {len(self.all_connections)})")
+
         # 发送订阅成功握手确认包
         await websocket.send_json({
             "type": "subscribed",
@@ -63,6 +66,7 @@ class WebSocketConnectionManager:
             "role": role or "customer",
             "name": name or ("人工坐席" if role == "agent" else "客户")
         }
+        cprint.websocket("会话绑定", session_id, f"连接绑定至会话房间 [{session_id}] (角色: {role or 'customer'}, 姓名: {name or '未知'}, 房间内连接数: {len(self.session_connections[session_id])})")
 
     def disconnect(self, websocket: WebSocket):
         """断开并清理连接"""
@@ -70,15 +74,31 @@ class WebSocketConnectionManager:
         meta = self.connection_meta.pop(websocket, None)
         if meta:
             session_id = meta.get("session_id")
+            role = meta.get("role", "unknown")
             if session_id and session_id in self.session_connections:
                 self.session_connections[session_id].discard(websocket)
                 if not self.session_connections[session_id]:
                     del self.session_connections[session_id]
+            cprint.websocket("连接断开", session_id or "unknown", f"客户端注销 (角色: {role}, 剩余在线总数: {len(self.all_connections)})")
 
     async def broadcast_to_session(self, session_id: str, payload: Dict[str, Any], exclude: Optional[WebSocket] = None):
         """向特定会话的所有订阅者广播消息"""
         targets = list(self.session_connections.get(session_id, set()))
         dead_connections = []
+
+        m_type = payload.get("type", "message")
+        summary = ""
+        if m_type == "message:new":
+            msg = payload.get("message", {})
+            summary = f"[{msg.get('role')}]: {msg.get('content', '')[:25]}..."
+        elif m_type == "session:update":
+            summary = f"状态变更 -> {payload.get('session', {}).get('status', 'UPDATE')}"
+        elif m_type == "typing":
+            summary = f"[{payload.get('sender')}] 正在输入: {payload.get('isTyping')}"
+        else:
+            summary = f"事件: {m_type}"
+
+        cprint.websocket("房间广播", session_id, f"向会话房间 [{session_id}] 广播 {summary} (推送给 {len(targets)} 个在线终端)")
 
         for connection in targets:
             if connection == exclude and not payload.get("echoBack", False):
@@ -95,6 +115,7 @@ class WebSocketConnectionManager:
     async def broadcast_all(self, payload: Dict[str, Any]):
         """向所有连接广播系统事件（如全局大盘、转接通知、工作台会话更新）"""
         dead_connections = []
+        cprint.websocket("全网广播", "GLOBAL", f"向所有已连接终端 ({len(self.all_connections)}个) 广播系统事件: [{payload.get('type')}]")
         for connection in list(self.all_connections):
             try:
                 await connection.send_json(payload)

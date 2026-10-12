@@ -315,6 +315,35 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     }
   };
 
+  const handleQuickConnectAgent = async () => {
+    if (!session || transferring) return;
+    setTransferring(true);
+    try {
+      const res = await fetch(`/api/sessions/${currentSessionId}/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetAgentId: "agent_101",
+          reason: "客户在界面快捷接通专属值班坐席 (张小雅)",
+          triggerType: "user_requested",
+          operatorNote: "快速连线",
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setSession(data.session);
+        setMessages(data.session.messages);
+        setTransferSuccessToast(`已成功接通金牌专属坐席 · 张小雅 (工号 agent_101)`);
+        setTimeout(() => setTransferSuccessToast(null), 4000);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTransferring(false);
+    }
+  };
+
   const isHumanServing = session?.status === "HUMAN_INTERVENED";
   const needsIntervention = session?.status === "NEEDS_INTERVENTION";
 
@@ -429,7 +458,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold">人工专属坐席【{session?.assignedAgent || "陈浩"}】正在为您服务</span>
+                  <span className="font-bold">人工专属坐席【{session?.assignedAgent || "张小雅"}】正在为您服务</span>
                   <span className="px-1.5 py-0.2 bg-white/20 text-white text-[10px] font-semibold rounded">
                     工号: {session?.assignedAgentId || "agent_101"}
                   </span>
@@ -441,12 +470,43 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-              <span className="text-[11px] font-medium text-amber-100 hidden md:inline">长连接在线</span>
+              <span className="text-[11px] font-medium text-amber-100 hidden md:inline">全双工长连接在线</span>
               <button
                 onClick={handleReleaseToAI}
                 className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white text-[11px] font-semibold rounded-md transition-colors cursor-pointer"
               >
                 转回AI智能客服
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Needs Human Intervention Banner */}
+        {needsIntervention && !isHumanServing && (
+          <div className="bg-gradient-to-r from-rose-500 via-rose-600 to-amber-600 text-white px-6 py-2.5 flex items-center justify-between text-xs shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center font-bold">
+                <Headphones className="w-4 h-4 text-white animate-bounce" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">⚠️ 会话已触发转人工意图（已排队就绪）</span>
+                  <span className="px-1.5 py-0.2 bg-white/20 text-white text-[10px] font-semibold rounded">
+                    人工待接入
+                  </span>
+                </div>
+                <span className="text-rose-100 text-[11px] hidden sm:inline">
+                  系统已保留全部问答与订单快照，点击立即连线即可与人工专员实时对话
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleQuickConnectAgent}
+                className="px-3 py-1.5 bg-white text-rose-700 hover:bg-rose-50 text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Headphones className="w-3.5 h-3.5 text-rose-600" />
+                <span>立即连线专属坐席 (张小雅)</span>
               </button>
             </div>
           </div>
