@@ -100,6 +100,10 @@ export const DualChatView: React.FC = () => {
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
+      ws.onerror = () => {
+        // suppress unhandled WebSocket connection errors
+      };
+
       ws.onopen = () => {
         ws.send(JSON.stringify({
           type: "join",
@@ -151,7 +155,16 @@ export const DualChatView: React.FC = () => {
     }
 
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) {
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+          try {
+            wsRef.current.close();
+          } catch (e) {}
+        }
+        wsRef.current = null;
+      }
       clearTimeout(agentTypingTimeout);
       clearTimeout(customerTypingTimeout);
     };

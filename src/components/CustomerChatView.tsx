@@ -50,6 +50,27 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const [expandedRefId, setExpandedRefId] = useState<string | null>(null);
   const [showMemoryPanel, setShowMemoryPanel] = useState(true);
 
+  const uniqueMessages = (msgs: ChatMessage[]): ChatMessage[] => {
+    const map = new Map<string, ChatMessage>();
+    for (const m of msgs) {
+      if (!m.id) continue;
+      if (m.id.startsWith("temp-")) {
+        const existingReal = Array.from(map.values()).find(ex => !ex.id.startsWith("temp-") && ex.role === m.role && ex.content === m.content);
+        if (!existingReal && !map.has(m.id)) {
+          map.set(m.id, m);
+        }
+      } else {
+        for (const [k, v] of map.entries()) {
+          if (k.startsWith("temp-") && v.role === m.role && v.content === m.content) {
+            map.delete(k);
+          }
+        }
+        map.set(m.id, m);
+      }
+    }
+    return Array.from(map.values());
+  };
+
   // Seamless Transfer State
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>([]);
@@ -71,7 +92,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSession(data.session);
-        setMessages(data.session.messages || []);
+        setMessages(uniqueMessages(data.session.messages || []));
       }
     } catch (err) {
       console.error("Failed to load session:", err);
@@ -103,6 +124,10 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
+      ws.onerror = () => {
+        // suppress unhandled WebSocket connection errors
+      };
+
       ws.onopen = () => {
         ws.send(JSON.stringify({
           type: "join",
@@ -116,10 +141,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         try {
           const payload = JSON.parse(evt.data);
           if (payload.type === "message:new" && payload.message) {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === payload.message.id)) return prev;
-              return [...prev, payload.message];
-            });
+            setMessages((prev) => uniqueMessages([...prev, payload.message]));
             if (payload.session) {
               setSession(payload.session);
             }
@@ -127,7 +149,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             if (payload.sessionId === currentSessionId || payload.session.id === currentSessionId) {
               setSession(payload.session);
               if (payload.session.messages) {
-                setMessages(payload.session.messages);
+                setMessages(uniqueMessages(payload.session.messages));
               }
             }
           } else if (payload.type === "typing") {
@@ -149,7 +171,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
     return () => {
       if (wsRef.current) {
-        wsRef.current.close();
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+          try {
+            wsRef.current.close();
+          } catch (e) {}
+        }
         wsRef.current = null;
       }
       clearTimeout(typingTimer);
