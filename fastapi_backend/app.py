@@ -17,7 +17,7 @@ if CURRENT_DIR not in sys.path:
 
 from config import settings
 from api.routes import router as api_router
-from api.websocket_routes import ws_router, websocket_session_endpoint
+from api.websocket_routes import ws_router
 from core.qdrant_store import qdrant_store
 from core.logger import log, cprint, LogColor
 
@@ -65,15 +65,6 @@ app.add_middleware(
 # 挂载 API 业务路由与独立 WebSocket 实时双向通信路由
 app.include_router(api_router)
 app.include_router(ws_router)
-
-# 兼容根级 WebSocket 路径 (/ws 与 /ws/{session_id})
-@app.websocket("/ws/{session_id}")
-async def root_ws_with_session(websocket: WebSocket, session_id: str):
-    await websocket_session_endpoint(websocket, session_id)
-
-@app.websocket("/ws")
-async def root_ws_default(websocket: WebSocket):
-    await websocket_session_endpoint(websocket, session_id="session_user_001")
 
 @app.get("/")
 async def root_index():
