@@ -93,7 +93,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   // WebSocket Live Connection for instantaneous real-time sync with human agents
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : "";
+    const wsUrl = `${protocol}//${hostname}${port}/ws`;
     let ws: WebSocket;
     let typingTimer: any = null;
 
@@ -266,7 +268,8 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     }
     
     // Choose recommended agent based on session intent
-    if (session?.customerProfile.intent.includes("退款") || session?.customerProfile.intent.includes("退货")) {
+    const currentIntent = session?.customerProfile?.intent || "";
+    if (currentIntent.includes("退款") || currentIntent.includes("退货")) {
       setSelectedAgentId("agent_102"); // 李雪
     } else if (session?.customerProfile.intent.includes("发票") || session?.customerProfile.intent.includes("税")) {
       setSelectedAgentId("agent_105"); // 赵林
@@ -996,27 +999,27 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               <div className="space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">客户身份:</span>
-                  <span className="font-medium text-slate-800">{session?.customerProfile.name || "普通访客"}</span>
+                  <span className="font-medium text-slate-800">{session?.customerProfile?.name || session?.userName || "普通访客"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">会员等级:</span>
-                  <span className="text-indigo-600 font-semibold">{session?.customerProfile.vipLevel || "普通会员"}</span>
+                  <span className="text-indigo-600 font-semibold">{session?.customerProfile?.vipLevel || "普通会员"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">情绪指标:</span>
                   <span className={`font-semibold capitalize ${
-                    session?.customerProfile.sentiment === "frustrated" ? "text-rose-600" : "text-emerald-600"
+                    session?.customerProfile?.sentiment === "frustrated" ? "text-rose-600" : "text-emerald-600"
                   }`}>
-                    {session?.customerProfile.sentiment === "frustrated" ? "焦急 / 负向 (需关注)" : "平稳 / 积极"}
+                    {session?.customerProfile?.sentiment === "frustrated" ? "焦急 / 负向 (需关注)" : "平稳 / 积极"}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">识别主意图:</span>
-                  <span className="text-slate-700 font-medium">{session?.customerProfile.intent || "常规查询"}</span>
+                  <span className="text-slate-700 font-medium">{session?.customerProfile?.intent || "常规查询"}</span>
                 </div>
               </div>
               <div className="pt-2 flex flex-wrap gap-1">
-                {session?.customerProfile.tags.map((tag, i) => (
+                {(session?.customerProfile?.tags || []).map((tag, i) => (
                   <span key={i} className="px-1.5 py-0.5 bg-blue-100/70 text-blue-700 text-[10px] rounded">
                     #{tag}
                   </span>
@@ -1025,7 +1028,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             </div>
 
             {/* Associated Order & Express Details Card */}
-            {session?.customerProfile.orderId && (
+            {session?.customerProfile?.orderId && (
               <div className="p-3 bg-gradient-to-br from-blue-50/80 to-indigo-50/50 rounded-xl border border-blue-200/80 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-blue-900 font-bold text-[11px] flex items-center gap-1">
@@ -1039,7 +1042,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 <div className="space-y-1 text-[11px]">
                   <div className="flex justify-between items-center bg-white p-1.5 rounded border border-blue-100">
                     <span className="text-slate-400">订单号:</span>
-                    <span className="font-mono font-bold text-blue-900">{session.customerProfile.orderId}</span>
+                    <span className="font-mono font-bold text-blue-900">{session.customerProfile?.orderId}</span>
                   </div>
                   <div className="flex justify-between items-center text-slate-700 pt-0.5">
                     <span className="text-slate-500">已购商品:</span>
@@ -1270,11 +1273,11 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 <div className="grid grid-cols-2 gap-3 text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-blue-100">
                   <div>
                     <span className="text-slate-400">客户信息：</span>
-                    <strong className="text-slate-800">{session?.userName} ({session?.customerProfile.vipLevel})</strong>
+                    <strong className="text-slate-800">{session?.userName} ({session?.customerProfile?.vipLevel || "普通会员"})</strong>
                   </div>
                   <div>
                     <span className="text-slate-400">当前意图：</span>
-                    <strong className="text-slate-800">{session?.customerProfile.intent}</strong>
+                    <strong className="text-slate-800">{session?.customerProfile?.intent || "常规售后咨询"}</strong>
                   </div>
                   <div>
                     <span className="text-slate-400">移交提问：</span>

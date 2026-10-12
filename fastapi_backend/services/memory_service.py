@@ -101,6 +101,12 @@ class MemoryService:
                     "timestamp": "10:15:02"
                 }
             ],
+            "metrics": {
+                "totalTurns": 3,
+                "avgLatencyMs": 320,
+                "avgConfidence": 0.96,
+                "escalatedAt": None
+            },
             "contextSnapshot": None
         }
 
@@ -129,6 +135,12 @@ class MemoryService:
                     "timestamp": "09:30:11"
                 }
             ],
+            "metrics": {
+                "totalTurns": 1,
+                "avgLatencyMs": 280,
+                "avgConfidence": 0.94,
+                "escalatedAt": None
+            },
             "contextSnapshot": None
         }
 
@@ -153,6 +165,12 @@ class MemoryService:
                 },
                 "summaryMemory": f"{name}（{vip}）于今日建立咨询连接。",
                 "messages": [],
+                "metrics": {
+                    "totalTurns": 0,
+                    "avgLatencyMs": 350,
+                    "avgConfidence": 0.95,
+                    "escalatedAt": None
+                },
                 "contextSnapshot": None
             }
         return self.sessions[session_id]
@@ -184,6 +202,10 @@ class MemoryService:
             msg["stepTrace"] = step_trace
 
         session["messages"].append(msg)
+        if "metrics" not in session or not isinstance(session["metrics"], dict):
+            session["metrics"] = {"totalTurns": len(session["messages"]), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
+        else:
+            session["metrics"]["totalTurns"] = len(session["messages"])
 
         # 简单增量更新长期摘要
         if role == "user":
@@ -277,10 +299,41 @@ class MemoryService:
         return session
 
     def list_sessions(self) -> List[Dict[str, Any]]:
+        for s in self.sessions.values():
+            if "metrics" not in s or not isinstance(s["metrics"], dict):
+                s["metrics"] = {"totalTurns": len(s.get("messages", [])), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
+            else:
+                s["metrics"]["totalTurns"] = len(s.get("messages", []))
+            if "customerProfile" not in s or not isinstance(s["customerProfile"], dict):
+                s["customerProfile"] = {
+                    "name": s.get("userName", "客户"),
+                    "vipLevel": "普通会员",
+                    "sentiment": "neutral",
+                    "urgency": "中",
+                    "intent": "常规业务咨询",
+                    "tags": ["普通会员"],
+                    "orderId": ""
+                }
         return list(self.sessions.values())
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        return self.sessions.get(session_id)
+        s = self.sessions.get(session_id)
+        if s:
+            if "metrics" not in s or not isinstance(s["metrics"], dict):
+                s["metrics"] = {"totalTurns": len(s.get("messages", [])), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
+            else:
+                s["metrics"]["totalTurns"] = len(s.get("messages", []))
+            if "customerProfile" not in s or not isinstance(s["customerProfile"], dict):
+                s["customerProfile"] = {
+                    "name": s.get("userName", "客户"),
+                    "vipLevel": "普通会员",
+                    "sentiment": "neutral",
+                    "urgency": "中",
+                    "intent": "常规业务咨询",
+                    "tags": ["普通会员"],
+                    "orderId": ""
+                }
+        return s
 
     def list_agents(self) -> List[Dict[str, Any]]:
         return AVAILABLE_AGENTS

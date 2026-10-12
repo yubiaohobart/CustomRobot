@@ -142,7 +142,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   // WebSocket Live Connection for real-time customer and agent dialogue
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : "";
+    const wsUrl = `${protocol}//${hostname}${port}/ws`;
     let ws: WebSocket;
     let typingTimer: any = null;
 
@@ -377,8 +379,8 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     if (!activeSession) return;
     const latest = activeSession.latestTransfer?.contextSnapshot;
     const customer = activeSession.userName;
-    const intent = activeSession.customerProfile.intent;
-    const orderId = activeSession.customerProfile.orderId;
+    const intent = activeSession.customerProfile?.intent || "常规业务咨询";
+    const orderId = activeSession.customerProfile?.orderId;
     
     let greeting = `您好，${customer}！我是为您接入的值班客服主管。我已完整阅读了您方才的沟通记录与记忆，关于您咨询的【${intent}】`;
     if (orderId) {
@@ -425,9 +427,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
-        s.userName.toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q) ||
-        s.customerProfile.intent.toLowerCase().includes(q)
+        s.userName?.toLowerCase().includes(q) ||
+        s.id?.toLowerCase().includes(q) ||
+        (s.customerProfile?.intent || "").toLowerCase().includes(q)
       );
     }
     return true;
@@ -547,7 +549,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-slate-800 text-xs">{s.userName}</span>
-                    <span className="text-[10px] text-slate-400">({s.customerProfile.vipLevel})</span>
+                    <span className="text-[10px] text-slate-400">({s.customerProfile?.vipLevel || "普通会员"})</span>
                   </div>
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                     isNeedIntervention 
@@ -577,7 +579,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
 
                 {/* Footer tags */}
                 <div className="flex items-center justify-between text-[10px] text-slate-400">
-                  <span className="truncate max-w-[120px]">{s.customerProfile.intent}</span>
+                  <span className="truncate max-w-[120px]">{s.customerProfile?.intent || "常规咨询"}</span>
                   <span>{lastMsg?.timestamp || s.createdAt}</span>
                 </div>
               </div>
@@ -613,9 +615,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  情绪指标: <strong className={activeSession.customerProfile.sentiment === "frustrated" ? "text-rose-600" : "text-emerald-600"}>
-                    {activeSession.customerProfile.sentiment === "frustrated" ? "急躁/不满" : "平和"}
-                  </strong> • 紧急度: {activeSession.customerProfile.urgency} • 会话轮数: {activeSession.metrics.totalTurns}
+                  情绪指标: <strong className={activeSession.customerProfile?.sentiment === "frustrated" ? "text-rose-600" : "text-emerald-600"}>
+                    {activeSession.customerProfile?.sentiment === "frustrated" ? "急躁/不满" : "平和"}
+                  </strong> • 紧急度: {activeSession.customerProfile?.urgency || "中"} • 会话轮数: {activeSession.metrics?.totalTurns ?? activeSession.messages?.length ?? 0}
                 </p>
               </div>
 
@@ -1076,17 +1078,17 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   {/* Profile Card */}
                   <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-800 text-sm">{activeSession.customerProfile.name}</span>
+                      <span className="font-bold text-slate-800 text-sm">{activeSession.customerProfile?.name || activeSession.userName}</span>
                       <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                        {activeSession.customerProfile.vipLevel}
+                        {activeSession.customerProfile?.vipLevel || "普通会员"}
                       </span>
                     </div>
                     <div className="space-y-1.5 text-[11px] text-slate-600">
                       <div className="flex justify-between">
                         <span className="text-slate-400">联系电话:</span>
-                        <span>{activeSession.customerProfile.phone || "138****8888"}</span>
+                        <span>{activeSession.customerProfile?.phone || "138****8888"}</span>
                       </div>
-                      {activeSession.customerProfile.orderId && (
+                      {activeSession.customerProfile?.orderId && (
                         <div className="flex justify-between">
                           <span className="text-slate-400">关联订单号:</span>
                           <span className="font-mono text-blue-600 font-semibold">{activeSession.customerProfile.orderId}</span>
@@ -1094,17 +1096,17 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                       )}
                       <div className="flex justify-between">
                         <span className="text-slate-400">主要诉求:</span>
-                        <span className="font-medium text-slate-800">{activeSession.customerProfile.intent}</span>
+                        <span className="font-medium text-slate-800">{activeSession.customerProfile?.intent || "售后咨询"}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-400">情绪指标:</span>
-                        <span className={activeSession.customerProfile.sentiment === "frustrated" ? "text-rose-600 font-bold" : "text-emerald-600 font-semibold"}>
-                          {activeSession.customerProfile.sentiment === "frustrated" ? "急躁/不满 (重点关注)" : "平稳"}
+                        <span className={activeSession.customerProfile?.sentiment === "frustrated" ? "text-rose-600 font-bold" : "text-emerald-600 font-semibold"}>
+                          {activeSession.customerProfile?.sentiment === "frustrated" ? "急躁/不满 (重点关注)" : "平稳"}
                         </span>
                       </div>
                     </div>
                     <div className="pt-1 flex flex-wrap gap-1">
-                      {activeSession.customerProfile.tags.map((t, i) => (
+                      {(activeSession.customerProfile?.tags || []).map((t, i) => (
                         <span key={i} className="px-1.5 py-0.5 bg-slate-200/80 text-slate-700 text-[10px] rounded">
                           #{t}
                         </span>

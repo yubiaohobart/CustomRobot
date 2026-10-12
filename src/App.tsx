@@ -12,6 +12,53 @@ import { DualChatView } from "./components/DualChatView";
 import { MonitoringDashboard } from "./components/MonitoringDashboard";
 import { VectorKnowledgeBase } from "./components/VectorKnowledgeBase";
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-50">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-3">
+            <Activity className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-slate-800 mb-1">页面组件遇到渲染异常</h2>
+          <p className="text-xs text-slate-500 max-w-md mb-4 bg-white p-3 rounded-lg border border-slate-200 font-mono text-left">
+            {this.state.error?.message || "未知错误"}
+          </p>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
+          >
+            重试恢复
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<
     "dual" | "chat" | "workbench" | "monitoring" | "vector"
@@ -227,37 +274,57 @@ export default function App() {
         </div>
       </header>
 
+      {/* Standby Banner when Python Backend is offline */}
+      {!pythonStatus.connected && (
+        <div className="bg-amber-50 border-b border-amber-200/80 px-5 py-2 flex items-center justify-between text-xs text-amber-900 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+            <span>
+              💡 <strong>应急热备模式运行中</strong>：前端会话、人工坐席接管与全双工 WebSocket 已全量可用。如需开启完整 AI 知识检索与 LangGraph 核心，请在本地终端运行：
+            </span>
+            <code className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-mono font-bold text-[11px] border border-amber-300">
+              npm run fastapi
+            </code>
+          </div>
+          <span className="text-[11px] text-amber-700 hidden lg:inline">
+            后端启动后，网关将自动秒级切换至 Python 引擎
+          </span>
+        </div>
+      )}
+
       {/* Main Workspace Body */}
       <main className="flex-1 w-full h-[calc(100vh-4rem)] overflow-hidden">
-        {activeTab === "dual" && <DualChatView />}
+        <ErrorBoundary>
+          {activeTab === "dual" && <DualChatView />}
 
-        {activeTab === "chat" && (
-          <CustomerChatView
-            currentSessionId={currentSessionId}
-            onSelectSession={setCurrentSessionId}
-            onInterventionAlert={() => {
-              setNeedsInterventionCount((prev) => prev + 1);
-            }}
-          />
-        )}
+          {activeTab === "chat" && (
+            <CustomerChatView
+              currentSessionId={currentSessionId}
+              onSelectSession={setCurrentSessionId}
+              onInterventionAlert={() => {
+                setNeedsInterventionCount((prev) => prev + 1);
+              }}
+            />
+          )}
 
-        {activeTab === "workbench" && (
-          <AgentWorkbench
-            currentSessionId={currentSessionId}
-            onSelectSession={setCurrentSessionId}
-          />
-        )}
+          {activeTab === "workbench" && (
+            <AgentWorkbench
+              currentSessionId={currentSessionId}
+              onSelectSession={setCurrentSessionId}
+            />
+          )}
 
-        {activeTab === "monitoring" && (
-          <MonitoringDashboard
-            onNavigateToWorkbench={(sessionId) => {
-              if (sessionId) setCurrentSessionId(sessionId);
-              setActiveTab("workbench");
-            }}
-          />
-        )}
+          {activeTab === "monitoring" && (
+            <MonitoringDashboard
+              onNavigateToWorkbench={(sessionId) => {
+                if (sessionId) setCurrentSessionId(sessionId);
+                setActiveTab("workbench");
+              }}
+            />
+          )}
 
-        {activeTab === "vector" && <VectorKnowledgeBase />}
+          {activeTab === "vector" && <VectorKnowledgeBase />}
+        </ErrorBoundary>
       </main>
     </div>
   );

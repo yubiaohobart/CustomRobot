@@ -89,7 +89,9 @@ export const DualChatView: React.FC = () => {
   // WebSocket Live Connection
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : "";
+    const wsUrl = `${protocol}//${hostname}${port}/ws`;
     let ws: WebSocket;
     let agentTypingTimeout: any = null;
     let customerTypingTimeout: any = null;

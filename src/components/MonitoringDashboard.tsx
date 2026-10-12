@@ -218,14 +218,14 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
                 {needsInterventionList.map((s) => (
                   <tr key={s.id} className="hover:bg-rose-50/40 transition-colors">
                     <td className="py-3 px-3 font-semibold text-slate-800">{s.userName}</td>
-                    <td className="py-3 px-3 text-indigo-600 font-medium">{s.customerProfile.vipLevel}</td>
+                    <td className="py-3 px-3 text-indigo-600 font-medium">{s.customerProfile?.vipLevel || "普通会员"}</td>
                     <td className="py-3 px-3">
                       <span className="px-2 py-0.5 bg-rose-100 text-rose-800 text-[10px] rounded-full font-bold">
-                        {s.customerProfile.sentiment === "frustrated" ? "急躁/有投诉意图" : "一般负向"}
+                        {s.customerProfile?.sentiment === "frustrated" ? "急躁/有投诉意图" : "一般负向"}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-slate-700 max-w-xs truncate">{s.customerProfile.intent}</td>
-                    <td className="py-3 px-3 text-slate-400">{s.metrics.escalatedAt || s.updatedAt}</td>
+                    <td className="py-3 px-3 text-slate-700 max-w-xs truncate">{s.customerProfile?.intent || "常规业务咨询"}</td>
+                    <td className="py-3 px-3 text-slate-400">{s.metrics?.escalatedAt || s.updatedAt || "-"}</td>
                     <td className="py-3 px-3 text-right">
                       <button
                         onClick={() => onNavigateToWorkbench(s.id)}
