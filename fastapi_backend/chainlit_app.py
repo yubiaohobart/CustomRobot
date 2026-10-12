@@ -10,7 +10,7 @@ import os
 import time
 import json
 import asyncio
-from typing import Dict, Any, Tuple, Optional, Set
+from typing import Dict, Any, Tuple, Optional, Set, List
 import httpx
 import chainlit as cl
 
