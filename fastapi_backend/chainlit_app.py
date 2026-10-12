@@ -160,17 +160,57 @@ def get_agent_action_buttons() -> list:
     return actions
 
 
-# 记录已渲染的消息 ID，避免重复推送
-SEEN_MESSAGE_IDS: Set[str] = set()
+class MessageDeduplicator:
+    """
+    全局消息去重中心：
+    彻底消除 WebSocket 消息回显、多个并发协程或刷新页面导致的重复渲染。
+    """
+    def __init__(self, ttl_seconds: float = 60.0):
+        self._seen: Dict[str, float] = {}
+        self.ttl = ttl_seconds
+
+    def _clean(self, now: float):
+        expired = [k for k, t in self._seen.items() if now - t > self.ttl]
+        for k in expired:
+            self._seen.pop(k, None)
+
+    def is_duplicate(self, key: str) -> bool:
+        if not key:
+            return False
+        now = time.time()
+        self._clean(now)
+        return key in self._seen
+
+    def record(self, key: str):
+        if key:
+            now = time.time()
+            self._clean(now)
+            self._seen[key] = now
+
+    def check_and_record(self, keys: List[str]) -> bool:
+        """检查是否有任一 key 已被渲染过。若是则返回 True (重复并丢弃)；若否，记录所有 key 并返回 False"""
+        now = time.time()
+        self._clean(now)
+        for k in keys:
+            if k and k in self._seen:
+                return True
+        for k in keys:
+            if k:
+                self._seen[k] = now
+        return False
+
+# 全局单例去重器
+deduplicator = MessageDeduplicator(ttl_seconds=60.0)
+
 
 async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: str):
     """
     全双工实时同步中枢：
-    1. 持续维持原生 WebSocket 长连接 (ws://.../ws) 订阅当前会话房间，支持断线秒级自愈重连
-    2. 支持双窗口/双角色协同：
+    1. 维持原生 WebSocket 长连接订阅当前会话房间，支持断线秒级自愈重连
+    2. 支持双窗口/双角色协同（严格防重，保证每条消息仅呈现一次）：
        - 若本窗口为【顾客端】：实时接收人工客服坐席在另一窗口发送的回复
        - 若本窗口为【人工坐席端】：实时接收顾客在另一窗口发送的提问与咨询
-    3. 附带后台差量检查机制，保证消息 100% 不漏达
+    3. 支持 asyncio Task 外部取消，优雅关闭并回收 socket
     """
     ws_url = backend_url.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
 
@@ -200,41 +240,48 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
                             data = json.loads(raw)
                             mtype = data.get("type")
                             my_role = cl.user_session.get("user_role", "customer")
-                            seen_ids = cl.user_session.get("seen_ids")
-                            if seen_ids is None:
-                                seen_ids = set()
-                                cl.user_session.set("seen_ids", seen_ids)
 
                             if mtype == "message:new":
                                 msg = data.get("message", {})
                                 mid = msg.get("id", "")
                                 msg_role = msg.get("role")
+                                content = (msg.get("content") or "").strip()
+                                if not content:
+                                    continue
                                 
-                                # 模式 1：本窗口是【顾客端】-> 接收人工坐席的发言
-                                if my_role == "customer" and msg_role in ("human_agent", "agent") and mid not in seen_ids:
-                                    seen_ids.add(mid)
-                                    agent_name = data.get("session", {}).get("assignedAgent") or msg.get("agentName") or "值班人工坐席"
+                                # 全方位去重检验：包括消息 ID、会话+内容、会话+角色+内容、裸内容
+                                check_keys = [
+                                    mid,
+                                    f"{session_id}:{mid}:{content}",
+                                    f"{session_id}:{content}",
+                                    f"{session_id}:{msg_role}:{content}",
+                                    content
+                                ]
+                                if deduplicator.check_and_record(check_keys):
+                                    # 已经在此会话内渲染过或由本端刚发出，直接丢弃避免重复弹出
+                                    continue
+
+                                # 模式 1：本窗口是【顾客端】-> 接收人工坐席在另一窗口的发言
+                                if my_role == "customer" and msg_role in ("human_agent", "agent"):
+                                    agent_name = data.get("session", {}).get("assignedAgent") or msg.get("agentName") or "张小雅"
                                     agent_id = data.get("session", {}).get("assignedAgentId") or msg.get("agentId") or "agent_101"
-                                    content = msg.get("content", "")
                                     
                                     agent_card = (
-                                        f"> 👨‍💼 **人工客服在线 (WebSocket 实时同步)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
+                                        f"> 👨‍💼 **人工客服在线 (坐席已回复)** | 坐席: **{agent_name}** (工号: `{agent_id}`)\n\n"
                                         f"{content}"
                                     )
                                     await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
 
                                 # 模式 2：本窗口是【人工坐席工作台】-> 接收顾客在另一窗口发送的提问
-                                elif my_role == "agent" and msg_role == "user" and mid not in seen_ids:
-                                    seen_ids.add(mid)
+                                elif my_role == "agent" and msg_role == "user":
                                     cust_profile = data.get("session", {}).get("customerProfile", {})
                                     c_name = cust_profile.get("name") or "王女士"
                                     c_vip = cust_profile.get("vipLevel") or "黄金会员"
-                                    content = msg.get("content", "")
 
                                     cust_card = (
-                                        f"> 👤 **【顾客新咨询实时送达】** | 客户: **{c_name}** ({c_vip}) | 会话: `{session_id}`\n\n"
+                                        f"> 👤 **【顾客新提问实时送达】** | 客户: **{c_name}** ({c_vip})\n\n"
                                         f"💬 **客户提问**: “{content}”\n\n"
-                                        f"> 💡 *请直接在下方输入框打字回复，回车即可推送到顾客窗口！也可点击下方快捷回复话术。*"
+                                        f"> 💡 *请在下方输入框直接打字回复客户并按回车！*"
                                     )
                                     await cl.Message(content=cust_card, actions=get_agent_action_buttons()).send()
 
@@ -242,76 +289,66 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
                                 sess = data.get("session", {})
                                 if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
                                     cl.user_session.set("is_human_mode", True)
+                        except asyncio.CancelledError:
+                            raise
                         except Exception:
                             continue
+            except asyncio.CancelledError:
+                ws_bridge.remove_ws(session_id)
+                print(f"🛑 [Chainlit WS] 会话任务已取消，断开长连接: {session_id}")
+                raise
             except Exception as e:
                 ws_bridge.remove_ws(session_id)
                 print(f"⚠️ [Chainlit WS] 长连接断开或未就绪 ({e})，2秒后尝试自动重连...")
                 await asyncio.sleep(2.0)
 
     async def poll_worker():
+        """轻量差量轮询：仅用于维护会话状态，避免与 WebSocket 重复推送消息"""
         while True:
-            await asyncio.sleep(1.5)
             try:
+                await asyncio.sleep(3.0)
                 async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
                     res = await client.get(f"{backend_url}/api/sessions/{session_id}")
                     if res.status_code == 200:
                         sess = res.json().get("session", {})
                         if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
                             cl.user_session.set("is_human_mode", True)
-                        
-                        my_role = cl.user_session.get("user_role", "customer")
-                        seen_ids = cl.user_session.get("seen_ids")
-                        if seen_ids is None:
-                            seen_ids = set()
-                            cl.user_session.set("seen_ids", seen_ids)
-
-                        messages = sess.get("messages", [])
-                        for m in messages:
-                            mid = m.get("id", "")
-                            msg_role = m.get("role")
-
-                            if my_role == "customer" and msg_role in ("human_agent", "agent") and mid not in seen_ids:
-                                seen_ids.add(mid)
-                                agent_name = sess.get("assignedAgent") or m.get("agentName") or "值班人工坐席"
-                                agent_id = sess.get("assignedAgentId") or m.get("agentId") or "agent_101"
-                                content = m.get("content", "")
-                                
-                                agent_card = (
-                                    f"> 👨‍💼 **人工客服在线 (坐席已回复)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
-                                    f"{content}"
-                                )
-                                await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
-                            elif my_role == "agent" and msg_role == "user" and mid not in seen_ids:
-                                seen_ids.add(mid)
-                                content = m.get("content", "")
-                                cust_card = (
-                                    f"> 👤 **【顾客新咨询】** | 客户: **王女士** (黄金会员)\n\n"
-                                    f"💬 **客户提问**: “{content}”"
-                                )
-                                await cl.Message(content=cust_card, actions=get_agent_action_buttons()).send()
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 continue
 
-    # 并发执行 WebSocket 长连接与差量兜底轮询
-    await asyncio.gather(ws_worker(), poll_worker())
+    try:
+        await asyncio.gather(ws_worker(), poll_worker())
+    except asyncio.CancelledError:
+        ws_bridge.remove_ws(session_id)
 
 
 @cl.on_chat_start
 async def on_chat_start():
-    """对话初始化：探测后端、初始化会话，展示快捷操作卡片并启动实时同步"""
+    """对话初始化：探测后端、清理旧任务、初始化会话，展示快捷操作卡片并启动实时同步"""
+    # 彻底取消本会话先前可能遗留的旧后台监听任务，消灭僵尸连接导致的重复推送
+    old_task = cl.user_session.get("realtime_task")
+    if old_task and not old_task.done():
+        try:
+            old_task.cancel()
+        except Exception:
+            pass
+
     session_id = DEFAULT_SESSION_ID
     profile = PROFILES["vip"]
     cl.user_session.set("session_id", session_id)
     cl.user_session.set("user_profile", profile)
     cl.user_session.set("is_human_mode", False)
     cl.user_session.set("assigned_agent", None)
+    cl.user_session.set("user_role", "customer")
 
     target_url, is_online, status_text = await probe_backend_endpoint()
     cl.user_session.set("backend_url", target_url)
 
-    # 启动后台实时 WebSocket / 差量轮询监听任务 (将坐席工作台的消息毫秒级引入当前窗口)
-    asyncio.create_task(run_realtime_sync_loop(session_id, target_url, profile["userName"]))
+    # 启动后台实时 WebSocket / 差量轮询监听任务，并保存 task 句柄以便清理
+    sync_task = asyncio.create_task(run_realtime_sync_loop(session_id, target_url, profile["userName"]))
+    cl.user_session.set("realtime_task", sync_task)
 
     ws_tech = "WebSocket 全双工长连接" if HAS_WEBSOCKETS else "智能高频轮询同步 (建议 pip install websockets)"
     if is_online:
@@ -342,6 +379,17 @@ async def on_chat_start():
     ]
 
     await cl.Message(content=welcome_md, actions=actions).send()
+
+
+@cl.on_chat_end
+async def on_chat_end():
+    """对话结束或页面刷新卸载时，主动回收长连接任务"""
+    task = cl.user_session.get("realtime_task")
+    if task and not task.done():
+        try:
+            task.cancel()
+        except Exception:
+            pass
 
 
 @cl.action_callback("test_preset")
@@ -649,9 +697,10 @@ async def on_message(message: cl.Message):
 
 
 async def send_human_agent_reply(reply_text: str):
-    """以人工坐席身份向客户发送回复 (通过 WebSocket 全双工通道广播)"""
+    """以人工坐席身份向客户发送回复 (通过 WebSocket 全双工通道广播，单通道严格防重复)"""
     session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
     backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
+    user_role = cl.user_session.get("user_role", "customer")
     agent_info = cl.user_session.get("assigned_agent") or {
         "id": "agent_101",
         "name": "张小雅",
@@ -659,23 +708,25 @@ async def send_human_agent_reply(reply_text: str):
         "skill": "退换货疑难 / VIP加急"
     }
 
-    t0 = time.time()
-    ws_sent = False
-    http_synced = False
+    clean_text = reply_text.strip()
 
-    async with cl.Step(name=f"👨‍💼 人工坐席 [{agent_info['name']}] 回复客户 (双向通信)", type="run") as step:
-        step.input = reply_text
-        
-        # 1. 优先通过原生 WebSocket 长连接广播
-        ws_sent = await ws_bridge.send_event(session_id, {
-            "type": "human_message",
-            "sessionId": session_id,
-            "content": reply_text,
-            "agentId": agent_info["id"],
-            "agentName": agent_info["name"]
-        })
+    # 1. 立即登记防重指纹（彻底防止 WebSocket 回显导致当前窗口重复渲染）
+    deduplicator.record(clean_text)
+    deduplicator.record(f"{session_id}:{clean_text}")
+    deduplicator.record(f"{session_id}:human_agent:{clean_text}")
+    deduplicator.record(f"{session_id}:agent:{clean_text}")
 
-        # 2. HTTP 接口同步持久化
+    # 2. 优先通过原生 WebSocket 广播（由对端窗口接收）
+    ws_sent = await ws_bridge.send_event(session_id, {
+        "type": "human_message",
+        "sessionId": session_id,
+        "content": reply_text,
+        "agentId": agent_info["id"],
+        "agentName": agent_info["name"]
+    })
+
+    # 若 WebSocket 未连接，才通过 HTTP API 降级提交
+    if not ws_sent:
         try:
             async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 res = await client.post(
@@ -687,21 +738,23 @@ async def send_human_agent_reply(reply_text: str):
                     }
                 )
                 if res.status_code == 200:
-                    http_synced = True
-                    data = res.json()
-                    msg_obj = data.get("message", {})
-                    if msg_obj.get("id"):
-                        SEEN_MESSAGE_IDS.add(msg_obj["id"])
-                    step.output = f"✅ 已通过 {'原生 WebSocket + HTTP' if ws_sent else 'HTTP API'} 实时广播送达客户 (耗时 {int((time.time()-t0)*1000)}ms)"
-                else:
-                    step.output = f"HTTP {res.status_code}: {res.text}"
-        except Exception as e:
-            step.output = f"WebSocket 已推达 / 本地自愈: {e}"
+                    mid = res.json().get("message", {}).get("id")
+                    if mid:
+                        deduplicator.record(mid)
+        except Exception:
+            pass
 
-    agent_card_md = (
-        f"> 👨‍💼 **人工客服在线 (坐席已回复)** | 坐席: **{agent_info['name']}** (工号: `{agent_info['id']}`) | 岗位: `{agent_info['title']}`\n\n"
-        f"{reply_text}"
-    )
+    # 3. 在当前窗口只渲染一次
+    if user_role == "agent":
+        agent_card_md = (
+            f"> 👨‍💼 **【已向客户发送答复】** | 坐席: **{agent_info['name']}** (工号: `{agent_info['id']}`)\n\n"
+            f"{reply_text}"
+        )
+    else:
+        agent_card_md = (
+            f"> 👨‍💼 **人工客服在线 (坐席已回复)** | 坐席: **{agent_info['name']}** (工号: `{agent_info['id']}`)\n\n"
+            f"{reply_text}"
+        )
 
     await cl.Message(
         content=agent_card_md,
@@ -808,56 +861,38 @@ async def handle_user_input(user_input: str):
     if is_human_mode:
         agent_info = cl.user_session.get("assigned_agent") or {"name": "张小雅", "id": "agent_101"}
         
-        # 1. 优先通过 WebSocket 发送客户发言
+        # 1. 优先通过 WebSocket 将客户消息即时推送至人工客服坐席工作台
         ws_sent = await ws_bridge.send_event(session_id, {
             "type": "customer_message",
             "sessionId": session_id,
             "content": user_input
         })
 
-        # 2. 同步客户消息至后端持久化会话 (/api/chat 会识别人工模式并不产生 AI 幻觉覆盖)
-        try:
-            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-                await client.post(
-                    f"{backend_url}/api/chat",
-                    json={
-                        "sessionId": session_id,
-                        "message": user_input,
-                        "userProfile": profile
-                    }
-                )
-        except Exception:
-            pass
+        # 2. 仅在 WebSocket 未连接时，才通过 HTTP API 降级提交（避免双重入库与广播）
+        if not ws_sent:
+            try:
+                async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+                    await client.post(
+                        f"{backend_url}/api/chat",
+                        json={
+                            "sessionId": session_id,
+                            "message": user_input,
+                            "userProfile": profile
+                        }
+                    )
+            except Exception:
+                pass
 
-        ws_label = "🟢 原生 WebSocket 全双工通道" if ws_sent else "🔄 实时消息网关"
-        
-        # 3. 坐席工作台收到提问后，实时生成专业坐席答复并通过 WebSocket 全双工通道返回
-        async def agent_auto_reply_task():
-            # 模拟人工坐席打字感知
-            await ws_bridge.send_event(session_id, {
-                "type": "typing",
-                "sessionId": session_id,
-                "sender": "agent",
-                "name": agent_info["name"],
-                "isTyping": True
-            })
-            await asyncio.sleep(0.9)
-
-            q = user_input.lower()
-            if any(k in q for k in ["换货", "退货", "尺码", "不行", "退", "不喜欢", "怎么退"]):
-                rep = f"好的，{profile['userName']}，我看到您的诉求了。鉴于您是{profile['vipLevel']}，我马上为您办理顺丰免费上门取件退换货，运费由平台全额补贴先行垫付。快递员今天下午两点将联系您取走包裹，请问您方便取件的地址还是之前的默认收货地址吗？"
-            elif any(k in q for k in ["退款", "到账", "钱", "多久", "几天", "款"]):
-                rep = f"关于退款到账时效：系统已为您开启{profile['vipLevel']}专属极速闪电退款绿色通道，包裹寄出录入运单后，款项将原路冲正退回至您的支付账户（微信/银行卡预计1-2小时内到账），请您放心！"
-            elif any(k in q for k in ["物流", "发货", "快递", "到哪", "查单", "单号"]):
-                rep = f"经调阅您的订单 ORD-2026-88992，顺丰速运（单号: SF1688920412）显示包裹已到达华东中央转运中心，正在进行分拨派送，预计今天下午送达。我已为您添加【加急派送】督办标签！"
-            elif any(k in q for k in ["你好", "在吗", "在不在", "有人吗", "哈喽", "hello"]):
-                rep = f"在的，{profile['userName']}！专属坐席专员张小雅竭诚为您服务，请问有什么可以全力协助您的？"
-            else:
-                rep = f"明白您的意思。关于您提出的“{user_input}”，我已经为您记入售后工单跟踪档案中，质检主管正为您加速核实。您还可以点击下方快捷操作快速办理退换或催单。"
-
-            await send_human_agent_reply(rep)
-
-        asyncio.create_task(agent_auto_reply_task())
+        # 3. 客户窗口提示：消息已推达人工客服工作台，等待坐席答复
+        status_card = (
+            f"> 📤 **【提问已送达人工坐席】** 正在等待坐席 **{agent_info['name']}** 查阅并答复...\n\n"
+            f"💬 您的留言：“*{user_input}*”\n\n"
+            f"> 💡 *提示：如果您开启了两个标签页，请在【👨‍💼 人工客服坐席工作台】窗口中直接打字回复；或者点击下方快捷操作快速测试。*"
+        )
+        await cl.Message(
+            content=status_card,
+            actions=get_agent_action_buttons()
+        ).send()
         return
 
     # 正常 AI 模式：向 FastAPI 后端 /api/chat 发起请求

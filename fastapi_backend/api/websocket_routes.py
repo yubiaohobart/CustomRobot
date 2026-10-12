@@ -90,13 +90,13 @@ async def handle_human_message_event(websocket: WebSocket, data: Dict[str, Any],
     msg = memory_service.add_message(target_session_id, "human_agent", content)
     updated_session = memory_service.get_session(target_session_id)
     
-    # 1. 广播给该会话房间内的所有订阅者（客户手机端、同屏监控、主管端）
+    # 1. 广播给该会话房间内的所有其他订阅者（客户手机端、同屏监控、主管端，排除发送方以防重复显示）
     await ws_manager.broadcast_to_session(target_session_id, {
         "type": "message:new",
         "sessionId": target_session_id,
         "message": msg,
         "session": updated_session
-    })
+    }, exclude=websocket)
     
     # 2. 广播给全局客服大厅（更新工单列表最新消息预览）
     await ws_manager.broadcast_all({
@@ -118,13 +118,13 @@ async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, An
     msg = memory_service.add_message(target_session_id, "user", content)
     updated_session = memory_service.get_session(target_session_id)
     
-    # 广播给会话房间 (包括 echoBack 给发送端确认)
+    # 广播给会话房间（排除发送方连接，避免发送端自己收到自己的回声重复渲染）
     await ws_manager.broadcast_to_session(target_session_id, {
         "type": "message:new",
         "sessionId": target_session_id,
         "message": msg,
         "session": updated_session
-    })
+    }, exclude=websocket)
     
     # 广播给全局坐席大厅 (刷新工作台会话列表的未读数与最新消息)
     await ws_manager.broadcast_all({

@@ -304,12 +304,14 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         setTimeout(() => setTransferSuccessToast(null), 4000);
         if (onInterventionAlert) onInterventionAlert();
       } else {
-        const errData = await res.json();
-        alert(errData.error || "转接人工失败");
+        const errData = await res.json().catch(() => ({}));
+        setTransferSuccessToast(errData.error || "转接人工失败，请稍后重试");
+        setTimeout(() => setTransferSuccessToast(null), 4000);
       }
     } catch (e) {
       console.error(e);
-      alert("转接服务请求异常");
+      setTransferSuccessToast("转接服务请求异常，请检查网络或后端状态");
+      setTimeout(() => setTransferSuccessToast(null), 4000);
     } finally {
       setTransferring(false);
     }

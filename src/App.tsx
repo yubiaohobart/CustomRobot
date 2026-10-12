@@ -4,27 +4,17 @@ import {
   Headphones, 
   Activity, 
   Database, 
-  GitBranch, 
-  Server, 
-  ShieldAlert, 
-  User, 
-  Sparkles,
-  ChevronDown,
-  Code2,
-  Flame
+  Sparkles
 } from "lucide-react";
 import { CustomerChatView } from "./components/CustomerChatView";
-import { ChainlitPlaygroundView } from "./components/ChainlitPlaygroundView";
 import { AgentWorkbench } from "./components/AgentWorkbench";
 import { DualChatView } from "./components/DualChatView";
 import { MonitoringDashboard } from "./components/MonitoringDashboard";
 import { VectorKnowledgeBase } from "./components/VectorKnowledgeBase";
-import { LangGraphVisualizer } from "./components/LangGraphVisualizer";
-import { FastAPIArchitectureCode } from "./components/FastAPIArchitectureCode";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "dual" | "chat" | "workbench" | "chainlit" | "monitoring" | "vector" | "langgraph" | "fastapi"
+    "dual" | "chat" | "workbench" | "monitoring" | "vector"
   >("dual");
 
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
@@ -40,7 +30,6 @@ export default function App() {
     wsUrl: "ws://127.0.0.1:5000/ws",
     checked: false,
   });
-  const [showArchModal, setShowArchModal] = useState(false);
 
   // 探测 Python FastAPI 及 WebSocket 后端状态
   useEffect(() => {
@@ -108,16 +97,16 @@ export default function App() {
             <div className="flex items-center gap-2">
               <span className="font-bold text-base text-slate-900 tracking-tight">IntelliServe</span>
               <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 font-semibold rounded-full border border-blue-100">
-                LangGraph + FastAPI 客服系统
+                智能客服协同中台
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              向量检索增强 (RAG) • 会话记忆持久化 • 实时监控预警与人工接管介入
+              全双工 WebSocket • 会话状态机 • 向量知识检索 • 人工坐席协同接管
             </p>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs - 纯真实业务功能模块 */}
         <nav className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200/80">
           <button
             id="tab-dual"
@@ -146,22 +135,6 @@ export default function App() {
           >
             <Bot className="w-3.5 h-3.5" />
             <span>客户对话端</span>
-          </button>
-
-          <button
-            id="tab-chainlit"
-            onClick={() => setActiveTab("chainlit")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer relative ${
-              activeTab === "chainlit"
-                ? "bg-white text-orange-600 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-600" />
-            <span>Chainlit 对话自测</span>
-            <span className="px-1 py-0.1 bg-orange-100 text-orange-700 text-[9px] font-bold rounded">
-              自测台
-            </span>
           </button>
 
           <button
@@ -207,45 +180,17 @@ export default function App() {
             <Database className="w-3.5 h-3.5" />
             <span>向量知识库</span>
           </button>
-
-          <button
-            id="tab-langgraph"
-            onClick={() => setActiveTab("langgraph")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              activeTab === "langgraph"
-                ? "bg-white text-purple-700 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            <GitBranch className="w-3.5 h-3.5" />
-            <span>LangGraph 拓扑</span>
-          </button>
-
-          <button
-            id="tab-code"
-            onClick={() => setActiveTab("fastapi")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              activeTab === "fastapi"
-                ? "bg-white text-indigo-700 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            <Code2 className="w-3.5 h-3.5" />
-            <span>FastAPI 架构源码</span>
-          </button>
         </nav>
 
         {/* Header Right: Backend Status & Session Switcher */}
         <div className="flex items-center gap-2.5">
-          {/* Backend Authority Badge */}
-          <button
-            onClick={() => setShowArchModal(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-all cursor-pointer ${
+          {/* Backend Status Badge */}
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-all ${
               pythonStatus.connected
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : "bg-amber-50 text-amber-700 border-amber-200"
             }`}
-            title="后端职责：100% 由 Python FastAPI + WebSocket 承载，点击查看架构"
           >
             <span
               className={`w-2 h-2 rounded-full ${
@@ -255,12 +200,9 @@ export default function App() {
               }`}
             />
             <span>
-              {pythonStatus.connected ? "Python 后端在线 (FastAPI + WS)" : "Python 独占后端 (待连接)"}
+              {pythonStatus.connected ? "后端服务在线 (FastAPI + WS)" : "Python 后端待连接"}
             </span>
-            <span className="text-[9px] px-1 py-0.2 bg-white/80 rounded font-mono">
-              :5000
-            </span>
-          </button>
+          </div>
 
           <span className="text-[11px] text-slate-300 hidden md:inline">|</span>
 
@@ -285,66 +227,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Backend Architecture & Startup Modal */}
-      {showArchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 text-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="p-2 bg-indigo-50 text-indigo-600 rounded-xl font-mono text-sm">🐍</span>
-                <div>
-                  <h3 className="font-bold text-base text-slate-900">Python 独占式后端架构 (FastAPI + WebSocket)</h3>
-                  <p className="text-xs text-slate-500">统一事实源 • 后端一切逻辑均由 Python 实现</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowArchModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-600">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                <div className="flex items-center justify-between font-semibold text-slate-800">
-                  <span>📌 架构定位与职责划分：</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                    pythonStatus.connected ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                  }`}>
-                    {pythonStatus.connected ? "Python 服务运行中" : "等待启动 Python 服务"}
-                  </span>
-                </div>
-                <p>• <strong>Python FastAPI (Port 5000/8000)</strong>：独占实现<strong>全部后端业务</strong>（Qdrant 向量匹配、LangGraph 节点流转、会话记忆持久化、人工客服分配、订单查询）以及<strong>原生 WebSocket 全双工长连接</strong>（<code>websocket_manager.py</code>）。</p>
-                <p>• <strong>Node.js (Port 3000)</strong>：仅作为纯前端 Vite 托管服务和透明代理网关（HTTP 反向代理 + WebSocket 管道穿透代理），绝不维护多余的本地模拟后端状态。</p>
-              </div>
-
-              <div>
-                <span className="font-semibold text-slate-700 block mb-1">🚀 本地启动 Python FastAPI 后端：</span>
-                <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto select-all">
-cd fastapi_backend{"\n"}
-pip install -r requirements.txt{"\n"}
-python app.py
-                </pre>
-              </div>
-
-              <div className="text-[11px] text-slate-500">
-                启动后，前端浏览器即可通过透明网关 <code>/ws</code> 自动无缝接入 Python 的 WebSocket 连接池，享受毫秒级双向打字感知与坐席协同。
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setShowArchModal(false)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl cursor-pointer"
-              >
-                我知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Main Workspace Body */}
       <main className="flex-1 w-full h-[calc(100vh-4rem)] overflow-hidden">
         {activeTab === "dual" && <DualChatView />}
@@ -358,8 +240,6 @@ python app.py
             }}
           />
         )}
-
-        {activeTab === "chainlit" && <ChainlitPlaygroundView />}
 
         {activeTab === "workbench" && (
           <AgentWorkbench
@@ -378,10 +258,6 @@ python app.py
         )}
 
         {activeTab === "vector" && <VectorKnowledgeBase />}
-
-        {activeTab === "langgraph" && <LangGraphVisualizer />}
-
-        {activeTab === "fastapi" && <FastAPIArchitectureCode />}
       </main>
     </div>
   );
