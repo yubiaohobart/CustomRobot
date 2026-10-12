@@ -151,6 +151,11 @@ def get_agent_action_buttons() -> list:
             payload={},
             label="🤖 切回 AI 智能接待"
         ),
+        cl.Action(
+            name="toggle_role",
+            payload={},
+            label="🔄 切换身份 (顾客/坐席)"
+        ),
     ]
     return actions
 
@@ -162,7 +167,9 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
     """
     全双工实时同步中枢：
     1. 持续维持原生 WebSocket 长连接 (ws://.../ws) 订阅当前会话房间，支持断线秒级自愈重连
-    2. 当人工客服在网页工作台回复消息时，毫秒级推送展示到 Chainlit
+    2. 支持双窗口/双角色协同：
+       - 若本窗口为【顾客端】：实时接收人工客服坐席在另一窗口发送的回复
+       - 若本窗口为【人工坐席端】：实时接收顾客在另一窗口发送的提问与咨询
     3. 附带后台差量检查机制，保证消息 100% 不漏达
     """
     ws_url = backend_url.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
@@ -177,13 +184,14 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
                 print(f"🔌 [Chainlit WS] 正在尝试建立 WebSocket 长连接: {ws_url} ...")
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
                     ws_bridge.set_ws(session_id, ws, ws_url)
-                    print(f"🟢 [Chainlit WS] 全双工 WebSocket 长连接已就绪！已加入会话: {session_id}")
+                    role = cl.user_session.get("user_role", "customer")
+                    print(f"🟢 [Chainlit WS] 全双工 WebSocket 长连接已就绪！加入会话: {session_id} (角色: {role})")
                     
                     # 握手绑定会话
                     await ws.send(json.dumps({
                         "type": "join",
                         "sessionId": session_id,
-                        "role": "customer",
+                        "role": role,
                         "name": user_name
                     }))
                     
@@ -191,12 +199,20 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
                         try:
                             data = json.loads(raw)
                             mtype = data.get("type")
+                            my_role = cl.user_session.get("user_role", "customer")
+                            seen_ids = cl.user_session.get("seen_ids")
+                            if seen_ids is None:
+                                seen_ids = set()
+                                cl.user_session.set("seen_ids", seen_ids)
+
                             if mtype == "message:new":
                                 msg = data.get("message", {})
                                 mid = msg.get("id", "")
-                                # 仅处理来自人工坐席的新消息 (来自客服工作台 AgentWorkbench)
-                                if msg.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
-                                    SEEN_MESSAGE_IDS.add(mid)
+                                msg_role = msg.get("role")
+                                
+                                # 模式 1：本窗口是【顾客端】-> 接收人工坐席的发言
+                                if my_role == "customer" and msg_role in ("human_agent", "agent") and mid not in seen_ids:
+                                    seen_ids.add(mid)
                                     agent_name = data.get("session", {}).get("assignedAgent") or msg.get("agentName") or "值班人工坐席"
                                     agent_id = data.get("session", {}).get("assignedAgentId") or msg.get("agentId") or "agent_101"
                                     content = msg.get("content", "")
@@ -206,7 +222,22 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
                                         f"{content}"
                                     )
                                     await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
-                                    
+
+                                # 模式 2：本窗口是【人工坐席工作台】-> 接收顾客在另一窗口发送的提问
+                                elif my_role == "agent" and msg_role == "user" and mid not in seen_ids:
+                                    seen_ids.add(mid)
+                                    cust_profile = data.get("session", {}).get("customerProfile", {})
+                                    c_name = cust_profile.get("name") or "王女士"
+                                    c_vip = cust_profile.get("vipLevel") or "黄金会员"
+                                    content = msg.get("content", "")
+
+                                    cust_card = (
+                                        f"> 👤 **【顾客新咨询实时送达】** | 客户: **{c_name}** ({c_vip}) | 会话: `{session_id}`\n\n"
+                                        f"💬 **客户提问**: “{content}”\n\n"
+                                        f"> 💡 *请直接在下方输入框打字回复，回车即可推送到顾客窗口！也可点击下方快捷回复话术。*"
+                                    )
+                                    await cl.Message(content=cust_card, actions=get_agent_action_buttons()).send()
+
                             elif mtype == "session:update":
                                 sess = data.get("session", {})
                                 if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
@@ -229,20 +260,36 @@ async def run_realtime_sync_loop(session_id: str, backend_url: str, user_name: s
                         if sess.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
                             cl.user_session.set("is_human_mode", True)
                         
+                        my_role = cl.user_session.get("user_role", "customer")
+                        seen_ids = cl.user_session.get("seen_ids")
+                        if seen_ids is None:
+                            seen_ids = set()
+                            cl.user_session.set("seen_ids", seen_ids)
+
                         messages = sess.get("messages", [])
                         for m in messages:
                             mid = m.get("id", "")
-                            if m.get("role") in ("human_agent", "agent") and mid not in SEEN_MESSAGE_IDS:
-                                SEEN_MESSAGE_IDS.add(mid)
+                            msg_role = m.get("role")
+
+                            if my_role == "customer" and msg_role in ("human_agent", "agent") and mid not in seen_ids:
+                                seen_ids.add(mid)
                                 agent_name = sess.get("assignedAgent") or m.get("agentName") or "值班人工坐席"
                                 agent_id = sess.get("assignedAgentId") or m.get("agentId") or "agent_101"
                                 content = m.get("content", "")
                                 
                                 agent_card = (
-                                    f"> 👨‍💼 **人工客服在线 (坐席工作台已回复)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
+                                    f"> 👨‍💼 **人工客服在线 (坐席已回复)** | 坐席: **{agent_name}** (工号 `{agent_id}`)\n\n"
                                     f"{content}"
                                 )
                                 await cl.Message(content=agent_card, actions=get_agent_action_buttons()).send()
+                            elif my_role == "agent" and msg_role == "user" and mid not in seen_ids:
+                                seen_ids.add(mid)
+                                content = m.get("content", "")
+                                cust_card = (
+                                    f"> 👤 **【顾客新咨询】** | 客户: **王女士** (黄金会员)\n\n"
+                                    f"💬 **客户提问**: “{content}”"
+                                )
+                                await cl.Message(content=cust_card, actions=get_agent_action_buttons()).send()
             except Exception:
                 continue
 
@@ -281,17 +328,18 @@ async def on_chat_start():
         f"- **互通会话 ID**: `{session_id}` (已与前台客服工作台同步绑定)\n"
         f"- **当前模拟客户**: `{profile['userName']}` ({profile['vipLevel']})\n"
         f"- **当前服务模式**: `🤖 AI 智能客服自动接待`\n"
-        f"- **实时互通说明**: 点击 **【🎧 立即转人工客服】** 后，前台客服工作台会实时闪烁弹窗；坐席在工作台回复后，消息将**秒级自动推送至本窗口**！\n\n"
+        f"- **双窗口互通支持**: 您可在浏览器**新开一个标签页**点击下方【👨‍💼 切换为人工坐席窗口】，即可开启**两窗口真实双向对聊**！\n\n"
         f"{status_banner}"
         "点击下方常用用例一键测试，或直接输入售后问题开始自测："
     )
 
     actions = [
-        cl.Action(name="test_preset", payload={"query": query}, label=f"🧪 {label}")
-        for label, query in BENCHMARKS
+        cl.Action(name="switch_role_agent", payload={}, label="👨‍💼 【点击切换】人工客服坐席窗口"),
+        cl.Action(name="transfer_human", payload={}, label="🎧 立即呼叫人工客服"),
+        cl.Action(name="switch_profile", payload={}, label="👤 切换会员画像"),
+        cl.Action(name="test_preset", payload={"query": BENCHMARKS[0][1]}, label="🧪 查订单物流"),
+        cl.Action(name="test_preset", payload={"query": BENCHMARKS[1][1]}, label="🧪 7天退货政策"),
     ]
-    actions.append(cl.Action(name="transfer_human", payload={}, label="🎧 立即转人工客服"))
-    actions.append(cl.Action(name="switch_profile", payload={}, label="👤 切换会员画像"))
 
     await cl.Message(content=welcome_md, actions=actions).send()
 
@@ -323,6 +371,94 @@ async def on_switch_profile(action: cl.Action):
     await cl.Message(
         content=f"🔄 **已切换客户画像**：`{new_profile['userName']}`（**{new_profile['vipLevel']}**）"
     ).send()
+
+
+@cl.action_callback("switch_role_agent")
+async def on_switch_role_agent(action: cl.Action):
+    """切换当前窗口为人工坐席工作台"""
+    await switch_to_agent_role()
+
+
+@cl.action_callback("switch_role_customer")
+async def on_switch_role_customer(action: cl.Action):
+    """切换当前窗口为顾客端视角"""
+    await switch_to_customer_role()
+
+
+@cl.action_callback("toggle_role")
+async def on_toggle_role(action: cl.Action):
+    """在顾客与坐席身份间切换"""
+    curr = cl.user_session.get("user_role", "customer")
+    if curr == "customer":
+        await switch_to_agent_role()
+    else:
+        await switch_to_customer_role()
+
+
+async def switch_to_agent_role():
+    """将当前窗口设定为人工客服坐席端"""
+    cl.user_session.set("user_role", "agent")
+    cl.user_session.set("is_human_mode", True)
+    session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
+    backend_url = cl.user_session.get("backend_url", DEFAULT_BACKEND_URL)
+    agent_info = {
+        "id": "agent_101",
+        "name": "张小雅",
+        "title": "金牌客服专员",
+        "skill": "退换货疑难与退款加速",
+        "rating": "4.98 ★"
+    }
+    cl.user_session.set("assigned_agent", agent_info)
+    
+    # 向 WebSocket 注册自身为 agent
+    await ws_bridge.send_event(session_id, {
+        "type": "join",
+        "sessionId": session_id,
+        "role": "agent",
+        "name": agent_info["name"]
+    })
+    
+    agent_banner = (
+        f"### 👨‍💼【您已进入人工客服坐席工作台】\n\n"
+        f"- **当值坐席**: **{agent_info['name']}** (工号: `{agent_info['id']}` · {agent_info['title']})\n"
+        f"- **监控会话**: `{session_id}` (全双工双向连接已激活)\n"
+        f"- **状态**: 🟢 在线就绪，正在监听顾客提问\n\n"
+        f"---\n"
+        f"### 💡 双窗口实时对话指南：\n"
+        f"1. **开两个窗口**：在浏览器新建标签页（或无痕模式）打开 Chainlit 作为 **【顾客端】**；\n"
+        f"2. **顾客提问**：顾客在另一窗口输入的咨询将**实时推送到本工作台**；\n"
+        f"3. **坐席直接回复**：您在当前输入框**直接打字输入回复并按回车**，消息将**秒级广播至顾客窗口**！"
+    )
+    actions = get_agent_action_buttons()
+    actions.append(cl.Action(name="switch_role_customer", payload={}, label="👤 切换为顾客端视角"))
+    await cl.Message(content=agent_banner, actions=actions).send()
+
+
+async def switch_to_customer_role():
+    """将当前窗口设定为顾客端"""
+    cl.user_session.set("user_role", "customer")
+    session_id = cl.user_session.get("session_id", DEFAULT_SESSION_ID)
+    profile = cl.user_session.get("user_profile", PROFILES["vip"])
+    
+    await ws_bridge.send_event(session_id, {
+        "type": "join",
+        "sessionId": session_id,
+        "role": "customer",
+        "name": profile["userName"]
+    })
+
+    cust_banner = (
+        f"### 👤【您已切换为顾客端视角】\n\n"
+        f"- **模拟客户**: `{profile['userName']}` ({profile['vipLevel']})\n"
+        f"- **绑定会话**: `{session_id}`\n"
+        f"- **操作提示**: 您可以在下方输入框咨询售后问题或输入【转人工】，坐席窗口回复将实时推送到本窗口。"
+    )
+    actions = [
+        cl.Action(name="test_preset", payload={"query": BENCHMARKS[0][1]}, label="🧪 查物流退货"),
+        cl.Action(name="transfer_human", payload={}, label="🎧 立即转人工客服"),
+        cl.Action(name="switch_role_agent", payload={}, label="👨‍💼 切换为人工坐席窗口")
+    ]
+    await cl.Message(content=cust_banner, actions=actions).send()
 
 
 @cl.action_callback("transfer_human")
@@ -445,6 +581,51 @@ async def on_message(message: cl.Message):
     """用户在输入框键入消息"""
     user_text = (message.content or "").strip()
     if not user_text:
+        return
+
+    user_role = cl.user_session.get("user_role", "customer")
+
+    # 快捷角色切换命令（支持模糊指令与短语）
+    agent_keywords = [
+        "/agent", "/kefu", "/坐席", "/客服", "/工作台",
+        "客服", "坐席", "我是客服", "我是坐席", "人工坐席", "人工客服坐席",
+        "切换坐席", "切换客服", "切换为坐席", "切换为客服",
+        "切换为人工坐席窗口", "切换人工坐席", "切换坐席窗口", "客服端", "坐席端", "客服工作台"
+    ]
+    if user_text.lower() in agent_keywords:
+        await switch_to_agent_role()
+        return
+
+    customer_keywords = [
+        "/customer", "/kehu", "/客户", "/顾客",
+        "客户", "顾客", "我是客户", "我是顾客", "顾客端", "客户端",
+        "切换客户", "切换顾客", "切换为顾客", "切换为客户",
+        "切换为顾客端视角", "切换为顾客端", "顾客窗口", "客户窗口"
+    ]
+    if user_text.lower() in customer_keywords:
+        await switch_to_customer_role()
+        return
+
+    if user_text.lower() in ["/help", "help", "帮助", "菜单", "怎么切换", "找不到", "没有看到", "角色", "怎么切换角色"]:
+        help_card = (
+            f"### 🔄【IntelliServe 角色与窗口切换中心】\n\n"
+            f"- **当前窗口模式**: `{'👤 顾客端' if user_role == 'customer' else '👨‍💼 人工客服坐席工作台'}`\n\n"
+            f"您可随时通过下方按钮或直接在输入框打字切换窗口身份：\n"
+            f"- 输入 `客服` 或 `/agent` ➜ 立即切换为 **人工客服坐席端**\n"
+            f"- 输入 `顾客` 或 `/customer` ➜ 立即切换为 **顾客端**\n\n"
+            f"点击下方按钮一键切换："
+        )
+        actions = [
+            cl.Action(name="switch_role_agent", payload={}, label="👨‍💼 【点击立即切换】人工客服坐席窗口"),
+            cl.Action(name="switch_role_customer", payload={}, label="👤 【点击立即切换】顾客端视角"),
+            cl.Action(name="transfer_human", payload={}, label="🎧 呼叫人工客服"),
+        ]
+        await cl.Message(content=help_card, actions=actions).send()
+        return
+
+    # 若当前窗口是【人工坐席工作台】角色，输入的内容直接作为客服答复通过 WebSocket 广播给顾客端
+    if user_role == "agent":
+        await send_human_agent_reply(user_text)
         return
 
     # 命令分发
