@@ -201,7 +201,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSession(data.session);
-        setMessages(data.session.messages);
+        setMessages(uniqueMessages(data.session.messages || []));
         setTransferSuccessToast("已结束人工沟通，会话已无缝交还给 AI 智能客服托管");
         setTimeout(() => setTransferSuccessToast(null), 4000);
       }
@@ -228,7 +228,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       content: text,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
     };
-    setMessages((prev) => [...prev, tempUserMsg]);
+    setMessages((prev) => uniqueMessages([...prev, tempUserMsg]));
 
     try {
       const res = await fetch("/api/chat", {
@@ -251,7 +251,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             }
           }
           setSession(data.session);
-          setMessages(rawMessages);
+          setMessages(uniqueMessages(rawMessages));
         } else {
           await fetchSession();
         }
@@ -269,7 +269,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         content: "消息发送超时或服务异常，请稍后重试或尝试刷新会话。",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
       };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) => uniqueMessages([...prev, errorMsg]));
     } finally {
       setLoading(false);
     }
@@ -329,7 +329,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSession(data.session);
-        setMessages(data.session.messages);
+        setMessages(uniqueMessages(data.session.messages || []));
         setShowTransferModal(false);
         setTransferSuccessToast(`已无缝转接至 ${data.transferLog.assignedDepartment} · ${data.transferLog.assignedAgentName}`);
         setTimeout(() => setTransferSuccessToast(null), 4000);
@@ -366,7 +366,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSession(data.session);
-        setMessages(data.session.messages);
+        setMessages(uniqueMessages(data.session.messages || []));
         setTransferSuccessToast(`已成功接通金牌专属坐席 · 张小雅 (工号 agent_101)`);
         setTimeout(() => setTransferSuccessToast(null), 4000);
       }
