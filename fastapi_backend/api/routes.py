@@ -120,6 +120,7 @@ async def chat_endpoint(req: ChatRequest):
         "sentiment": "neutral",
         "explicit_human_request": False,
         "retrieved_docs": [],
+        "retrieval_ran": False,
         "top_similarity_score": 0.0,
         "user_profile": session["customerProfile"],
         "summary_memory": session["summaryMemory"],

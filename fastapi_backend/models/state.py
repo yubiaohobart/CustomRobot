@@ -53,6 +53,13 @@ class AgentState(TypedDict):
     - 包含字段：id, title, content, tags, category 等，作为上下文证据注入给 DeepSeek。
     """
 
+    retrieval_ran: bool
+    """
+    【知识检索是否真实执行过】
+    - 作用：区分“检索跑过但没命中”(top_similarity_score=0.0) 与“压根没走检索分支”(初始值同样是 0.0)。
+    - 用途：human_escalation_node 仅在检索真实执行时才用相似度解释转人工原因，避免误报。
+    """
+
     top_similarity_score: float
     """
     【知识召回最高余弦相似度得分】

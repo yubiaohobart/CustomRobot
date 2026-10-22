@@ -143,6 +143,7 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     return {
         "retrieved_docs": docs,
         "top_similarity_score": top_score,
+        "retrieval_ran": True,
         "step_trace": trace
     }
 
@@ -225,14 +226,18 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
     """5. 人工接入触发节点（置信度不足或主动呼叫转人工）"""
     t0 = time.time()
     explicit = state.get("explicit_human_request", False)
-    low_conf = state.get("top_similarity_score", 1.0) < settings.SIMILARITY_THRESHOLD
-    
+    retrieval_ran = state.get("retrieval_ran", False)
+    # 仅在检索真实执行过时，相似度才有解释力；否则 0.0 只是初始值，不能当低置信度
+    low_conf = retrieval_ran and state.get("top_similarity_score", 0.0) < settings.SIMILARITY_THRESHOLD
+
     if explicit:
         reason = "客户主动要求转人工客服服务"
     elif low_conf:
         reason = f"Qdrant 向量匹配得分较低 (< {settings.SIMILARITY_THRESHOLD})，转人工以防误答"
-    else:
+    elif state.get("sentiment") == "frustrated":
         reason = "客户负向情绪预警，启动人工跟进"
+    else:
+        reason = "知识库无可用依据，转人工兜底处理"
 
     session_id = state.get("session_id", "当前会话")
     cprint.transfer(session_id, "值班客服专员", reason)
@@ -265,9 +270,13 @@ def router_after_analysis(state: AgentState) -> str:
     return "qdrant_retrieve"
 
 def router_after_retrieval(state: AgentState) -> str:
-    """第二级路由：若 Qdrant 检索置信度极低 (<0.45) 且带有情绪，可升级人工，否则进入 DeepSeek 生成"""
+    """第二级路由：检索置信度低于统一阈值且用户情绪烦躁时升级人工，否则进入 DeepSeek 生成
+
+    阈值复用 settings.SIMILARITY_THRESHOLD，与 qdrant_retrieve_node 的文档过滤保持一致，
+    避免出现「文档已被过滤为空、却仍去生成回答」的无依据回答。
+    """
     score = state.get("top_similarity_score", 0.0)
     sentiment = state.get("sentiment", "neutral")
-    if score < 0.45 and sentiment == "frustrated":
+    if score < settings.SIMILARITY_THRESHOLD and sentiment == "frustrated":
         return "human_escalation"
     return "memory_synthesis"
