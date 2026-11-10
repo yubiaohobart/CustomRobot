@@ -50,25 +50,29 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const [expandedRefId, setExpandedRefId] = useState<string | null>(null);
   const [showMemoryPanel, setShowMemoryPanel] = useState(true);
 
+  // 健壮的去重算法：基于唯一 ID 去重，若有临时 temp- 且服务端落库了相同内容，才平滑替换；绝不误删用户连续发送的真实发言
   const uniqueMessages = (msgs: ChatMessage[]): ChatMessage[] => {
-    const map = new Map<string, ChatMessage>();
+    const result: ChatMessage[] = [];
+    const seenIds = new Set<string>();
+
     for (const m of msgs) {
-      if (!m.id) continue;
+      if (!m || !m.id) continue;
+      if (seenIds.has(m.id)) continue;
+
+      // 如果当前是临时乐观消息，检查同批次中是否已有服务端确认的正式消息（非 temp-，角色和内容相同）
       if (m.id.startsWith("temp-")) {
-        const existingReal = Array.from(map.values()).find(ex => !ex.id.startsWith("temp-") && ex.role === m.role && ex.content === m.content);
-        if (!existingReal && !map.has(m.id)) {
-          map.set(m.id, m);
+        const hasServerConfirmed = result.some(
+          ex => !ex.id.startsWith("temp-") && ex.role === m.role && ex.content.trim() === m.content.trim()
+        );
+        if (hasServerConfirmed) {
+          continue; // 服务端已落库，忽略临时的 temp
         }
-      } else {
-        for (const [k, v] of map.entries()) {
-          if (k.startsWith("temp-") && v.role === m.role && v.content === m.content) {
-            map.delete(k);
-          }
-        }
-        map.set(m.id, m);
       }
+
+      seenIds.add(m.id);
+      result.push(m);
     }
-    return Array.from(map.values());
+    return result;
   };
 
   // 核心消息保护器：当收到服务端全量更新时，绝对不冲刷掉客户端刚刚发送且尚未入库的 temp- 乐观消息气泡
@@ -241,12 +245,15 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
     // Optimistic user message
     const tempUserMsg: ChatMessage = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       role: "user",
       content: text,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
     };
-    setMessages((prev) => uniqueMessages([...prev, tempUserMsg]));
+    setMessages((prev) => [...prev, tempUserMsg]);
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
 
     try {
       const res = await fetch("/api/chat", {
@@ -966,6 +973,12 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               id="customer-chat-input"
               type="text"
               value={inputMessage}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
               onChange={(e) => {
                 setInputMessage(e.target.value);
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -981,13 +994,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 }
               }}
               placeholder={isHumanServing ? "已接通人工坐席，客服正在查看您的上下文背景，可直接在此发送..." : "请输入您想咨询的问题（例如：申请退款、补开发票、物流查询）..."}
-              className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              className="flex-1 min-w-0 px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
             />
             <button
               id="btn-send-message"
               type="submit"
               disabled={loading || !inputMessage.trim()}
-              className="flex items-center justify-center gap-1.5 px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium rounded-xl transition-colors shadow-xs cursor-pointer disabled:cursor-not-allowed"
+              className="flex-shrink-0 flex items-center justify-center gap-1.5 px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium rounded-xl transition-colors shadow-xs cursor-pointer disabled:cursor-not-allowed"
             >
               <span>发送</span>
               <Send className="w-4 h-4" />
