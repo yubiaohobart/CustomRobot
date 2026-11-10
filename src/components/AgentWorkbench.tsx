@@ -219,9 +219,15 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   useEffect(() => {
     fetchSessions();
     fetchTransferData();
+    // 智能自适应轮询：WebSocket 正常连接时不反复刷屏，仅在断线或每隔 30 秒执行一次低频校准
+    let counter = 0;
     const interval = setInterval(() => {
-      fetchSessions();
-      fetchTransferData();
+      counter++;
+      const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+      if (!isWsActive || counter % 10 === 0) {
+        fetchSessions();
+        fetchTransferData();
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [currentSessionId]);
@@ -301,19 +307,6 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     if (!text || !activeSession || sending) return;
 
     setSending(true);
-
-    // 优先通过 WebSocket 发送人工坐席消息 (实现毫秒级双向广播)
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "human_message",
-          sessionId: activeSession.id,
-          content: text,
-          agentName: activeSession.assignedAgent || "人工客服 #108 - 陈主管",
-          agentId: activeSession.assignedAgentId || "agent_101",
-        })
-      );
-    }
 
     try {
       const res = await fetch(`/api/sessions/${activeSession.id}/human-message`, {

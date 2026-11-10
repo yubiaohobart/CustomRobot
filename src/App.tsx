@@ -98,11 +98,11 @@ export default function App() {
     };
 
     checkBackend();
-    const interval = setInterval(checkBackend, 4000);
+    const interval = setInterval(checkBackend, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // 实时轮询会话预警状态
+  // 实时轮询会话预警状态 (降低频率为 10 秒，避免刷屏)
   useEffect(() => {
     const checkAlerts = async () => {
       try {
@@ -120,7 +120,7 @@ export default function App() {
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 3000);
+    const interval = setInterval(checkAlerts, 10000);
     return () => clearInterval(interval);
   }, []);
 

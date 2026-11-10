@@ -667,17 +667,45 @@ async function startServer() {
           }));
         } else if (payload.type === "typing") {
           broadcastLocalWs(payload.sessionId || clientInfo.sessionId, payload, clientWs);
-        } else if (payload.type === "chat" || payload.type === "human_message") {
+        } else if (payload.type === "human_message" || payload.type === "agent_message") {
           const sid = payload.sessionId || clientInfo.sessionId;
           const session = fallbackSessions[sid] || fallbackSessions["session_user_001"];
-          const newMsg = {
-            id: `m_${Date.now()}`,
-            role: payload.role || (clientInfo.role === "agent" ? "human_agent" : "user"),
-            content: payload.text || payload.content || "",
-            timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false })
-          };
-          session.messages.push(newMsg);
-          broadcastLocalWs(sid, { type: "message:new", sessionId: sid, message: newMsg, session });
+          const content = (payload.content || payload.text || "").trim();
+          if (content) {
+            // 严格设定角色为 human_agent，绝不回退为 user，并增加幂等去重
+            const lastMsg = session.messages[session.messages.length - 1];
+            const isDuplicate = lastMsg && lastMsg.role === "human_agent" && lastMsg.content === content;
+            if (!isDuplicate) {
+              const newMsg = {
+                id: `m_${Date.now()}`,
+                role: "human_agent",
+                content,
+                timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false })
+              };
+              session.messages.push(newMsg);
+              session.updatedAt = new Date().toISOString();
+              broadcastLocalWs(sid, { type: "message:new", sessionId: sid, message: newMsg, session }, clientWs);
+            }
+          }
+        } else if (payload.type === "chat" || payload.type === "customer_message" || payload.type === "user_message") {
+          const sid = payload.sessionId || clientInfo.sessionId;
+          const session = fallbackSessions[sid] || fallbackSessions["session_user_001"];
+          const content = (payload.content || payload.message || payload.text || "").trim();
+          if (content) {
+            const lastMsg = session.messages[session.messages.length - 1];
+            const isDuplicate = lastMsg && lastMsg.role === "user" && lastMsg.content === content;
+            if (!isDuplicate) {
+              const newMsg = {
+                id: `m_${Date.now()}`,
+                role: "user",
+                content,
+                timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false })
+              };
+              session.messages.push(newMsg);
+              session.updatedAt = new Date().toISOString();
+              broadcastLocalWs(sid, { type: "message:new", sessionId: sid, message: newMsg, session }, clientWs);
+            }
+          }
         }
       } catch (err) {
         // ignore parse error

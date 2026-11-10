@@ -27,6 +27,21 @@ export const DualChatView: React.FC = () => {
   const [session, setSession] = useState<ConversationSession | null>(null);
   const [sessionsList, setSessionsList] = useState<ConversationSession[]>([]);
 
+  const uniqueMessages = (msgs: ChatMessage[]): ChatMessage[] => {
+    const map = new Map<string, ChatMessage>();
+    for (const m of msgs) {
+      if (!m.id) continue;
+      // 过滤同一角色且内容相同的重复消息
+      const isDuplicate = Array.from(map.values()).some(
+        ex => ex.role === m.role && ex.content.trim() === m.content.trim() && Math.abs(map.size - 1) >= 0
+      );
+      if (!map.has(m.id) && !isDuplicate) {
+        map.set(m.id, m);
+      }
+    }
+    return Array.from(map.values());
+  };
+
   // Customer Side State
   const [customerInput, setCustomerInput] = useState("");
   const [customerLoading, setCustomerLoading] = useState(false);
@@ -57,7 +72,11 @@ export const DualChatView: React.FC = () => {
       const res = await fetch(`/api/sessions/${sid}`);
       if (res.ok) {
         const data = await res.json();
-        setSession(data.session);
+        const s = data.session;
+        if (s && s.messages) {
+          s.messages = uniqueMessages(s.messages);
+        }
+        setSession(s);
       }
     } catch (e) {
       console.error("loadSession error:", e);
@@ -79,9 +98,14 @@ export const DualChatView: React.FC = () => {
   useEffect(() => {
     loadSession();
     loadAllSessions();
+    let counter = 0;
     const interval = setInterval(() => {
-      loadSession();
-      loadAllSessions();
+      counter++;
+      const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+      if (!isWsActive || counter % 10 === 0) {
+        loadSession();
+        loadAllSessions();
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [selectedSessionId]);
@@ -119,11 +143,10 @@ export const DualChatView: React.FC = () => {
           if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
             setSession((prev) => {
               if (!prev) return payload.session;
-              const exists = prev.messages.some((m) => m.id === payload.message.id);
-              if (exists) return prev;
+              const merged = uniqueMessages([...prev.messages, payload.message]);
               return {
                 ...prev,
-                messages: [...prev.messages, payload.message],
+                messages: merged,
                 status: payload.session?.status || prev.status,
                 assignedAgent: payload.session?.assignedAgent || prev.assignedAgent
               };
@@ -183,17 +206,6 @@ export const DualChatView: React.FC = () => {
     setCustomerInput("");
     setCustomerLoading(true);
 
-    // 优先通过 WebSocket 发送客户发言
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "customer_message",
-          sessionId: selectedSessionId,
-          content: text,
-        })
-      );
-    }
-
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -224,19 +236,6 @@ export const DualChatView: React.FC = () => {
     if (!text || agentSending) return;
 
     setAgentSending(true);
-
-    // 优先通过 WebSocket 发送人工客服发言
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "human_message",
-          sessionId: selectedSessionId,
-          content: text,
-          agentName: session?.assignedAgent || "陈浩 (高级售后督导)",
-          agentId: session?.assignedAgentId || "agent_101",
-        })
-      );
-    }
 
     try {
       const res = await fetch(`/api/sessions/${selectedSessionId}/human-message`, {

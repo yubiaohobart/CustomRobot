@@ -187,7 +187,16 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   useEffect(() => {
     fetchSession();
     fetchAgents();
-    const interval = setInterval(fetchSession, 3000);
+    // 智能自适应轮询：当 WebSocket 正常连接 (OPEN) 时，实时消息与状态均已通过 WS 毫秒推送，无需每 3 秒发起密集 HTTP 轮询；
+    // 仅当 WebSocket 未连接或断开时，才使用 3 秒轮询兜底；连上时降为 30 秒低频状态校准，彻底解决控制台与网络面板刷屏问题。
+    let counter = 0;
+    const interval = setInterval(() => {
+      counter++;
+      const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+      if (!isWsActive || counter % 10 === 0) {
+        fetchSession();
+      }
+    }, 3000);
     return () => clearInterval(interval);
   }, [currentSessionId]);
 
@@ -991,7 +1000,16 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 <Activity className="w-4 h-4 text-blue-600" />
                 会话状态与记忆监控
               </h3>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <button
+                  onClick={() => setShowMemoryPanel(false)}
+                  title="关闭右侧面板"
+                  className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
