@@ -71,6 +71,15 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     return Array.from(map.values());
   };
 
+  // 核心消息保护器：当收到服务端全量更新时，绝对不冲刷掉客户端刚刚发送且尚未入库的 temp- 乐观消息气泡
+  const mergeServerMessages = (prevMsgs: ChatMessage[], serverMsgs: ChatMessage[]): ChatMessage[] => {
+    const pendingTemps = prevMsgs.filter(p =>
+      p.id.startsWith("temp-") &&
+      !serverMsgs.some(s => s.role === p.role && s.content.trim() === p.content.trim())
+    );
+    return uniqueMessages([...serverMsgs, ...pendingTemps]);
+  };
+
   // Seamless Transfer State
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>([]);
@@ -92,7 +101,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSession(data.session);
-        setMessages(uniqueMessages(data.session.messages || []));
+        setMessages(prev => mergeServerMessages(prev, data.session.messages || []));
       }
     } catch (err) {
       console.error("Failed to load session:", err);
@@ -149,7 +158,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             if (payload.sessionId === currentSessionId || payload.session.id === currentSessionId) {
               setSession(payload.session);
               if (payload.session.messages) {
-                setMessages(uniqueMessages(payload.session.messages));
+                setMessages((prev) => mergeServerMessages(prev, payload.session.messages));
               }
             }
           } else if (payload.type === "typing") {
@@ -260,7 +269,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             }
           }
           setSession(data.session);
-          setMessages(uniqueMessages(rawMessages));
+          setMessages((prev) => mergeServerMessages(prev, rawMessages));
         } else {
           await fetchSession();
         }
