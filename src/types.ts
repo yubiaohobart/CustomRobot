@@ -118,6 +118,58 @@ export interface CustomerProfile {
   orderId?: string;
 }
 
+export interface CustomerRecord {
+  id: string;
+  name: string;
+  phone?: string;
+  vipLevel: "普通会员" | "黄金会员" | "钻石会员";
+  sentiment: "positive" | "neutral" | "negative" | "frustrated";
+  urgency: string;
+  intent: string;
+  tags: string[];
+  orderId?: string;
+  avatar?: string;
+  registeredDate?: string;
+  totalOrdersCount?: number;
+  totalSpent?: number;
+  shippingAddress?: string;
+  updatedAt?: string;
+}
+
+export interface StorageTableInfo {
+  tableName: string;
+  count: number;
+  primaryKey: string;
+  model?: string;
+}
+
+export interface StorageStatus {
+  storageType: string;
+  orm?: string;
+  databaseTarget?: string;
+  databaseDialect?: string;
+  databasePath?: string;
+  storageDir?: string;
+  engine?: string;
+  fileSizeBytes?: number;
+  tables?: {
+    orders: StorageTableInfo;
+    customers: StorageTableInfo;
+    agents: StorageTableInfo;
+    sessions: StorageTableInfo;
+    transferLogs: StorageTableInfo;
+  };
+  files?: {
+    orders: { count: number; sizeBytes: number; path: string };
+    customers: { count: number; sizeBytes: number; path: string };
+    agents: { count: number; sizeBytes: number; path: string };
+    sessions: { count: number; sizeBytes: number; path: string };
+    transferLogs: { count: number; sizeBytes: number; path: string };
+  };
+  lastQueryAt?: string;
+  lastPersistedAt?: string;
+}
+
 export interface CheckpointItem {
   id: string;
   timestamp: string;

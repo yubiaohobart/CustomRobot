@@ -198,6 +198,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   }, [currentSessionId]);
 
   useEffect(() => {
+    setMessages([]);
     fetchSession();
     fetchAgents();
     // 智能自适应轮询：当 WebSocket 正常连接 (OPEN) 时，实时消息与状态均已通过 WS 毫秒推送，无需每 3 秒发起密集 HTTP 轮询；
@@ -639,10 +640,10 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 {/* Avatar */}
                 <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold shadow-xs ${
                   isUser 
-                    ? "bg-slate-700 text-white" 
+                    ? "bg-blue-600 text-white" 
                     : isHumanAgent
                     ? "bg-amber-600 text-white"
-                    : "bg-blue-600 text-white"
+                    : "bg-indigo-600 text-white"
                 }`}>
                   {isUser ? <User className="w-4 h-4" /> : isHumanAgent ? <Headphones className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                 </div>

@@ -73,6 +73,15 @@ class Settings(BaseModel):
     QDRANT_PORT: int = int(os.getenv("QDRANT_PORT", "6333"))
     QDRANT_API_KEY: Optional[str] = os.getenv("QDRANT_API_KEY", None)
 
+    # PostgreSQL 关系型数据库与 SQLAlchemy ORM 配置
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL", 
+        os.getenv("POSTGRES_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/intelliserve")
+    )
+    DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
+    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))
+    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+
     # 业务决策阈值
     SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))  # 低于此分流转人工或提示低置信度
     TOP_K_RETRIEVAL: int = int(os.getenv("TOP_K_RETRIEVAL", "3"))

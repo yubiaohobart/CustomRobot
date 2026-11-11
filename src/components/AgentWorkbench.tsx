@@ -28,7 +28,9 @@ import {
   FileCheck,
   UserCheck,
   Package,
-  Truck
+  Truck,
+  HardDrive,
+  Database
 } from "lucide-react";
 import { 
   ConversationSession, 
@@ -37,7 +39,8 @@ import {
   TransferLog, 
   AvailableAgent,
   TransferContextSnapshot,
-  OrderData
+  OrderData,
+  CustomerRecord
 } from "../types";
 
 interface AgentWorkbenchProps {
@@ -64,6 +67,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   // Transfer and Orders specific states
   const [rightTab, setRightTab] = useState<"dossier" | "profile" | "orders" | "logs">("dossier");
   const [customerOrders, setCustomerOrders] = useState<OrderData[]>([]);
+  const [customerRecord, setCustomerRecord] = useState<CustomerRecord | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [transferLogs, setTransferLogs] = useState<TransferLog[]>([]);
   const [availableAgents, setAvailableAgents] = useState<AvailableAgent[]>([]);
@@ -262,6 +266,21 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       }
     };
     loadOrders();
+
+    const loadCustomer = async () => {
+      if (!activeSession) return;
+      try {
+        const uName = activeSession.userName || activeSession.customerProfile?.name || "";
+        const res = await fetch(`/api/customers/${encodeURIComponent(uName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCustomerRecord(data.customer || null);
+        }
+      } catch (e) {
+        console.error("Failed to load customer record:", e);
+      }
+    };
+    loadCustomer();
   }, [activeSession?.id, activeSession?.userName]);
 
   const handleTakeover = async () => {
@@ -1092,7 +1111,19 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                     <div className="space-y-1.5 text-[11px] text-slate-600">
                       <div className="flex justify-between">
                         <span className="text-slate-400">联系电话:</span>
-                        <span>{activeSession.customerProfile?.phone || "138****8888"}</span>
+                        <span>{customerRecord?.phone || activeSession.customerProfile?.phone || "138****8888"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">累计消费:</span>
+                        <span className="font-semibold text-emerald-700">¥{(customerRecord?.totalSpent ?? 12890).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">商城订单:</span>
+                        <span>共 <strong className="text-indigo-600">{customerRecord?.totalOrdersCount ?? customerOrders.length}</strong> 笔历史订单</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">注册入会:</span>
+                        <span>{customerRecord?.registeredDate || "2024-03-15"}</span>
                       </div>
                       {activeSession.customerProfile?.orderId && (
                         <div className="flex justify-between">
@@ -1110,6 +1141,12 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                           {activeSession.customerProfile?.sentiment === "frustrated" ? "急躁/不满 (重点关注)" : "平稳"}
                         </span>
                       </div>
+                      {customerRecord?.shippingAddress && (
+                        <div className="pt-1 border-t border-slate-200/60 text-[10px] text-slate-500">
+                          <span className="text-slate-400">默认配送: </span>
+                          <span>{customerRecord.shippingAddress}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="pt-1 flex flex-wrap gap-1">
                       {(activeSession.customerProfile?.tags || []).map((t, i) => (
@@ -1117,6 +1154,10 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                           #{t}
                         </span>
                       ))}
+                    </div>
+                    <div className="pt-1.5 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span>CustomerEntity (customers 表)</span>
+                      <span className="text-indigo-600 font-sans font-medium">PostgreSQL / SQLAlchemy ORM</span>
                     </div>
                   </div>
 
@@ -1188,7 +1229,10 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   <Package className="w-4 h-4 text-indigo-600" />
                   <span>客户关联订单 ({customerOrders.length} 笔)</span>
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">中台数据同步</span>
+                <span className="text-[10px] text-indigo-600 font-sans font-medium flex items-center gap-1">
+                  <Database className="w-3 h-3" />
+                  <span>PostgreSQL / SQLAlchemy ORM (orders 表)</span>
+                </span>
               </div>
 
               {ordersLoading ? (

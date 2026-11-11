@@ -21,9 +21,12 @@ import {
   X,
   Sparkles,
   Search,
-  ExternalLink
+  ExternalLink,
+  HardDrive,
+  Save,
+  Package
 } from "lucide-react";
-import { MetricsData, ConversationSession, TransferLog } from "../types";
+import { MetricsData, ConversationSession, TransferLog, StorageStatus } from "../types";
 
 interface MonitoringDashboardProps {
   onNavigateToWorkbench: (sessionId?: string) => void;
@@ -35,15 +38,17 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
   const [metrics, setMetrics] = useState<MetricsData | null>(null);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [transferLogs, setTransferLogs] = useState<TransferLog[]>([]);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [inspectingLog, setInspectingLog] = useState<TransferLog | null>(null);
 
   const fetchMetrics = async () => {
     try {
-      const [resMetrics, resSessions, resLogs] = await Promise.all([
+      const [resMetrics, resSessions, resLogs, resStorage] = await Promise.all([
         fetch("/api/metrics"),
         fetch("/api/sessions"),
         fetch("/api/transfer-logs"),
+        fetch("/api/storage/status"),
       ]);
 
       if (resMetrics.ok) {
@@ -57,6 +62,10 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
       if (resLogs.ok) {
         const lData = await resLogs.json();
         setTransferLogs(lData.transferLogs || []);
+      }
+      if (resStorage.ok) {
+        const strData = await resStorage.json();
+        setStorageStatus(strData);
       }
     } catch (e) {
       console.error(e);
@@ -439,6 +448,173 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
                 <span className="font-semibold text-slate-800">大模型生成推理引擎 (Gemini 3.8 Flash)</span>
               </div>
               <span className="text-slate-500 font-mono text-[11px]">Ready / Grounded Generation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SQLite Relational Database & Entity Models Panel */}
+      <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <Database className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <span>PostgreSQL 关系型数据库与 SQLAlchemy ORM 架构</span>
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-800 rounded-full">
+                  SQLAlchemy 2.0 声明式 ORM
+                </span>
+                <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-800 rounded-full">
+                  PostgreSQL / ACID 事务
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                所有业务模型（OrderEntity / CustomerEntity / AgentEntity / SessionEntity / TransferLogEntity）均由 SQLAlchemy 统一映射与事务管理
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500 font-mono bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+            <HardDrive className="w-3.5 h-3.5 text-indigo-500" />
+            <span>目标 DB: {storageStatus?.databaseTarget || "postgresql://.../intelliserve"}</span>
+            <span className="text-emerald-600 font-semibold">(连接池 Pool: 10/20)</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+          {/* Order Table Card */}
+          <div className="p-3.5 bg-gradient-to-br from-indigo-50/60 to-white rounded-xl border border-indigo-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-indigo-900 flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-indigo-600" />
+                <span>订单模型 OrderEntity</span>
+              </span>
+              <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-mono rounded font-bold">
+                {storageStatus?.tables?.orders?.count ?? 4} 记录
+              </span>
+            </div>
+            <div className="space-y-1 text-[11px] text-slate-600">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 表名:</span>
+                <span className="font-mono text-indigo-700 font-semibold">orders</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">主键字段:</span>
+                <span className="font-mono text-slate-700">order_id (PK)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 查询:</span>
+                <span className="font-mono text-indigo-600 font-semibold">session.query(OrderEntity)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Customer Table Card */}
+          <div className="p-3.5 bg-gradient-to-br from-blue-50/60 to-white rounded-xl border border-blue-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-blue-600" />
+                <span>客户模型 CustomerEntity</span>
+              </span>
+              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-mono rounded font-bold">
+                {storageStatus?.tables?.customers?.count ?? 3} 记录
+              </span>
+            </div>
+            <div className="space-y-1 text-[11px] text-slate-600">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 表名:</span>
+                <span className="font-mono text-blue-700 font-semibold">customers</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">主键字段:</span>
+                <span className="font-mono text-slate-700">id (PK)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 查询:</span>
+                <span className="font-mono text-blue-600 font-semibold">session.merge()</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Agent Table Card */}
+          <div className="p-3.5 bg-gradient-to-br from-amber-50/60 to-white rounded-xl border border-amber-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                <Headphones className="w-3.5 h-3.5 text-amber-600" />
+                <span>坐席模型 AgentEntity</span>
+              </span>
+              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-mono rounded font-bold">
+                {storageStatus?.tables?.agents?.count ?? 4} 记录
+              </span>
+            </div>
+            <div className="space-y-1 text-[11px] text-slate-600">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 表名:</span>
+                <span className="font-mono text-amber-700 font-semibold">agents</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">负载与状态:</span>
+                <span className="font-mono text-slate-700">current_workload, status</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 查询:</span>
+                <span className="font-mono text-amber-600 font-semibold">order_by(rating.desc())</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Session Table Card */}
+          <div className="p-3.5 bg-gradient-to-br from-emerald-50/60 to-white rounded-xl border border-emerald-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-emerald-600" />
+                <span>会话模型 SessionEntity</span>
+              </span>
+              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-mono rounded font-bold">
+                {storageStatus?.tables?.sessions?.count ?? sessions.length} 记录
+              </span>
+            </div>
+            <div className="space-y-1 text-[11px] text-slate-600">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 表名:</span>
+                <span className="font-mono text-emerald-700 font-semibold">sessions</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">状态与记忆:</span>
+                <span className="font-mono text-slate-700">status, summary_memory</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 事务:</span>
+                <span className="font-mono text-emerald-600 font-semibold">session.commit()</span>
+              </div>
+            </div>
+          </div>
+
+          {/* TransferLog Table Card */}
+          <div className="p-3.5 bg-gradient-to-br from-slate-50 to-white rounded-xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <FileCheck className="w-3.5 h-3.5 text-slate-600" />
+                <span>移交审计 TransferLogEntity</span>
+              </span>
+              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-mono rounded font-bold">
+                {storageStatus?.tables?.transferLogs?.count ?? transferLogs.length} 记录
+              </span>
+            </div>
+            <div className="space-y-1 text-[11px] text-slate-600">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ORM 表名:</span>
+                <span className="font-mono text-slate-700 font-semibold">transfer_logs</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">主外键契约:</span>
+                <span className="font-mono text-slate-700">id, session_id, agent_id</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">审计留痕:</span>
+                <span className="font-mono text-slate-600 font-semibold">不可篡改快照封存</span>
+              </div>
             </div>
           </div>
         </div>

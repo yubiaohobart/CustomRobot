@@ -9,6 +9,28 @@ from .schemas import (
     KnowledgeDocItem
 )
 from .state import AgentState
+from .entities import (
+    CustomerModel,
+    AgentModel,
+    OrderItemModel,
+    ExpressTimelineItem,
+    ExpressModel,
+    OrderReceiverModel,
+    OrderAfterSalesModel,
+    OrderModel,
+    ChatMessageModel,
+    SessionMetricsModel,
+    SessionModel,
+    TransferLogModel
+)
+
+from .sql_models import (
+    CustomerEntity,
+    AgentEntity,
+    OrderEntity,
+    SessionEntity,
+    TransferLogEntity
+)
 
 __all__ = [
     "ChatRequest",
@@ -19,5 +41,22 @@ __all__ = [
     "KnowledgeSearchRequest",
     "GenerateSuggestionRequest",
     "KnowledgeDocItem",
-    "AgentState"
+    "AgentState",
+    "CustomerModel",
+    "AgentModel",
+    "OrderItemModel",
+    "ExpressTimelineItem",
+    "ExpressModel",
+    "OrderReceiverModel",
+    "OrderAfterSalesModel",
+    "OrderModel",
+    "ChatMessageModel",
+    "SessionMetricsModel",
+    "SessionModel",
+    "TransferLogModel",
+    "CustomerEntity",
+    "AgentEntity",
+    "OrderEntity",
+    "SessionEntity",
+    "TransferLogEntity"
 ]

@@ -30,9 +30,15 @@ from workflow.nodes import (
     qdrant_retrieve_node,
     deepseek_generate_node
 )
+from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
+
+@router.get("/storage/status")
+async def get_storage_status_endpoint():
+    """获取 PostgreSQL 关系型数据库与 SQLAlchemy 运行状态"""
+    return storage_service.get_storage_status()
 
 @router.get("/health")
 async def health_check():
@@ -379,6 +385,44 @@ async def get_order_tracking(order_id: str):
         "statusDescription": express.get("statusDescription"),
         "timeline": express.get("timeline", [])
     }
+
+@router.post("/orders")
+async def create_or_update_order(order_data: Dict[str, Any]):
+    """创建或更新订单并固化到磁盘"""
+    saved = order_service.save_order(order_data)
+    return {"success": True, "order": saved}
+
+@router.put("/orders/{order_id}/status")
+async def update_order_status_endpoint(order_id: str, payload: Dict[str, Any]):
+    """更新指定订单状态并固化到磁盘"""
+    status = payload.get("status")
+    status_text = payload.get("statusText")
+    if not status:
+        raise HTTPException(status_code=400, detail="Missing required field 'status'")
+    updated = order_service.update_order_status(order_id, status, status_text)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在")
+    return {"success": True, "order": updated}
+
+@router.get("/customers")
+async def get_customers():
+    """获取所有固化的客户档案列表"""
+    customers = memory_service.list_customers()
+    return {"success": True, "total": len(customers), "customers": customers}
+
+@router.get("/customers/{customer_id}")
+async def get_customer_detail(customer_id: str):
+    """获取指定客户的详细档案与画像"""
+    customer = memory_service.get_customer(customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail=f"客户 {customer_id} 不存在")
+    return {"success": True, "customer": customer}
+
+@router.post("/customers")
+async def save_customer_endpoint(customer_data: Dict[str, Any]):
+    """新增或修改客户画像并固化到磁盘"""
+    saved = memory_service.save_customer(customer_data)
+    return {"success": True, "customer": saved}
 
 @router.get("/knowledge")
 async def get_knowledge_documents():

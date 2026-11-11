@@ -206,6 +206,18 @@ export const DualChatView: React.FC = () => {
     setCustomerInput("");
     setCustomerLoading(true);
 
+    // Optimistic user message insertion
+    const tempUserMsg: ChatMessage = {
+      id: `temp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      role: "user",
+      content: text,
+      timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
+    };
+    setSession((prev) => prev ? { ...prev, messages: uniqueMessages([...prev.messages, tempUserMsg]) } : prev);
+    setTimeout(() => {
+      customerMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -218,7 +230,11 @@ export const DualChatView: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (data.session) {
-          setSession(data.session);
+          const s = data.session;
+          if (s && s.messages) {
+            s.messages = uniqueMessages(s.messages);
+          }
+          setSession(s);
         } else {
           await loadSession();
         }
