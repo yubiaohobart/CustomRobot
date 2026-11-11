@@ -180,6 +180,19 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                     f"请您在上方卡片中点击【确认提交退款】（如需退款）或【取消 / 我再想想】（放弃退款），完成确认后系统将立即处理！"
                 )
                 cprint.node("order_refund", f"[追问未确认的退款] 订单 {order['orderId']}", "提醒用户先点击卡片确认")
+            elif is_refund_intent and current_status == "REFUND_PENDING_AUDIT":
+                pending_order = order
+                override_response = (
+                    f"您针对订单【{order['orderId']}】（实付 ¥{float(order.get('paidAmount', 0.0)):.2f} 元）的退款申请已处于【退款待人工审核】状态。\n"
+                    f"工单已自动接入专属坐席加急干涉，请您耐心等待核验结果！"
+                )
+                cprint.node("order_refund", f"[重复发起已在审核中的退款] 订单 {order['orderId']}", "提示审核处理中")
+            elif is_refund_intent and current_status == "REFUNDED":
+                pending_order = order
+                override_response = (
+                    f"订单【{order['orderId']}】（实付 ¥{float(order.get('paidAmount', 0.0)):.2f} 元）此前已完成退款解冻，款项已原路退回您的支付账户。"
+                )
+                cprint.node("order_refund", f"[重复发起已退款订单] 订单 {order['orderId']}", "提示已完成退款")
 
     duration = int((time.time() - t0) * 1000)
     trace = state.get("step_trace", [])

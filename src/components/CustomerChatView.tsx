@@ -77,11 +77,32 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
   // 核心消息保护器：当收到服务端全量更新时，绝对不冲刷掉客户端刚刚发送且尚未入库的 temp- 乐观消息气泡
   const mergeServerMessages = (prevMsgs: ChatMessage[], serverMsgs: ChatMessage[]): ChatMessage[] => {
-    const pendingTemps = prevMsgs.filter(p =>
-      p.id.startsWith("temp-") &&
-      !serverMsgs.some(s => s.role === p.role && s.content.trim() === p.content.trim())
-    );
-    return uniqueMessages([...serverMsgs, ...pendingTemps]);
+    if (!serverMsgs || serverMsgs.length === 0) return prevMsgs;
+
+    const pendingTemps = prevMsgs.filter(p => p && p.id && p.id.startsWith("temp-"));
+    const mergedList: ChatMessage[] = [];
+    const matchedTempIds = new Set<string>();
+
+    for (const sm of serverMsgs) {
+      if (!sm || !sm.id) continue;
+      mergedList.push(sm);
+      // 如果服务端消息列表中已存在角色与文本相同的消息，标记对应的临时 temp 消息已被服务端确认
+      const matchingTemp = pendingTemps.find(
+        p => p.role === sm.role && p.content.trim() === sm.content.trim()
+      );
+      if (matchingTemp) {
+        matchedTempIds.add(matchingTemp.id);
+      }
+    }
+
+    // 将尚未收到服务端确认的临时 temp 消息平滑追加在最尾部，保证用户发言绝不闪烁消失
+    for (const p of pendingTemps) {
+      if (!matchedTempIds.has(p.id)) {
+        mergedList.push(p);
+      }
+    }
+
+    return uniqueMessages(mergedList);
   };
 
   // Seamless Transfer State
@@ -840,6 +861,22 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                               className="px-2 py-0.5 text-[11px] text-white bg-rose-600 hover:bg-rose-700 rounded-md font-semibold cursor-pointer shadow-2xs transition-colors"
                             >
                               申请退款 ({msg.queriedOrder.paidAmount < 3.00 ? "<3元智能客服直退" : ">=3元需人工干涉"})
+                            </button>
+                          )}
+                          {(msg.queriedOrder.status === "REFUNDED" || msg.queriedOrder.status === "REFUND_PENDING_AUDIT") && (
+                            <button
+                              onClick={async () => {
+                                const oid = msg.queriedOrder!.orderId;
+                                try {
+                                  await fetch(`/api/orders/${oid}/reset`, { method: "POST" });
+                                  await handleSendMessage(`申请退款订单 ${oid}`);
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                              className="px-2 py-0.5 text-[11px] text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
+                            >
+                              重置订单状态 (重测退款卡片)
                             </button>
                           )}
                           <button

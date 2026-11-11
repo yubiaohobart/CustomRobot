@@ -464,8 +464,26 @@ async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
             "order": updated
         })
         return {"success": True, "order": updated}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+@router.post("/orders/{order_id}/reset")
+async def reset_order_status_endpoint(order_id: str):
+    """方便测试：重置指定订单状态为已签收状态，可重新进行退款前门槛卡片测试"""
+    order = order_service.get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在")
+    
+    order["status"] = "DELIVERED"
+    order["statusText"] = "已签收(待评价)"
+    if "afterSales" in order:
+        order["afterSales"]["refundStatus"] = "NONE"
+        order["afterSales"]["requiresHumanAudit"] = False
+        order["afterSales"]["refundAmount"] = 0.0
+    saved = order_service.save_order(order)
+    await ws_manager.broadcast_all({
+        "type": "order:update",
+        "orderId": order_id,
+        "order": saved
+    })
+    return {"success": True, "message": f"订单 {order_id} 已重置为已签收状态，可重新进行退款前门槛卡片测试", "order": saved}
 
 @router.get("/customers")
 async def get_customers():

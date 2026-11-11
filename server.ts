@@ -988,6 +988,10 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       matchedOrder = dbGetOrder("ORD-2026-66521");
     }
 
+    if (!matchedOrder && (lowerMsg.includes("退款") || lowerMsg.includes("退货") || lowerMsg.includes("订单") || lowerMsg.includes("物流"))) {
+      matchedOrder = dbGetOrder(session?.customerProfile?.orderId || "ORD-2026-88992");
+    }
+
     const { refundConfirmationAction } = req.body || {};
     let refundPending = false;
     let pendingRefundOrder: any = null;
@@ -1013,6 +1017,12 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
         const amt = matchedOrder.paidAmount;
         const ruleText = amt < 3.00 ? "金额 < 3.00 元，确认后将由智能客服直接秒退" : "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核";
         reply = `收到您针对订单【${matchedOrder.orderId}】（实付 ¥${amt.toFixed(2)} 元）的退款申请。\n根据商城退款规则（${ruleText}），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 退款将通过原支付渠道解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：`;
+      } else if (matchedOrder.status === "REFUND_PENDING_AUDIT") {
+        pendingRefundOrder = matchedOrder;
+        reply = `您针对订单【${matchedOrder.orderId}】（实付 ¥${matchedOrder.paidAmount.toFixed(2)} 元）的退款申请已处于【待人工干涉审核】处理中，工单已接入值班客服坐席，请耐心等待核验结果！`;
+      } else if (matchedOrder.status === "REFUNDED") {
+        pendingRefundOrder = matchedOrder;
+        reply = `订单【${matchedOrder.orderId}】（实付 ¥${matchedOrder.paidAmount.toFixed(2)} 元）已于此前完成退款解冻，款项已原路退回您的支付账户。`;
       }
     } else {
       reply = `您好！关于您咨询的“${message}”，根据商城政策，我们支持 7 天无理由退换及全国联保服务。`;
@@ -1054,6 +1064,24 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       refundConfirmationPending: refundPending,
       pendingRefundOrder: pendingRefundOrder
     });
+  }
+
+  // 7.5 重置订单状态路由（方便重新测试退款流程）
+  if (method === "POST" && urlPath.includes("/api/orders/") && urlPath.endsWith("/reset")) {
+    const oid = urlPath.split("/")[3];
+    const order = dbGetOrder(oid) || dbGetOrder("ORD-2026-88992");
+    if (order) {
+      order.status = "DELIVERED";
+      order.statusText = "已签收(待评价)";
+      if (order.afterSales) {
+        order.afterSales.refundStatus = "NONE";
+        order.afterSales.requiresHumanAudit = false;
+        order.afterSales.refundAmount = 0;
+      }
+      dbSaveOrder(order);
+      return res.json({ success: true, message: `订单 ${oid} 已成功重置为已签收状态`, order });
+    }
+    return res.status(404).json({ error: "Order not found" });
   }
 
   // 8. 坐席列表直接查库
