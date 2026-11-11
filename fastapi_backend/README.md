@@ -55,12 +55,8 @@ fastapi_backend/
 │   ├── test_sessions_and_human.py# 会话与人机协同测试
 │   ├── test_chat_pipeline.py     # 核心智能问答流水线测试
 │   └── run_tests.py          # 一键免配置测试驱动
-├── .chainlit/                # 💬 Chainlit 配置文件 (config.toml)
-├── chainlit_app.py           # 💬 Chainlit 交互式对话自测应用 (集成 LangGraph + Qdrant + Step追踪)
-├── chainlit.md               # 💬 Chainlit 欢迎卡片与介绍
-├── run_chainlit.sh           # 🚀 一键启动 Chainlit 交互式自测脚本
 ├── app.py                    # 🚀 FastAPI 主服务启动入口与生命周期管理
-├── requirements.txt          # 📦 Python 核心依赖清单
+├── requirements.txt          # 📦 Python 核心依赖清单 (FastAPI/SQLAlchemy/PostgreSQL/LangGraph/Qdrant)
 ├── Dockerfile                # 🐳 容器化构建文件
 └── README.md                 # 📖 后端完整开发指南与架构说明
 ```
@@ -127,23 +123,20 @@ python app.py
 # 📖 Swagger 交互文档: http://0.0.0.0:8000/docs
 ```
 
-### 2. 启动 Chainlit 交互式对话自测台 (HTTP 客户端模式)
+### 2. Swagger 交互式文档与前端 Web 工作台对接
 
-Chainlit 作为交互式自测端，直接通过 HTTP 请求对接 FastAPI 核心服务（`http://127.0.0.1:8000/api/chat`），实现真实前后端联调（已默认使用 8000 端口，避开 macOS 5000 端口 AirPlay Receiver 冲突）：
+系统原生提供 OpenAPI 3.0 / Swagger 交互文档，可直接在浏览器中进行全接口在线测试：
 
 ```bash
-# 1. 确保先在第一个终端启动后端服务 (端口 8000):
+# 1. 启动后端核心服务 (默认端口 8000):
 python app.py
 
-# 2. 在第二个终端启动 Chainlit 自测端 (端口 8001):
-python run_chainlit.py
-# 或运行: ./run_chainlit.sh (或 chainlit run chainlit_app.py -w --port 8001)
+# 2. 浏览器直接访问在线接口文档:
+http://localhost:8000/docs (或 http://localhost:8000/redoc)
 
-# 3. 浏览器访问: http://localhost:8001
-# 特性:
-#  - 直接向 /api/chat 发送请求，验证实际网络通信与 Pydantic 校验
-#  - 通过 cl.Step 还原展示后端 LangGraph 执行链路 (stepTrace)
-#  - 侧边栏展示后端检索召回的知识库原文 (references)
+# 3. 运行前端工作台 (端口 3000):
+npm run dev
+# 浏览器访问: http://localhost:3000
 ```
 
 ### 3. Docker 容器化运行
@@ -213,16 +206,6 @@ pytest tests/ -v
 ```
 
 详细用例说明请参阅：`fastapi_backend/tests/README.md`。
-
----
-
-## 🌟 Chainlit 交互式自测端
-
-针对 Chainlit 对话界面自测，相关代码已直接收拢在当前后端目录：
-👉 **`fastapi_backend/chainlit_app.py`**
-- 共享全局 `config.py`、LangGraph 状态图 `workflow/`、Qdrant 知识库 `core/` 与会话记忆 `services/`。
-- 配备 `.chainlit/config.toml`、`chainlit.md` 首屏说明与一键启动脚本 `run_chainlit.sh`。
-- 启动命令：`chainlit run chainlit_app.py -w --port 8000`。
 
 ---
 

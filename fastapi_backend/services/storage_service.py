@@ -20,8 +20,7 @@ from core.database import (
     get_active_dialect,
     db_session_scope,
     Base,
-    POSTGRES_URL,
-    SQLITE_FALLBACK_URL
+    POSTGRES_URL
 )
 from models.sql_models import (
     CustomerEntity,

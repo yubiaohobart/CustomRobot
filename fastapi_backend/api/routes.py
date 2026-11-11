@@ -65,7 +65,7 @@ async def chat_get_info():
         "version": settings.VERSION,
         "endpoint": "/api/chat",
         "accepted_method": "POST",
-        "message": "FastAPI 智能客服核心服务运行正常！请使用 POST 请求提交问答，或访问 Chainlit (http://localhost:8001) 进行交互测试。",
+        "message": "FastAPI 智能客服核心服务运行正常！请使用 POST 请求提交问答，或通过前端 Web 工作台进行交互测试。",
         "docs": "/docs"
     }
 

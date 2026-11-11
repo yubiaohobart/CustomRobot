@@ -29,10 +29,13 @@
 │   │   └── faq_document.py             # 📄 XX商城售后服务与退换货政策（2026版）Markdown 及切片解析器
 │   ├── models/
 │   │   ├── __init__.py
-│   │   ├── schemas.py                  # 📐 Pydantic 数据契约模型 (ChatRequest, ChatResponse, Transfer 等)
+│   │   ├── schemas.py                  # 📐 Pydantic 数据契约模型 (ChatRequest, ChatResponse 等)
+│   │   ├── sql_models.py               # 🗄️ SQLAlchemy 2.0 声明式 ORM 实体模型 (PostgreSQL)
+│   │   ├── entities.py                 # 📦 业务实体数据类定义 (Customer/Agent/Order/Session)
 │   │   └── state.py                    # 🧠 LangGraph 对话状态定义 (AgentState)
 │   ├── core/
 │   │   ├── __init__.py
+│   │   ├── database.py                 # 🔌 SQLAlchemy 数据库连接池与会话管理 (PostgreSQL)
 │   │   ├── embedding.py                # 🔢 BGE-M3 向量嵌入引擎 (1024 维密集向量)
 │   │   ├── qdrant_store.py             # 🗄️ Qdrant 向量数据库驱动 (集合初始化、余弦相似度检索)
 │   │   └── llm.py                      # 🤖 DeepSeek 大模型驱动 (接入 deepseek-chat/reasoner 与严谨兜底)
@@ -42,16 +45,15 @@
 │   │   └── graph.py                    # 🌐 LangGraph 状态机拓扑构建与编译 (StateGraph + MemorySaver)
 │   ├── services/
 │   │   ├── __init__.py
+│   │   ├── storage_service.py          # 💾 PostgreSQL / SQLAlchemy ORM 数据库固化存储中台
+│   │   ├── order_service.py            # 📦 订单中台与物流追踪服务
 │   │   └── memory_service.py           # 💾 会话历史、长期记忆、客户画像与人工转接快照审计服务
 │   ├── api/
 │   │   ├── __init__.py
-│   │   └── routes.py                   # 🔌 FastAPI RESTful 业务路由集中分发
-│   ├── .chainlit/config.toml           # 💬 Chainlit 界面主题与参数配置
-│   ├── chainlit_app.py                 # 💬 Chainlit 交互式全链路对话自测应用
-│   ├── chainlit.md                     # 💬 Chainlit 首屏说明面板
-│   ├── run_chainlit.sh                 # 🚀 一键启动 Chainlit 自测脚本
+│   │   ├── routes.py                   # 🔌 FastAPI RESTful 业务路由集中分发
+│   │   └── websocket_routes.py         # ⚡ 全双工 WebSocket 实时通信路由
 │   ├── app.py                          # 🚀 FastAPI 主服务启动入口与生命周期管理
-│   ├── requirements.txt                # 📦 Python 核心依赖清单 (含 FastAPI/LangGraph/Qdrant/Chainlit)
+│   ├── requirements.txt                # 📦 Python 核心依赖清单 (FastAPI/SQLAlchemy/PostgreSQL/LangGraph/Qdrant)
 │   ├── Dockerfile                      # 🐳 容器化构建文件
 │   └── README.md                       # 📖 后端完整开发指南与架构说明
 │

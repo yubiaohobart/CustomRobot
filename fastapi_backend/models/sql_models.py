@@ -11,13 +11,8 @@ SQLAlchemy 声明式 ORM 模型定义 (SQLAlchemy Declarative Models)
 from datetime import datetime
 from typing import Dict, Any, List
 
-try:
-    from sqlalchemy import Column, String, Integer, Float, Text, DateTime, Index
-    from core.database import Base
-    HAS_SA = True
-except ImportError:
-    HAS_SA = False
-    Base = object
+from sqlalchemy import Column, String, Integer, Float, Text, DateTime, Index
+from core.database import Base
 
 
 class CustomerEntity(Base):

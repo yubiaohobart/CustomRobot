@@ -659,7 +659,7 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       storageType: "PostgreSQL 关系型数据库 (SQLAlchemy ORM 架构)",
       orm: "SQLAlchemy 2.0 (DeclarativeBase & Session)",
       databaseTarget: targetPg,
-      databaseDialect: "postgresql (fallback sqlite)",
+      databaseDialect: "postgresql",
       fileSizeBytes: dbSize,
       tables: {
         orders: { tableName: "orders", count: orderCount, primaryKey: "order_id", model: "OrderEntity" },
@@ -1015,7 +1015,7 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       ordersCount,
       customersCount,
       agentsCount,
-      databaseType: "SQLite 3",
+      databaseType: "PostgreSQL",
       sentimentCounts: { positive: 8, neutral: 12, negative: 3, frustrated: 2 },
       kbDocCount: 18,
       timestamp: new Date().toISOString()
@@ -1023,7 +1023,7 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
   }
 
   // 默认兜底
-  return res.json({ status: "ok", mode: "hot_standby", db: "sqlite" });
+  return res.json({ status: "ok", mode: "hot_standby", db: "postgresql" });
 }
 
 async function startServer() {

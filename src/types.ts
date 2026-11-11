@@ -159,15 +159,7 @@ export interface StorageStatus {
     sessions: StorageTableInfo;
     transferLogs: StorageTableInfo;
   };
-  files?: {
-    orders: { count: number; sizeBytes: number; path: string };
-    customers: { count: number; sizeBytes: number; path: string };
-    agents: { count: number; sizeBytes: number; path: string };
-    sessions: { count: number; sizeBytes: number; path: string };
-    transferLogs: { count: number; sizeBytes: number; path: string };
-  };
   lastQueryAt?: string;
-  lastPersistedAt?: string;
 }
 
 export interface CheckpointItem {
