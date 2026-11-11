@@ -10,6 +10,17 @@ LangGraph 状态图执行节点实现 (Workflow Nodes)
 
 from typing import Dict, Any, List, Optional
 import time
+
+try:
+    from langgraph.types import interrupt
+except ImportError:
+    try:
+        from langgraph.checkpoint.base import interrupt
+    except ImportError:
+        def interrupt(value: Any) -> Any:
+            """LangGraph 人在环路 (Human-in-the-Loop) 中断信号机制"""
+            return value
+
 from models.state import AgentState
 from core.qdrant_store import qdrant_store
 from core.llm import deepseek_client
@@ -110,6 +121,7 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
         # 2. 常规检测退款意图：触发二次确认中断卡片 (环节1: Customer Confirmation Gate)
         if order:
             is_refund_intent = any(k in user_msg for k in ["退款", "退货", "申请退款", "要退", "退钱", "退回"])
+            was_pending = state.get("refund_confirmation_pending", False)
             current_status = order.get("status", "")
 
             if is_refund_intent and current_status not in ["REFUNDED", "REFUND_PENDING_AUDIT"]:
@@ -124,7 +136,28 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
                     f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
                     f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
                 )
-                cprint.node("order_query", f"[触发退款二次确认中断] 订单 {order['orderId']} 金额 ¥{amount:.2f}", "等待用户点击二次确认")
+                # 触发 LangGraph 标准 interrupt 人在环路中断信号 (Human-in-the-Loop Interrupt)
+                try:
+                    interrupt({
+                        "type": "refund_confirmation_gate",
+                        "order_id": order['orderId'],
+                        "amount": amount,
+                        "rule_text": rule_text,
+                        "prompt": "退款前风险与权益确认挂起"
+                    })
+                except Exception as e:
+                    pass
+
+                cprint.node("order_query", f"[触发 LangGraph interrupt 退款二次确认中断] 订单 {order['orderId']} 金额 ¥{amount:.2f}", "等待用户点击二次确认")
+            elif was_pending and any(k in user_msg for k in ["进度", "好了吗", "退了吗", "审核过了吗", "处理了吗"]):
+                # 客户未点击按钮，但追问进度
+                refund_pending = True
+                pending_order = order
+                override_response = (
+                    f"温馨提示：您的订单【{order['orderId']}】退款申请尚处于【待交互确认】状态，系统尚未正式提交。\n"
+                    f"请您在上方卡片中点击【确认提交退款】（如需退款）或【取消 / 我再想想】（放弃退款），完成确认后系统将立即处理！"
+                )
+                cprint.node("order_query", f"[追问未确认的退款] 订单 {order['orderId']}", "提醒用户先点击卡片确认")
 
     if order:
         order_summary = order_service.format_order_summary_text(order)
