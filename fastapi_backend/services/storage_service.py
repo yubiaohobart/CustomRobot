@@ -303,7 +303,65 @@ class StorageService:
                     updated_at=now
                 )
 
-                session.add_all([o1, o2])
+                o3_items = [{
+                    "skuId": "SKU-CABLE-005",
+                    "title": "便携多功能柔性理线器/清洁湿巾 (3包装)",
+                    "category": "数码配件",
+                    "spec": "黑色 3包装 / 简易收纳",
+                    "price": 2.50,
+                    "quantity": 1,
+                    "imageUrl": "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=160&q=80",
+                    "isSpecialProduct": False,
+                    "isCustomized": False
+                }]
+                o3_express = {
+                    "company": "中通快递",
+                    "companyCode": "ZTO",
+                    "trackingNumber": "ZT771029381",
+                    "status": "DELIVERED",
+                    "statusDescription": "买家已于菜鸟驿站完成签收",
+                    "timeline": [{"time": "2026-03-28 09:30:00", "status": "已签收", "context": "【已签收】您的快件已在自提柜完成签收。"}]
+                }
+                o3_receiver = {"name": "王女士", "phone": "138****6699", "address": "北京市朝阳区亮马桥路88号XX花园3号楼1202室"}
+                o3_after_sales = {
+                    "canReturn7Days": True,
+                    "returnDaysRemaining": 6,
+                    "signedDays": 1,
+                    "returnPolicy": "支持7天无理由退货（商品未拆封）",
+                    "shippingSubsidy": "黄金会员享极速小额免审核退款特权",
+                    "warrantyStatus": "生效中",
+                    "warrantyExpiredDate": "2026-04-28",
+                    "warrantyPolicy": "质量问题直接换新",
+                    "refundStatus": "NONE",
+                    "refundAmount": 0.0,
+                    "refundReason": "",
+                    "requiresHumanAudit": False
+                }
+                o3 = OrderEntity(
+                    order_id="ORD-2026-00100",
+                    order_sn="202603280010003",
+                    user_id="user_001",
+                    user_name="王女士",
+                    user_phone="138****6699",
+                    vip_level="黄金会员",
+                    status="DELIVERED",
+                    status_text="已签收",
+                    status_code=4,
+                    create_time="2026-03-27 10:00:00",
+                    pay_time="2026-03-27 10:00:15",
+                    ship_time="2026-03-27 14:00:00",
+                    delivery_time="2026-03-28 09:30:00",
+                    items_json=json.dumps(o3_items, ensure_ascii=False),
+                    total_amount=2.50,
+                    paid_amount=2.50,
+                    shipping_fee=0.0,
+                    express_json=json.dumps(o3_express, ensure_ascii=False),
+                    receiver_json=json.dumps(o3_receiver, ensure_ascii=False),
+                    after_sales_json=json.dumps(o3_after_sales, ensure_ascii=False),
+                    updated_at=now
+                )
+
+                session.add_all([o1, o2, o3])
                 cprint("[StorageService] 成功播种初始化订单数据 (OrderEntity)", LogColor.CYAN)
 
             # 4. 初始化会话表

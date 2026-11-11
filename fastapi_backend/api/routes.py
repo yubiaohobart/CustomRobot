@@ -404,6 +404,56 @@ async def update_order_status_endpoint(order_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在")
     return {"success": True, "order": updated}
 
+@router.post("/orders/{order_id}/refund")
+async def request_order_refund_endpoint(order_id: str, payload: Dict[str, Any] = {}):
+    """
+    提交订单退款申请：
+    金额 <= 3.00 元直接秒退 (AUTO_REFUNDED)
+    金额 > 3.00 元需人工审核 (PENDING_HUMAN_AUDIT)
+    """
+    reason = payload.get("reason", "7天无理由退货")
+    amount = payload.get("refundAmount")
+    if amount is not None:
+        try:
+            amount = float(amount)
+        except (ValueError, TypeError):
+            amount = None
+            
+    try:
+        updated = order_service.process_refund_request(order_id, reason=reason, refund_amount=amount)
+        await ws_manager.broadcast_all({
+            "type": "order:update",
+            "orderId": order_id,
+            "order": updated
+        })
+        return {"success": True, "order": updated}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/orders/{order_id}/refund/audit")
+async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
+    """
+    人工坐席审核退款申请：
+    action: approve (同意退款) / reject (驳回申请)
+    """
+    action = payload.get("action")
+    if not action:
+        raise HTTPException(status_code=400, detail="Missing required parameter 'action'")
+    
+    operator = payload.get("operatorName", "陈浩")
+    note = payload.get("note", "")
+
+    try:
+        updated = order_service.audit_refund(order_id, action=action, operator_name=operator, note=note)
+        await ws_manager.broadcast_all({
+            "type": "order:update",
+            "orderId": order_id,
+            "order": updated
+        })
+        return {"success": True, "order": updated}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 @router.get("/customers")
 async def get_customers():
     """获取所有固化的客户档案列表"""

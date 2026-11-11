@@ -60,6 +60,13 @@ export interface OrderAfterSales {
   warrantyStatus: string;
   warrantyExpiredDate: string;
   warrantyPolicy: string;
+  refundStatus?: "NONE" | "AUTO_REFUNDED" | "PENDING_HUMAN_AUDIT" | "AUDIT_APPROVED" | "AUDIT_REJECTED";
+  refundAmount?: number;
+  refundReason?: string;
+  requiresHumanAudit?: boolean;
+  auditOperator?: string;
+  auditTime?: string;
+  auditNote?: string;
 }
 
 export interface OrderData {
@@ -69,7 +76,7 @@ export interface OrderData {
   userName: string;
   userPhone: string;
   vipLevel: string;
-  status: "DELIVERED" | "IN_TRANSIT" | "RETURNING_INSPECTION" | "COMPLETED" | "PENDING_PAYMENT";
+  status: "DELIVERED" | "IN_TRANSIT" | "RETURNING_INSPECTION" | "COMPLETED" | "PENDING_PAYMENT" | "REFUND_PENDING_AUDIT" | "REFUNDED" | string;
   statusText: string;
   statusCode?: number;
   createTime: string;

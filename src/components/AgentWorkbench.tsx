@@ -91,6 +91,66 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     showToast(`已引用订单 ${order.orderId} 详情至回复框`);
   };
 
+  const handleAuditRefund = async (orderId: string, action: "approve" | "reject", note?: string) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/refund/audit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          operatorName: activeSession?.assignedAgent || "陈浩 (人工坐席)",
+          note: note || (action === "approve" ? "人工坐席核验通过，资金已原路退回解冻" : "人工坐席驳回退款申请")
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(action === "approve" ? `订单 ${orderId} 人工退款审核已通过！` : `订单 ${orderId} 退款申请已驳回`);
+        // Refresh customer orders
+        const uName = activeSession?.userName || activeSession?.customerProfile?.name || "";
+        const ordersRes = await fetch(`/api/orders?userName=${encodeURIComponent(uName)}`);
+        if (ordersRes.ok) {
+          const oData = await ordersRes.json();
+          setCustomerOrders(oData.orders || []);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("审核操作失败，请重试");
+    }
+  };
+
+  const handleTriggerRefund = async (order: OrderData) => {
+    try {
+      const amount = order.paidAmount;
+      const res = await fetch(`/api/orders/${order.orderId}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: "客户在客服工作台申请7天无理由退款",
+          refundAmount: amount
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (amount <= 3.00) {
+          showToast(`订单 ${order.orderId} 金额 ¥${amount.toFixed(2)} <= 3.00元，已触发极速秒退，无需人工审核！`);
+        } else {
+          showToast(`订单 ${order.orderId} 金额 ¥${amount.toFixed(2)} > 3.00元，已提交人工审核队列！`);
+        }
+        // Refresh customer orders
+        const uName = activeSession?.userName || activeSession?.customerProfile?.name || "";
+        const ordersRes = await fetch(`/api/orders?userName=${encodeURIComponent(uName)}`);
+        if (ordersRes.ok) {
+          const oData = await ordersRes.json();
+          setCustomerOrders(oData.orders || []);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("提交退款申请失败");
+    }
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [customerTyping, setCustomerTyping] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -1341,19 +1401,67 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                             <span className="text-amber-800 font-semibold">{order.afterSales.shippingSubsidy}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">联保条款:</span>
-                            <span className="text-slate-700">{order.afterSales.warrantyPolicy}</span>
+                            <span className="text-slate-500">退款审核门槛:</span>
+                            <span className="text-rose-700 font-medium">≤3.00元秒退 | &gt;3.00元人工审核</span>
                           </div>
                         </div>
 
-                        {/* Fast Quote Button */}
-                        <button
-                          onClick={() => handleQuoteOrder(order)}
-                          className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                        >
-                          <Zap className="w-3.5 h-3.5" />
-                          <span>一键引用此订单物流至回复框</span>
-                        </button>
+                        {/* Refund Pending Audit Action Banner */}
+                        {(order.status === "REFUND_PENDING_AUDIT" || order.afterSales?.refundStatus === "PENDING_HUMAN_AUDIT") && (
+                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-300 space-y-2 text-xs">
+                            <div className="flex items-center justify-between font-bold text-amber-900">
+                              <span className="flex items-center gap-1.5">
+                                <AlertTriangle className="w-4 h-4 text-rose-600 animate-pulse" />
+                                <span>⚠️ 订单退款申请待人工审核</span>
+                              </span>
+                              <span className="text-rose-700 font-mono text-[11px] bg-rose-100 px-1.5 py-0.5 rounded">
+                                ¥{(order.afterSales?.refundAmount || order.paidAmount).toFixed(2)} 元
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-amber-800 leading-tight">
+                              申请原因: <strong>{order.afterSales?.refundReason || "7天无理由退货"}</strong> (金额 &gt; 3.00 元)
+                            </p>
+                            <div className="flex gap-2 pt-1">
+                              <button
+                                onClick={() => handleAuditRefund(order.orderId, "approve")}
+                                className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs cursor-pointer transition-colors"
+                              >
+                                同意退款 (审核通过)
+                              </button>
+                              <button
+                                onClick={() => handleAuditRefund(order.orderId, "reject")}
+                                className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-2xs cursor-pointer transition-colors"
+                              >
+                                驳回申请
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Fast Quote & Refund Action Buttons */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            onClick={() => handleQuoteOrder(order)}
+                            className="py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>引用订单详情</span>
+                          </button>
+
+                          {order.status !== "REFUNDED" && order.status !== "REFUND_PENDING_AUDIT" && (
+                            <button
+                              onClick={() => handleTriggerRefund(order)}
+                              className={`py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer text-white ${
+                                order.paidAmount <= 3.00
+                                  ? "bg-emerald-600 hover:bg-emerald-700"
+                                  : "bg-amber-600 hover:bg-amber-700"
+                              }`}
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              <span>{order.paidAmount <= 3.00 ? "触发极速秒退(<=3元)" : "提交退款申请(>3元)"}</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

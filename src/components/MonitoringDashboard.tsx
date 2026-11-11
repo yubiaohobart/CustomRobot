@@ -39,16 +39,18 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [transferLogs, setTransferLogs] = useState<TransferLog[]>([]);
   const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
+  const [pendingRefundCount, setPendingRefundCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [inspectingLog, setInspectingLog] = useState<TransferLog | null>(null);
 
   const fetchMetrics = async () => {
     try {
-      const [resMetrics, resSessions, resLogs, resStorage] = await Promise.all([
+      const [resMetrics, resSessions, resLogs, resStorage, resOrders] = await Promise.all([
         fetch("/api/metrics"),
         fetch("/api/sessions"),
         fetch("/api/transfer-logs"),
         fetch("/api/storage/status"),
+        fetch("/api/orders"),
       ]);
 
       if (resMetrics.ok) {
@@ -66,6 +68,13 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
       if (resStorage.ok) {
         const strData = await resStorage.json();
         setStorageStatus(strData);
+      }
+      if (resOrders.ok) {
+        const oData = await resOrders.json();
+        const pending = (oData.orders || []).filter(
+          (o: any) => o.status === "REFUND_PENDING_AUDIT" || o.afterSales?.refundStatus === "PENDING_HUMAN_AUDIT"
+        ).length;
+        setPendingRefundCount(pending);
       }
     } catch (e) {
       console.error(e);
@@ -151,14 +160,19 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
             </span>
             <span className="text-xs text-slate-400">单紧急排队</span>
           </div>
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-[11px] text-slate-500 flex justify-between items-center">
             {needsInterventionList.length > 0 ? (
               <span className="text-rose-600 font-semibold cursor-pointer hover:underline" onClick={() => onNavigateToWorkbench()}>
                 立即前往接管处理 &rarr;
               </span>
             ) : (
-              <span className="text-emerald-600 font-medium">当前无积压预警工单</span>
+              <span className="text-emerald-600 font-medium">无积压呼叫</span>
             )}
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+              pendingRefundCount > 0 ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse" : "bg-slate-100 text-slate-500"
+            }`}>
+              退款待审核: {pendingRefundCount} 笔
+            </span>
           </div>
         </div>
 

@@ -240,6 +240,12 @@ if (custCountRow && custCountRow.count === 0) {
   const o4AfterSales = { canReturn7Days: false, returnDaysRemaining: 0, signedDays: 38, returnPolicy: "已超过签收7天期限，不再支持无理由退货", shippingSubsidy: "保修期内双向包邮", warrantyStatus: "联保生效中", warrantyExpiredDate: "2027-02-17", warrantyPolicy: "享有1年全国联保" };
   insertOrderStmt.run("ORD-2026-66521", "202602156652104", "user_001", "王女士", "138****6699", "黄金会员", "COMPLETED", "已完成", 6, "2026-02-15 11:00:00", "2026-02-15 11:01:20", "2026-02-15 16:30:00", "2026-02-17 14:20:00", JSON.stringify(o4Items), 499.0, 499.0, 0.0, JSON.stringify(o4Express), JSON.stringify(o4Receiver), JSON.stringify(o4AfterSales), now);
 
+  const o5Items = [{ skuId: "SKU-CABLE-005", title: "便携多功能柔性理线器/清洁湿巾 (3包装)", category: "数码配件", spec: "黑色 3包装 / 简易收纳", price: 2.5, quantity: 1, imageUrl: "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=160&q=80", isSpecialProduct: false, isCustomized: false }];
+  const o5Express = { company: "中通快递", companyCode: "ZTO", trackingNumber: "ZT771029381", status: "DELIVERED", statusDescription: "买家已于菜鸟驿站完成签收", timeline: [{ time: "2026-03-28 09:30:00", status: "已签收", context: "【已签收】您的快件已在自提柜完成签收。" }] };
+  const o5Receiver = { name: "王女士", phone: "138****6699", address: "北京市朝阳区亮马桥路88号XX花园3号楼1202室" };
+  const o5AfterSales = { canReturn7Days: true, returnDaysRemaining: 6, signedDays: 1, returnPolicy: "支持7天无理由退货（未拆封）", shippingSubsidy: "黄金会员享极速小额免审核退款特权", warrantyStatus: "生效中", warrantyExpiredDate: "2026-04-28", warrantyPolicy: "质量问题直接换新", refundStatus: "NONE", refundAmount: 0.0, refundReason: "", requiresHumanAudit: false };
+  insertOrderStmt.run("ORD-2026-00100", "202603280010003", "user_001", "王女士", "138****6699", "黄金会员", "DELIVERED", "已签收", 4, "2026-03-27 10:00:00", "2026-03-27 10:00:15", "2026-03-27 14:00:00", "2026-03-28 09:30:00", JSON.stringify(o5Items), 2.5, 2.5, 0.0, JSON.stringify(o5Express), JSON.stringify(o5Receiver), JSON.stringify(o5AfterSales), now);
+
   // 4. 初始化会话
   const insertSessionStmt = sqliteDb.prepare(`
     INSERT INTO sessions (id, user_name, status, assigned_agent, assigned_agent_id, customer_profile_json, summary_memory, messages_json, metrics_json, created_at, updated_at)
@@ -728,6 +734,73 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
     return res.json({ success: true, order: updated });
   }
 
+  // 1.5 提交订单退款申请 (POST /api/orders/:id/refund)
+  if (method === "POST" && urlPath.startsWith("/api/orders/") && urlPath.endsWith("/refund")) {
+    const orderId = urlPath.replace("/api/orders/", "").replace("/refund", "").trim().toUpperCase();
+    const order = dbGetOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: `订单 ${orderId} 不存在` });
+    }
+    const { reason = "7天无理由退货", refundAmount } = req.body || {};
+    const amt = refundAmount ? Number(refundAmount) : order.paidAmount;
+    const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+
+    const afterSales = order.afterSales || {};
+    afterSales.refundAmount = amt;
+    afterSales.refundReason = reason;
+
+    if (amt > 3.00) {
+      order.status = "REFUND_PENDING_AUDIT";
+      order.statusText = "退款待人工审核";
+      afterSales.refundStatus = "PENDING_HUMAN_AUDIT";
+      afterSales.requiresHumanAudit = true;
+      afterSales.auditNote = `退款金额 ¥${amt.toFixed(2)} 元 (>3.00元)，已提交至工单中心待人工审核`;
+    } else {
+      order.status = "REFUNDED";
+      order.statusText = "已退款(秒级到账)";
+      afterSales.refundStatus = "AUTO_REFUNDED";
+      afterSales.requiresHumanAudit = false;
+      afterSales.auditTime = nowStr;
+      afterSales.auditNote = `退款金额 ¥${amt.toFixed(2)} 元 (<=3.00元)，符合极速小额秒退规则，已自动原路退回解冻`;
+    }
+
+    order.afterSales = afterSales;
+    const saved = dbSaveOrder(order);
+    broadcastLocalWs("", { type: "order:update", orderId: saved.orderId, order: saved });
+    return res.json({ success: true, order: saved });
+  }
+
+  // 1.6 审核订单退款申请 (POST /api/orders/:id/refund/audit)
+  if (method === "POST" && urlPath.startsWith("/api/orders/") && urlPath.includes("/refund/audit")) {
+    const orderId = urlPath.replace("/api/orders/", "").replace("/refund/audit", "").trim().toUpperCase();
+    const order = dbGetOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: `订单 ${orderId} 不存在` });
+    }
+    const { action, operatorName = "陈浩", note = "" } = req.body || {};
+    const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+    const afterSales = order.afterSales || {};
+    afterSales.auditOperator = operatorName;
+    afterSales.auditTime = nowStr;
+
+    if (action === "approve" || action === "pass") {
+      order.status = "REFUNDED";
+      order.statusText = "已退款(人工审核通过)";
+      afterSales.refundStatus = "AUDIT_APPROVED";
+      afterSales.auditNote = note || `人工坐席【${operatorName}】审核通过退款申请，资金已原路退回解冻`;
+    } else {
+      order.status = "DELIVERED";
+      order.statusText = "退款已驳回";
+      afterSales.refundStatus = "AUDIT_REJECTED";
+      afterSales.auditNote = note || `人工坐席【${operatorName}】审核驳回退款申请`;
+    }
+
+    order.afterSales = afterSales;
+    const saved = dbSaveOrder(order);
+    broadcastLocalWs("", { type: "order:update", orderId: saved.orderId, order: saved });
+    return res.json({ success: true, order: saved });
+  }
+
   // 2. 客户模型管理：获取客户列表执行 SQL SELECT (GET /api/customers)
   if (method === "GET" && urlPath === "/api/customers") {
     const customers = dbListCustomers();
@@ -903,7 +976,9 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
     // 智能 SQL 查询订单：直接向 SQLite 发起商品关键词匹配
     let matchedOrder: any = null;
     const lowerMsg = message.toLowerCase();
-    if (lowerMsg.includes("扫地") || lowerMsg.includes("机器人") || lowerMsg.includes("88992")) {
+    if (lowerMsg.includes("理线器") || lowerMsg.includes("湿巾") || lowerMsg.includes("00100") || lowerMsg.includes("2.5")) {
+      matchedOrder = dbGetOrder("ORD-2026-00100");
+    } else if (lowerMsg.includes("扫地") || lowerMsg.includes("机器人") || lowerMsg.includes("88992")) {
       matchedOrder = dbGetOrder("ORD-2026-88992");
     } else if (lowerMsg.includes("紫砂") || lowerMsg.includes("茶壶") || lowerMsg.includes("90412")) {
       matchedOrder = dbGetOrder("ORD-2026-90412");

@@ -797,26 +797,59 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                           </div>
                         )}
 
+                        {/* Refund Status Notice Box */}
+                        {msg.queriedOrder.afterSales?.refundStatus === "PENDING_HUMAN_AUDIT" || msg.queriedOrder.status === "REFUND_PENDING_AUDIT" ? (
+                          <div className="mt-2 p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                            <div className="font-bold flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                              <span>退款审核中（需要人工核验）</span>
+                            </div>
+                            <p className="text-[10px] text-amber-800">
+                              您的退款申请金额为 <strong>¥{msg.queriedOrder.paidAmount.toFixed(2)} 元</strong>（大于 3.00 元），已提交工单待客服坐席人工审核。
+                            </p>
+                          </div>
+                        ) : msg.queriedOrder.status === "REFUNDED" || msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" || msg.queriedOrder.afterSales?.refundStatus === "AUDIT_APPROVED" ? (
+                          <div className="mt-2 p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-900 space-y-1">
+                            <div className="font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>{msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" ? "小额极速退款成功 (秒级到账)" : "人工审核通过 (已退款)"}</span>
+                            </div>
+                            <p className="text-[10px] text-emerald-800">
+                              退款金额 ¥{msg.queriedOrder.paidAmount.toFixed(2)} 元已通过原支付渠道退回解冻。
+                            </p>
+                          </div>
+                        ) : null}
+
                         {/* Quick Follow-up Buttons */}
                         <div className="mt-2.5 pt-2 border-t border-blue-100 flex items-center gap-1.5 flex-wrap">
                           <span className="text-[10px] text-slate-400 font-medium">快捷操作:</span>
+                          {msg.queriedOrder.status !== "REFUNDED" && msg.queriedOrder.status !== "REFUND_PENDING_AUDIT" && (
+                            <button
+                              onClick={() => {
+                                const oid = msg.queriedOrder!.orderId;
+                                const amt = msg.queriedOrder!.paidAmount;
+                                if (amt <= 3.00) {
+                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 <= 3元），请帮我办理小额极速秒退！`);
+                                } else {
+                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 > 3元），请帮我提交人工审核！`);
+                                }
+                              }}
+                              className="px-2 py-0.5 text-[11px] text-white bg-rose-600 hover:bg-rose-700 rounded-md font-semibold cursor-pointer shadow-2xs transition-colors"
+                            >
+                              申请退款 ({msg.queriedOrder.paidAmount <= 3.00 ? "≤3元秒退" : ">3元须审核"})
+                            </button>
+                          )}
                           <button
                             onClick={() => handleSendMessage(`我要为订单 ${msg.queriedOrder!.orderId} 申请7天无理由退货，请问退货运费和流程是什么？`)}
                             className="px-2 py-0.5 text-[11px] text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
                           >
-                            申请7天退换
+                            咨询退货政策
                           </button>
                           <button
                             onClick={() => handleSendMessage(`请问订单 ${msg.queriedOrder!.orderId} 目前具体在哪个分拨中心？还能催单派送吗？`)}
                             className="px-2 py-0.5 text-[11px] text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
                           >
                             催促配送
-                          </button>
-                          <button
-                            onClick={() => handleSendMessage(`订单 ${msg.queriedOrder!.orderId} 的全国联保多久？如果出现故障如何保修？`)}
-                            className="px-2 py-0.5 text-[11px] text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
-                          >
-                            咨询联保
                           </button>
                         </div>
                       </div>

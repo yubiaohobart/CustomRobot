@@ -98,6 +98,11 @@ class OrderService:
 
         # 3. 按商品关键词匹配
         product_keyword_map = {
+            "理线器": "ORD-2026-00100",
+            "湿巾": "ORD-2026-00100",
+            "小额": "ORD-2026-00100",
+            "2.5": "ORD-2026-00100",
+            "00100": "ORD-2026-00100",
             "扫地机器人": "ORD-2026-88992",
             "扫地机": "ORD-2026-88992",
             "紫砂壶": "ORD-2026-90412",
@@ -115,7 +120,7 @@ class OrderService:
                     return order
 
         # 4. 如果用户询问通用订单/物流关键词 ("我的订单", "发货了吗", "物流到哪了", "什么时候到")
-        order_intent_keywords = ["订单", "物流", "发货", "运单", "快递", "到哪了", "什么时候到", "送达", "签收"]
+        order_intent_keywords = ["订单", "物流", "发货", "运运", "运单", "快递", "到哪了", "什么时候到", "送达", "签收", "退款", "退货"]
         if any(k in msg for k in order_intent_keywords):
             # 优先使用会话画像中预绑定的 orderId
             bound_order_id = user_profile.get("orderId")
@@ -133,6 +138,87 @@ class OrderService:
 
         return None
 
+    def process_refund_request(
+        self,
+        order_id: str,
+        reason: str = "7天无理由退货",
+        refund_amount: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        处理客户订单退款申请：
+        核心逻辑：
+        - 若退款金额 <= 3.00 元：触发极速秒退（无需人工审核），直接退款，状态变更为 REFUNDED / AUTO_REFUNDED
+        - 若退款金额 > 3.00 元：需人工审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
+        """
+        order = self.get_order_by_id(order_id)
+        if not order:
+            raise ValueError(f"订单 {order_id} 不存在")
+
+        amount = refund_amount if refund_amount is not None and refund_amount > 0 else float(order.get("paidAmount", 0.0))
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        after_sales = order.get("afterSales", {})
+        after_sales["refundAmount"] = amount
+        after_sales["refundReason"] = reason
+
+        # 判断是否需要人工审核 (金额大于3元)
+        requires_audit = amount > 3.00
+
+        if requires_audit:
+            order["status"] = "REFUND_PENDING_AUDIT"
+            order["statusText"] = "退款待人工审核"
+            after_sales["refundStatus"] = "PENDING_HUMAN_AUDIT"
+            after_sales["requiresHumanAudit"] = True
+            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (大于 3.00 元)，已自动提交至坐席工单中心，等待客服专员人工审核"
+        else:
+            order["status"] = "REFUNDED"
+            order["statusText"] = "已退款(秒级到账)"
+            after_sales["refundStatus"] = "AUTO_REFUNDED"
+            after_sales["requiresHumanAudit"] = False
+            after_sales["auditTime"] = now_str
+            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (<= 3.00 元)，符合极速小额免审核退款规则，系统已完成秒级自动退款原路解冻"
+
+        order["afterSales"] = after_sales
+        order["updatedAt"] = now_str
+        return self.save_order(order)
+
+    def audit_refund(
+        self,
+        order_id: str,
+        action: str,
+        operator_name: str = "陈浩",
+        note: str = ""
+    ) -> Dict[str, Any]:
+        """
+        人工审核订单退款申请：
+        - action == "approve": 审核通过，状态变更为 REFUNDED / AUDIT_APPROVED
+        - action == "reject": 审核驳回，状态恢复为 DELIVERED / AUDIT_REJECTED
+        """
+        order = self.get_order_by_id(order_id)
+        if not order:
+            raise ValueError(f"订单 {order_id} 不存在")
+
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        after_sales = order.get("afterSales", {})
+        after_sales["auditOperator"] = operator_name
+        after_sales["auditTime"] = now_str
+
+        action_clean = action.lower()
+        if action_clean in ["approve", "pass", "agree"]:
+            order["status"] = "REFUNDED"
+            order["statusText"] = "已退款(人工审核通过)"
+            after_sales["refundStatus"] = "AUDIT_APPROVED"
+            after_sales["auditNote"] = note or f"人工坐席【{operator_name}】审核通过退款申请，资金已原路退回解冻"
+        else:
+            order["status"] = "DELIVERED"
+            order["statusText"] = "退款已驳回"
+            after_sales["refundStatus"] = "AUDIT_REJECTED"
+            after_sales["auditNote"] = note or f"人工坐席【{operator_name}】审核驳回退款申请，原因: 不符合退换货政策"
+
+        order["afterSales"] = after_sales
+        order["updatedAt"] = now_str
+        return self.save_order(order)
+
     def format_order_summary_text(self, order: Dict[str, Any]) -> str:
         """为大模型 (DeepSeek) 提示词生成精炼准确的订单详情与物流事实"""
         items_desc = ", ".join([f"{it['title']} (x{it['quantity']})" for it in order.get("items", [])])
@@ -140,6 +226,17 @@ class OrderService:
         latest_track = express.get("timeline", [{}])[0].get("context", "暂无物流更新") if express.get("timeline") else "暂无"
         after_sale = order.get("afterSales", {})
         receiver = order.get("receiver", {})
+
+        refund_status_str = after_sale.get("refundStatus", "NONE")
+        refund_info = "暂无退款申请"
+        if refund_status_str == "AUTO_REFUNDED":
+            refund_info = f"已完成秒级自动退款 (¥{after_sale.get('refundAmount', 0):.2f} 元 <= 3元秒级到账)"
+        elif refund_status_str == "PENDING_HUMAN_AUDIT":
+            refund_info = f"正在等待人工坐席审核 (申请金额 ¥{after_sale.get('refundAmount', 0):.2f} 元 > 3元，已提交审核工单)"
+        elif refund_status_str == "AUDIT_APPROVED":
+            refund_info = f"人工审核通过，已退款 (审核人: {after_sale.get('auditOperator', '人工坐席')})"
+        elif refund_status_str == "AUDIT_REJECTED":
+            refund_info = f"退款申请已被人工驳回 ({after_sale.get('auditNote', '')})"
 
         return f"""【关联订单事实】
 - 订单编号：{order['orderId']} (下单时间: {order['createTime']})
@@ -149,7 +246,9 @@ class OrderService:
 - 物流承运：{express.get('company', '暂无')} (运单号: {express.get('trackingNumber', '暂无')})
 - 最新物流节点：{latest_track}
 - 收件地址：{receiver.get('address', '系统地址')}
-- 售后权益状态：
+- 退款与售后状态：{refund_info}
+- 售后权益政策：
+  * 退款审核门槛规则：退款金额 <= 3.00 元触发秒级自动到账；退款金额 > 3.00 元需要坐席人工审核通过。
   * 7天无理由退货：{'支持（签收第' + str(after_sale.get('signedDays', 0)) + '天，剩余' + str(after_sale.get('returnDaysRemaining', 0)) + '天）' if after_sale.get('canReturn7Days') else '不支持（' + after_sale.get('returnPolicy', '') + '）'}
   * 运费权益：{after_sale.get('shippingSubsidy', '按商城规则')}
   * 保修政策：{after_sale.get('warrantyPolicy', '1年全国联保')}"""
@@ -157,3 +256,4 @@ class OrderService:
 
 # 全局单例
 order_service = OrderService()
+
