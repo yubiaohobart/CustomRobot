@@ -284,6 +284,22 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     """4. 调用 DeepSeek 大模型生成温暖、严谨且符合政策的专业回答 (方案1: 接入通用业务事实槽位)"""
     t0 = time.time()
     user_msg = state["user_message"]
+    existing_reply = state.get("generated_response")
+
+    # 若前置节点（如 order_refund_node）已设置明确的交互确认/秒退文案，优先保留
+    if existing_reply:
+        trace = state.get("step_trace", [])
+        trace.append({
+            "node": "deepseek_generate",
+            "description": "前置节点已生成确切交互文案，保留既定回复",
+            "durationMs": int((time.time() - t0) * 1000),
+            "status": "success"
+        })
+        return {
+            "generated_response": existing_reply,
+            "step_trace": trace
+        }
+
     docs = state.get("retrieved_docs", [])
     memory = state.get("summary_memory", "")
     profile = state.get("user_profile", {})
