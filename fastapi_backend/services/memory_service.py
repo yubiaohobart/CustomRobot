@@ -267,3 +267,4 @@ class MemoryService:
 
 # 全局单例记忆服务
 memory_service = MemoryService()
+AVAILABLE_AGENTS = storage_service.list_agents()

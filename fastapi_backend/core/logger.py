@@ -110,6 +110,11 @@ class ColorPrinter:
     用于 LangGraph 状态图执行、Qdrant 向量检索、人机协同转接等关键节点的视觉沉浸式展示
     """
 
+    def __call__(self, msg: str, color: Optional[str] = None):
+        """支持直接调用 cprint("消息", LogColor.GREEN)"""
+        color_code = color or LogColor.BRIGHT_WHITE
+        print(f"{color_code}{msg}{LogColor.RESET}")
+
     @staticmethod
     def banner(title: str, subtitle: Optional[str] = None):
         """打印项目启动或核心模块大横幅 (霓虹紫蓝渐变感)"""
@@ -188,4 +193,4 @@ class ColorPrinter:
 
 # 便捷导出
 log = app_logger
-cprint = ColorPrinter
+cprint = ColorPrinter()
