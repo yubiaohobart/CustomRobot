@@ -15,6 +15,7 @@ from .nodes import (
     deepseek_generate_node,
     human_escalation_node,
     router_after_analysis,
+    router_after_order_query,
     router_after_retrieval
 )
 
@@ -47,8 +48,17 @@ builder.add_conditional_edges(
     }
 )
 
-# 订单查询完成后，进入订单退款控制节点，再进入知识检索
-builder.add_edge("order_query", "order_refund")
+# 订单查询完成后的智能条件路由：
+# - 若涉及退款意图或二次确认：进入 order_refund 节点
+# - 若仅查询物流/订单明细：直接跳过退款节点，直奔 qdrant_retrieve 节点
+builder.add_conditional_edges(
+    "order_query",
+    router_after_order_query,
+    {
+        "order_refund": "order_refund",
+        "qdrant_retrieve": "qdrant_retrieve"
+    }
+)
 builder.add_edge("order_refund", "qdrant_retrieve")
 
 # 节点 2 后的条件分支

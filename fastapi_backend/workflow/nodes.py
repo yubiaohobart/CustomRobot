@@ -364,8 +364,19 @@ def router_after_analysis(state: AgentState) -> str:
     """第一级路由：若用户强指令要求人工，则直接路由至人工升级；若涉及订单/物流查询，则路由到订单查询节点"""
     if state.get("explicit_human_request"):
         return "human_escalation"
-    if state.get("intent") == "订单查询与物流追踪":
+    if state.get("intent") in ["订单查询与物流追踪", "退款质检与到账时效", "7天无理由退货政策"]:
         return "order_query"
+    return "qdrant_retrieve"
+
+def router_after_order_query(state: AgentState) -> str:
+    """订单查询后的条件路由：若有退款意图或交互动作，进入退款节点；否则跳过退款节点直接进行知识检索与大模型答复"""
+    user_msg = state.get("user_message", "").lower()
+    action = state.get("refund_confirmation_action")
+    is_refund = any(k in user_msg for k in ["退款", "退货", "申请退款", "要退", "退钱", "退回"])
+    was_pending = state.get("refund_confirmation_pending", False)
+
+    if action in ["confirm", "cancel"] or is_refund or was_pending:
+        return "order_refund"
     return "qdrant_retrieve"
 
 def router_after_retrieval(state: AgentState) -> str:
