@@ -147,8 +147,8 @@ class OrderService:
         """
         处理客户订单退款申请：
         核心逻辑：
-        - 若退款金额 <= 3.00 元：触发极速秒退（无需人工审核），直接退款，状态变更为 REFUNDED / AUTO_REFUNDED
-        - 若退款金额 > 3.00 元：需人工审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
+        - 若退款金额 < 3.00 元：智能客服直接秒退（无需人工干涉），状态变更为 REFUNDED / AUTO_REFUNDED
+        - 若退款金额 >= 3.00 元：需人工干涉与资金安全审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
         """
         order = self.get_order_by_id(order_id)
         if not order:
@@ -161,22 +161,22 @@ class OrderService:
         after_sales["refundAmount"] = amount
         after_sales["refundReason"] = reason
 
-        # 判断是否需要人工审核 (金额大于3元)
-        requires_audit = amount > 3.00
+        # 判断是否需要人工干涉 (金额大于等于3元)
+        requires_audit = amount >= 3.00
 
         if requires_audit:
             order["status"] = "REFUND_PENDING_AUDIT"
             order["statusText"] = "退款待人工审核"
             after_sales["refundStatus"] = "PENDING_HUMAN_AUDIT"
             after_sales["requiresHumanAudit"] = True
-            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (大于 3.00 元)，已自动提交至坐席工单中心，等待客服专员人工审核"
+            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已自动提交至工单中心待人工干涉与审核"
         else:
             order["status"] = "REFUNDED"
             order["statusText"] = "已退款(秒级到账)"
             after_sales["refundStatus"] = "AUTO_REFUNDED"
             after_sales["requiresHumanAudit"] = False
             after_sales["auditTime"] = now_str
-            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (<= 3.00 元)，符合极速小额免审核退款规则，系统已完成秒级自动退款原路解冻"
+            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (< 3.00 元)，符合智能客服小额直接退款规则，已秒级自动完成原路退款"
 
         order["afterSales"] = after_sales
         order["updatedAt"] = now_str
@@ -190,7 +190,7 @@ class OrderService:
         note: str = ""
     ) -> Dict[str, Any]:
         """
-        人工审核订单退款申请：
+        人工干涉与审核订单退款申请：
         - action == "approve": 审核通过，状态变更为 REFUNDED / AUDIT_APPROVED
         - action == "reject": 审核驳回，状态恢复为 DELIVERED / AUDIT_REJECTED
         """
@@ -208,12 +208,12 @@ class OrderService:
             order["status"] = "REFUNDED"
             order["statusText"] = "已退款(人工审核通过)"
             after_sales["refundStatus"] = "AUDIT_APPROVED"
-            after_sales["auditNote"] = note or f"人工坐席【{operator_name}】审核通过退款申请，资金已原路退回解冻"
+            after_sales["auditNote"] = note or f"人工坐席【{operator_name}】干涉核验通过，资金已原路退回解冻"
         else:
             order["status"] = "DELIVERED"
             order["statusText"] = "退款已驳回"
             after_sales["refundStatus"] = "AUDIT_REJECTED"
-            after_sales["auditNote"] = note or f"人工坐席【{operator_name}】审核驳回退款申请，原因: 不符合退换货政策"
+            after_sales["auditNote"] = note or f"人工坐席【{operator_name}】核验驳回退款申请，原因: 不符合退换货政策"
 
         order["afterSales"] = after_sales
         order["updatedAt"] = now_str
@@ -230,11 +230,11 @@ class OrderService:
         refund_status_str = after_sale.get("refundStatus", "NONE")
         refund_info = "暂无退款申请"
         if refund_status_str == "AUTO_REFUNDED":
-            refund_info = f"已完成秒级自动退款 (¥{after_sale.get('refundAmount', 0):.2f} 元 <= 3元秒级到账)"
+            refund_info = f"已通过智能客服秒级自动退款 (¥{after_sale.get('refundAmount', 0):.2f} 元 < 3元，无需人工)"
         elif refund_status_str == "PENDING_HUMAN_AUDIT":
-            refund_info = f"正在等待人工坐席审核 (申请金额 ¥{after_sale.get('refundAmount', 0):.2f} 元 > 3元，已提交审核工单)"
+            refund_info = f"正在等待人工干涉与审核 (申请金额 ¥{after_sale.get('refundAmount', 0):.2f} 元 >= 3元，需人工核验保证安全)"
         elif refund_status_str == "AUDIT_APPROVED":
-            refund_info = f"人工审核通过，已退款 (审核人: {after_sale.get('auditOperator', '人工坐席')})"
+            refund_info = f"人工干涉审核通过，已退款 (审核人: {after_sale.get('auditOperator', '人工坐席')})"
         elif refund_status_str == "AUDIT_REJECTED":
             refund_info = f"退款申请已被人工驳回 ({after_sale.get('auditNote', '')})"
 
@@ -248,7 +248,7 @@ class OrderService:
 - 收件地址：{receiver.get('address', '系统地址')}
 - 退款与售后状态：{refund_info}
 - 售后权益政策：
-  * 退款审核门槛规则：退款金额 <= 3.00 元触发秒级自动到账；退款金额 > 3.00 元需要坐席人工审核通过。
+  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。
   * 7天无理由退货：{'支持（签收第' + str(after_sale.get('signedDays', 0)) + '天，剩余' + str(after_sale.get('returnDaysRemaining', 0)) + '天）' if after_sale.get('canReturn7Days') else '不支持（' + after_sale.get('returnPolicy', '') + '）'}
   * 运费权益：{after_sale.get('shippingSubsidy', '按商城规则')}
   * 保修政策：{after_sale.get('warrantyPolicy', '1年全国联保')}"""

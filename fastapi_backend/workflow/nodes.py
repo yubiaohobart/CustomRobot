@@ -74,38 +74,88 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     user_msg = state["user_message"]
     profile = state.get("user_profile", {})
-    
+    action = state.get("refund_confirmation_action")
+
     order = order_service.detect_and_query_order(user_msg, profile)
     order_summary = ""
+    escalate_human = False
+    escalation_reason = ""
+    refund_pending = False
+    pending_order = None
+    override_response = None
+
+    # 1. 处理退款二次确认恢复动作 ('confirm' 或 'cancel')
+    if action == "confirm":
+        # 用户在二次确认中断弹窗上点击了 【确认提交退款】
+        if order:
+            amount = float(order.get("paidAmount", 0.0))
+            if amount < 3.00:
+                order = order_service.process_refund_request(order["orderId"], reason="用户二次确认提交退款", refund_amount=amount)
+                override_response = f"【智能客服秒退成功】您已二次确认！订单【{order['orderId']}】实付金额为 ¥{amount:.2f} 元 (< 3.00 元)，智能客服已为您直接原路退回解冻，请查收！"
+                cprint.node("order_query", f"[二次确认通过-秒退] 订单 {order['orderId']} 金额 ¥{amount:.2f} < 3元", "秒退成功")
+            else:
+                order = order_service.process_refund_request(order["orderId"], reason="用户二次确认提交退款", refund_amount=amount)
+                escalate_human = True
+                escalation_reason = f"订单 {order['orderId']} 申请退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列"
+                override_response = f"【退款审核工单已提交】您已二次确认！订单【{order['orderId']}】实付金额为 ¥{amount:.2f} 元 (>= 3.00 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！"
+                cprint.node("order_query", f"[二次确认通过-转人工干涉] 订单 {order['orderId']} 金额 ¥{amount:.2f} >= 3元", "转人工核验")
+            pending_order = order
+
+    elif action == "cancel":
+        # 用户在二次确认中断弹窗上点击了 【取消 / 我再想想】
+        override_response = f"已为您取消退款申请，订单【{order['orderId'] if order else ''}】将保持正常签收状态。如需其他帮助，随时联系我！"
+        cprint.node("order_query", "用户点击取消退款申请", "恢复正常状态")
+
+    else:
+        # 2. 常规检测退款意图：触发二次确认中断卡片 (环节1: Customer Confirmation Gate)
+        if order:
+            is_refund_intent = any(k in user_msg for k in ["退款", "退货", "申请退款", "要退", "退钱", "退回"])
+            current_status = order.get("status", "")
+
+            if is_refund_intent and current_status not in ["REFUNDED", "REFUND_PENDING_AUDIT"]:
+                amount = float(order.get("paidAmount", 0.0))
+                refund_pending = True
+                pending_order = order
+                rule_text = "金额 < 3.00 元，确认后将由智能客服直接秒退" if amount < 3.00 else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
+                override_response = (
+                    f"收到您针对订单【{order['orderId']}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+                    f"根据商城退款规则（{rule_text}），在正式提交前，请您确认以下权益调整：\n"
+                    f"• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n"
+                    f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
+                    f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
+                )
+                cprint.node("order_query", f"[触发退款二次确认中断] 订单 {order['orderId']} 金额 ¥{amount:.2f}", "等待用户点击二次确认")
+
     if order:
         order_summary = order_service.format_order_summary_text(order)
-        item_title = order["items"][0]["title"] if order.get("items") else "未知商品"
-        cprint.node(
-            "order_query",
-            f"成功调取订单: {LogColor.BRIGHT_CYAN}{order['orderId']}{LogColor.RESET} ({order['statusText']})",
-            f"商品: {item_title}"
-        )
-        desc = f"中台检索到关联订单 [{order['orderId']}]，状态: {order['statusText']}，物流: {order.get('express', {}).get('company')} ({order.get('express', {}).get('trackingNumber')})"
-    else:
-        cprint.node("order_query", "未匹配到指定订单", "按常规售后知识库策略流转")
-        desc = "未提供或未匹配到具体订单编号，继续进行政策库检索"
 
     duration = int((time.time() - t0) * 1000)
     trace = state.get("step_trace", [])
     trace.append({
         "node": "order_query",
-        "description": desc,
+        "description": f"检索关联订单 [{order['orderId'] if order else '无'}]，退款二次确认挂起: {refund_pending}",
         "durationMs": duration,
         "status": "success" if order else "warning"
     })
 
-    return {
+    res = {
         "queried_order": order,
         "order_query_info": order_summary,
         "business_facts_text": order_summary,
         "business_facts_list": [order] if order else [],
+        "refund_confirmation_pending": refund_pending,
+        "pending_refund_order": pending_order,
         "step_trace": trace
     }
+
+    if override_response:
+        res["generated_response"] = override_response
+
+    if escalate_human:
+        res["escalated_to_human"] = True
+        res["escalation_reason"] = escalation_reason
+
+    return res
 
 def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     """2. 基于 BGE-M3 向量嵌入在 Qdrant 数据库中检索相关 FAQ 条款"""

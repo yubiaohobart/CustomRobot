@@ -112,6 +112,8 @@ export interface ChatMessage {
   intent?: string;
   stepTrace?: StepTraceItem[];
   queriedOrder?: OrderData;
+  refundConfirmationPending?: boolean;
+  pendingRefundOrder?: OrderData;
 }
 
 export interface CustomerProfile {

@@ -749,19 +749,19 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
     afterSales.refundAmount = amt;
     afterSales.refundReason = reason;
 
-    if (amt > 3.00) {
+    if (amt >= 3.00) {
       order.status = "REFUND_PENDING_AUDIT";
       order.statusText = "退款待人工审核";
       afterSales.refundStatus = "PENDING_HUMAN_AUDIT";
       afterSales.requiresHumanAudit = true;
-      afterSales.auditNote = `退款金额 ¥${amt.toFixed(2)} 元 (>3.00元)，已提交至工单中心待人工审核`;
+      afterSales.auditNote = `退款金额 ¥${amt.toFixed(2)} 元 (>=3.00元)，涉及资金安全，已提交工单待人工干涉与审核`;
     } else {
       order.status = "REFUNDED";
       order.statusText = "已退款(秒级到账)";
       afterSales.refundStatus = "AUTO_REFUNDED";
       afterSales.requiresHumanAudit = false;
       afterSales.auditTime = nowStr;
-      afterSales.auditNote = `退款金额 ¥${amt.toFixed(2)} 元 (<=3.00元)，符合极速小额秒退规则，已自动原路退回解冻`;
+      afterSales.auditNote = `退款金额 ¥${amt.toFixed(2)} 元 (<3.00元)，通过智能客服直接秒级退款原路解冻`;
     }
 
     order.afterSales = afterSales;
@@ -988,24 +988,42 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       matchedOrder = dbGetOrder("ORD-2026-66521");
     }
 
-    // 若当前处于人工接管状态
-    if (session.status === "HUMAN_INTERVENED") {
-      const saved = dbSaveSession(session);
-      return res.json({
-        answer: "【人工客服服务中】值班客服已收到您的消息，正在快速打字回复中...",
-        session: saved,
-        isHumanHandling: true
-      });
-    }
+    const { refundConfirmationAction } = req.body || {};
+    let refundPending = false;
+    let pendingRefundOrder: any = null;
+    let reply = "";
 
-    let reply = `您好！关于您咨询的“${message}”，根据商城政策，我们支持 7 天无理由退换及全国联保服务。`;
-    if (message.includes("退货") || message.includes("运费")) {
-      reply = `检测到您是【黄金会员】，享有平台全额补贴的『退货免运费』专属权益！只需在订单页面点击预约顺丰上门取件即可，无需先行垫付运费。`;
-    } else if (message.includes("到账") || message.includes("几天")) {
-      reply = `商品寄回仓库后，质检中心将在 24-48 小时内完成扫码入库，退款将通过原支付方式（支付宝/银行卡）秒级原路退回！`;
-    } else if (message.includes("人工") || message.includes("转人工")) {
-      session.status = "NEEDS_INTERVENTION";
-      reply = `已为您检测到人工服务诉求，质检主管正为您分配值班专家坐席，您也可以点击下方按钮一键完成转接！`;
+    if (refundConfirmationAction === "confirm" && matchedOrder) {
+      const amt = matchedOrder.paidAmount;
+      if (amt < 3.00) {
+        matchedOrder = dbUpdateOrderStatus(matchedOrder.orderId, "REFUNDED", "已退款(秒级到账)");
+        reply = `【智能客服秒退成功】您已二次确认！订单【${matchedOrder.orderId}】实付金额为 ¥${amt.toFixed(2)} 元 (< 3.00 元)，智能客服已为您秒级完成原路退款！`;
+      } else {
+        matchedOrder = dbUpdateOrderStatus(matchedOrder.orderId, "REFUND_PENDING_AUDIT", "退款待人工审核");
+        session.status = "NEEDS_INTERVENTION";
+        reply = `【退款审核工单已提交】您已二次确认！订单【${matchedOrder.orderId}】实付金额为 ¥${amt.toFixed(2)} 元 (>= 3.00 元)，涉及商城资金安全，系统已为您无缝对接人工客服加急干涉与核验！`;
+      }
+      pendingRefundOrder = matchedOrder;
+    } else if (refundConfirmationAction === "cancel") {
+      reply = `已为您取消退款申请，订单【${matchedOrder?.orderId || ''}】将保持正常的签收/售后状态。如需其他帮助，随时联系我！`;
+    } else if (matchedOrder && (message.includes("退款") || message.includes("退货") || message.includes("申请退款"))) {
+      if (matchedOrder.status !== "REFUNDED" && matchedOrder.status !== "REFUND_PENDING_AUDIT") {
+        refundPending = true;
+        pendingRefundOrder = matchedOrder;
+        const amt = matchedOrder.paidAmount;
+        const ruleText = amt < 3.00 ? "金额 < 3.00 元，确认后将由智能客服直接秒退" : "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核";
+        reply = `收到您针对订单【${matchedOrder.orderId}】（实付 ¥${amt.toFixed(2)} 元）的退款申请。\n根据商城退款规则（${ruleText}），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 退款将通过原支付渠道解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：`;
+      }
+    } else {
+      reply = `您好！关于您咨询的“${message}”，根据商城政策，我们支持 7 天无理由退换及全国联保服务。`;
+      if (message.includes("退货") || message.includes("运费")) {
+        reply = `检测到您是【黄金会员】，享有平台全额补贴的『退货免运费』专属权益！只需在订单页面点击预约顺丰上门取件即可，无需先行垫付运费。`;
+      } else if (message.includes("到账") || message.includes("几天")) {
+        reply = `商品寄回仓库后，质检中心将在 24-48 小时内完成扫码入库，退款将通过原支付方式（支付宝/银行卡）秒级原路退回！`;
+      } else if (message.includes("人工") || message.includes("转人工")) {
+        session.status = "NEEDS_INTERVENTION";
+        reply = `已为您检测到人工服务诉求，质检主管正为您分配值班专家坐席，您也可以点击下方按钮一键完成转接！`;
+      }
     }
 
     const aiMsg: any = {
@@ -1015,8 +1033,12 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       confidenceScore: 0.96,
       timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false })
     };
-    if (matchedOrder) {
-      aiMsg.queriedOrder = matchedOrder;
+    if (matchedOrder || pendingRefundOrder) {
+      aiMsg.queriedOrder = matchedOrder || pendingRefundOrder;
+    }
+    if (refundPending) {
+      aiMsg.refundConfirmationPending = true;
+      aiMsg.pendingRefundOrder = pendingRefundOrder;
     }
     session.messages.push(aiMsg);
     session.metrics.totalTurns = session.messages.length;
@@ -1028,7 +1050,9 @@ function handleFallbackApiRequest(req: express.Request, res: express.Response) {
       answer: reply,
       session: saved,
       confidenceScore: 0.96,
-      queriedOrder: matchedOrder
+      queriedOrder: matchedOrder || pendingRefundOrder,
+      refundConfirmationPending: refundPending,
+      pendingRefundOrder: pendingRefundOrder
     });
   }
 

@@ -237,7 +237,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string, actionParam?: string) => {
     const text = (textToSend || inputMessage).trim();
     if (!text || loading) return;
 
@@ -263,6 +263,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         body: JSON.stringify({
           sessionId: currentSessionId,
           message: text,
+          refundConfirmationAction: actionParam || null
         }),
       });
 
@@ -270,10 +271,12 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         const data = await res.json();
         if (data.session) {
           const rawMessages: ChatMessage[] = data.session.messages || [];
-          if (data.queriedOrder && rawMessages.length > 0) {
+          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending) && rawMessages.length > 0) {
             const lastMsg = rawMessages[rawMessages.length - 1];
             if (lastMsg.role === "assistant") {
-              lastMsg.queriedOrder = data.queriedOrder;
+              if (data.queriedOrder) lastMsg.queriedOrder = data.queriedOrder;
+              if (data.pendingRefundOrder) lastMsg.pendingRefundOrder = data.pendingRefundOrder;
+              if (data.refundConfirmationPending !== undefined) lastMsg.refundConfirmationPending = data.refundConfirmationPending;
             }
           }
           setSession(data.session);
@@ -802,17 +805,17 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                           <div className="mt-2 p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-900 space-y-1">
                             <div className="font-bold flex items-center gap-1">
                               <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                              <span>退款审核中（需要人工核验）</span>
+                              <span>退款审核中（需人工干涉）</span>
                             </div>
                             <p className="text-[10px] text-amber-800">
-                              您的退款申请金额为 <strong>¥{msg.queriedOrder.paidAmount.toFixed(2)} 元</strong>（大于 3.00 元），已提交工单待客服坐席人工审核。
+                              您的退款申请金额为 <strong>¥{msg.queriedOrder.paidAmount.toFixed(2)} 元</strong>（&ge; 3.00 元），已提交工单接入人工客服加急干涉与核验。
                             </p>
                           </div>
                         ) : msg.queriedOrder.status === "REFUNDED" || msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" || msg.queriedOrder.afterSales?.refundStatus === "AUDIT_APPROVED" ? (
                           <div className="mt-2 p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-900 space-y-1">
                             <div className="font-bold flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>{msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" ? "小额极速退款成功 (秒级到账)" : "人工审核通过 (已退款)"}</span>
+                              <span>{msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" ? "智能客服小额直接退款成功 (秒级到账)" : "人工干涉核验通过 (已退款)"}</span>
                             </div>
                             <p className="text-[10px] text-emerald-800">
                               退款金额 ¥{msg.queriedOrder.paidAmount.toFixed(2)} 元已通过原支付渠道退回解冻。
@@ -828,15 +831,15 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                               onClick={() => {
                                 const oid = msg.queriedOrder!.orderId;
                                 const amt = msg.queriedOrder!.paidAmount;
-                                if (amt <= 3.00) {
-                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 <= 3元），请帮我办理小额极速秒退！`);
+                                if (amt < 3.00) {
+                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 < 3元），请通过智能客服帮我直接办理退款！`);
                                 } else {
-                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 > 3元），请帮我提交人工审核！`);
+                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 >= 3元），请提交工单并转接人工干涉！`);
                                 }
                               }}
                               className="px-2 py-0.5 text-[11px] text-white bg-rose-600 hover:bg-rose-700 rounded-md font-semibold cursor-pointer shadow-2xs transition-colors"
                             >
-                              申请退款 ({msg.queriedOrder.paidAmount <= 3.00 ? "≤3元秒退" : ">3元须审核"})
+                              申请退款 ({msg.queriedOrder.paidAmount < 3.00 ? "<3元智能客服直退" : ">=3元需人工干涉"})
                             </button>
                           )}
                           <button
@@ -850,6 +853,91 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                             className="px-2 py-0.5 text-[11px] text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
                           >
                             催促配送
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Scenario 1: Pre-Refund Interactive Confirmation Gate Card */}
+                    {(msg.refundConfirmationPending || msg.pendingRefundOrder || (msg.role === "assistant" && (msg.content.includes("【退款前确认") || msg.content.includes("退款风险") || msg.content.includes("确认提交退款")))) && (
+                      <div className="mt-3.5 p-4 bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-50 rounded-2xl border-2 border-amber-300 shadow-xs text-slate-800 space-y-3">
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-2 border-b border-amber-200">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
+                              <ShieldAlert className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-xs text-amber-950">退款申请前交互确认门槛</h4>
+                              <p className="text-[10px] text-amber-700 font-mono">Pre-Refund Customer Confirmation Gate</p>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-0.5 bg-amber-200/80 text-amber-900 text-[10px] font-bold rounded-full border border-amber-300 animate-pulse">
+                            待客户交互确认
+                          </span>
+                        </div>
+
+                        {/* Order Summary */}
+                        {(msg.pendingRefundOrder || msg.queriedOrder) && (
+                          <div className="p-2.5 bg-white rounded-xl border border-amber-200/80 text-xs space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500">待处理订单号:</span>
+                              <span className="font-mono font-bold text-amber-900">
+                                {(msg.pendingRefundOrder || msg.queriedOrder)?.orderId}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500">实付金额:</span>
+                              <span className="font-bold text-rose-600 text-sm">
+                                ¥{(msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount.toFixed(2)} 元
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-100">
+                              <span className="text-slate-500">退款执行路径:</span>
+                              <span className={`font-semibold px-2 py-0.5 rounded text-[10px] ${
+                                ((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount || 0) < 3.00
+                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                  : "bg-amber-100 text-amber-800 border border-amber-200"
+                              }`}>
+                                {((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount || 0) < 3.00
+                                  ? "< 3.00 元 · 智能客服直接秒级退款"
+                                  : "≥ 3.00 元 · 提交人工干涉审核队列"}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Notice Box */}
+                        <div className="p-2.5 bg-white/80 rounded-xl border border-amber-200/60 space-y-1.5 text-[11px] text-slate-700">
+                          <div className="font-bold text-amber-900 flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                            <span>权益及规则说明：</span>
+                          </div>
+                          <ul className="list-disc list-inside space-y-1 text-slate-600 pl-1 leading-relaxed">
+                            <li>退款成功后，对应订单获赠的 VIP 会员积分与专属运费补贴卡将同步失效。</li>
+                            <li><strong>实付 &lt; 3.00 元：</strong>点击确认后，智能客服将直接完成原路退款。</li>
+                            <li><strong>实付 &ge; 3.00 元：</strong>点击确认后，将转入工单并接入人工客服核验干涉。</li>
+                          </ul>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="pt-1 flex items-center gap-2">
+                          <button
+                            onClick={() => handleSendMessage("我确认提交退款申请", "confirm")}
+                            disabled={loading}
+                            className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>【确认提交退款申请】</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleSendMessage("取消退款申请", "cancel")}
+                            disabled={loading}
+                            className="flex-1 py-2.5 px-3 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                          >
+                            <X className="w-4 h-4 text-slate-500" />
+                            <span>【取消 / 我再想想】</span>
                           </button>
                         </div>
                       </div>

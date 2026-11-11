@@ -1401,8 +1401,8 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                             <span className="text-amber-800 font-semibold">{order.afterSales.shippingSubsidy}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">退款审核门槛:</span>
-                            <span className="text-rose-700 font-medium">≤3.00元秒退 | &gt;3.00元人工审核</span>
+                            <span className="text-slate-500">退款审核规则:</span>
+                            <span className="text-rose-700 font-medium">&lt;3.00元AI秒退 | &ge;3.00元人工干涉</span>
                           </div>
                         </div>
 
@@ -1412,14 +1412,14 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                             <div className="flex items-center justify-between font-bold text-amber-900">
                               <span className="flex items-center gap-1.5">
                                 <AlertTriangle className="w-4 h-4 text-rose-600 animate-pulse" />
-                                <span>⚠️ 订单退款申请待人工审核</span>
+                                <span>⚠️ 订单申请退款待人工干涉审核</span>
                               </span>
                               <span className="text-rose-700 font-mono text-[11px] bg-rose-100 px-1.5 py-0.5 rounded">
                                 ¥{(order.afterSales?.refundAmount || order.paidAmount).toFixed(2)} 元
                               </span>
                             </div>
                             <p className="text-[11px] text-amber-800 leading-tight">
-                              申请原因: <strong>{order.afterSales?.refundReason || "7天无理由退货"}</strong> (金额 &gt; 3.00 元)
+                              申请原因: <strong>{order.afterSales?.refundReason || "7天无理由退货"}</strong> (金额 &ge; 3.00 元，需人工干涉)
                             </p>
                             <div className="flex gap-2 pt-1">
                               <button
@@ -1452,13 +1452,13 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                             <button
                               onClick={() => handleTriggerRefund(order)}
                               className={`py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer text-white ${
-                                order.paidAmount <= 3.00
+                                order.paidAmount < 3.00
                                   ? "bg-emerald-600 hover:bg-emerald-700"
                                   : "bg-amber-600 hover:bg-amber-700"
                               }`}
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
-                              <span>{order.paidAmount <= 3.00 ? "触发极速秒退(<=3元)" : "提交退款申请(>3元)"}</span>
+                              <span>{order.paidAmount < 3.00 ? "触发智能客服秒退(<3元)" : "提交退款工单(>=3元)"}</span>
                             </button>
                           )}
                         </div>

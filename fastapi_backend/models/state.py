@@ -136,6 +136,21 @@ class AgentState(TypedDict):
     【特定订单摘要 (向下兼容)】
     """
 
+    refund_confirmation_action: Optional[str]
+    """
+    【退款二次确认触发动作】: 'confirm' 或 'cancel'
+    """
+
+    refund_confirmation_pending: bool
+    """
+    【是否处于退款二次确认挂起等待状态】
+    """
+
+    pending_refund_order: Optional[Dict[str, Any]]
+    """
+    【待确认退款的目标订单对象】
+    """
+
     # ==================== 8. 全链路追踪 ====================
     step_trace: List[Dict[str, Any]]
     """

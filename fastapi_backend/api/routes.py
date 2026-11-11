@@ -136,6 +136,9 @@ async def chat_endpoint(req: ChatRequest):
         "escalation_reason": "",
         "queried_order": None,
         "order_query_info": "",
+        "refund_confirmation_action": req.refundConfirmationAction,
+        "refund_confirmation_pending": False,
+        "pending_refund_order": None,
         "step_trace": []
     }
 
@@ -151,7 +154,8 @@ async def chat_endpoint(req: ChatRequest):
         final_state = initial_state
         final_state.update(order_query_node(final_state))
         final_state.update(qdrant_retrieve_node(final_state))
-        final_state.update(await deepseek_generate_node(final_state))
+        if not final_state.get("generated_response"):
+            final_state.update(await deepseek_generate_node(final_state))
 
     latency_ms = int((time.time() - t_start) * 1000)
     reply = final_state.get("generated_response", "非常抱歉，暂时未能查询到对应政策，请联系人工服务。")
@@ -159,6 +163,8 @@ async def chat_endpoint(req: ChatRequest):
     docs = final_state.get("retrieved_docs", [])
     step_trace = final_state.get("step_trace", [])
     queried_order = final_state.get("queried_order")
+    refund_pending = final_state.get("refund_confirmation_pending", False)
+    pending_refund_order = final_state.get("pending_refund_order")
 
     # 包装参考文档来源
     references = []
@@ -179,6 +185,11 @@ async def chat_endpoint(req: ChatRequest):
         references=references,
         step_trace=step_trace
     )
+    if refund_pending:
+        assistant_msg["refundConfirmationPending"] = True
+    if pending_refund_order:
+        assistant_msg["pendingRefundOrder"] = pending_refund_order
+        assistant_msg["queriedOrder"] = pending_refund_order
     
     updated_session = memory_service.get_session(req.sessionId)
     await ws_manager.broadcast_to_session(req.sessionId, {
@@ -208,7 +219,9 @@ async def chat_endpoint(req: ChatRequest):
         escalatedToHuman=final_state.get("escalated_to_human", False),
         escalationReason=final_state.get("escalation_reason", None),
         references=references,
-        queriedOrder=queried_order,
+        queriedOrder=queried_order or pending_refund_order,
+        refundConfirmationPending=refund_pending,
+        pendingRefundOrder=pending_refund_order,
         latencyMs=latency_ms,
         stepTrace=step_trace,
         session=session
