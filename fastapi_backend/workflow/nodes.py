@@ -85,10 +85,36 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     user_msg = state["user_message"]
     profile = state.get("user_profile", {})
-    action = state.get("refund_confirmation_action")
 
     order = order_service.detect_and_query_order(user_msg, profile)
     order_summary = ""
+    if order:
+        order_summary = order_service.format_order_summary_text(order)
+
+    duration = int((time.time() - t0) * 1000)
+    trace = state.get("step_trace", [])
+    trace.append({
+        "node": "order_query",
+        "description": f"检索关联订单 [{order['orderId'] if order else '无关联订单'}]",
+        "durationMs": duration,
+        "status": "success" if order else "warning"
+    })
+
+    return {
+        "queried_order": order,
+        "order_query_info": order_summary,
+        "business_facts_text": order_summary,
+        "business_facts_list": [order] if order else [],
+        "step_trace": trace
+    }
+
+def order_refund_node(state: AgentState) -> Dict[str, Any]:
+    """3. 订单退款与人工干涉控制节点 (Order Refund Node)"""
+    t0 = time.time()
+    user_msg = state["user_message"]
+    action = state.get("refund_confirmation_action")
+    order = state.get("queried_order")
+
     escalate_human = False
     escalation_reason = ""
     refund_pending = False
@@ -97,28 +123,26 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
 
     # 1. 处理退款二次确认恢复动作 ('confirm' 或 'cancel')
     if action == "confirm":
-        # 用户在二次确认中断弹窗上点击了 【确认提交退款】
         if order:
             amount = float(order.get("paidAmount", 0.0))
             if amount < 3.00:
                 order = order_service.process_refund_request(order["orderId"], reason="用户二次确认提交退款", refund_amount=amount)
                 override_response = f"【智能客服秒退成功】您已二次确认！订单【{order['orderId']}】实付金额为 ¥{amount:.2f} 元 (< 3.00 元)，智能客服已为您直接原路退回解冻，请查收！"
-                cprint.node("order_query", f"[二次确认通过-秒退] 订单 {order['orderId']} 金额 ¥{amount:.2f} < 3元", "秒退成功")
+                cprint.node("order_refund", f"[二次确认通过-秒退] 订单 {order['orderId']} 金额 ¥{amount:.2f} < 3元", "秒退成功")
             else:
                 order = order_service.process_refund_request(order["orderId"], reason="用户二次确认提交退款", refund_amount=amount)
                 escalate_human = True
                 escalation_reason = f"订单 {order['orderId']} 申请退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列"
                 override_response = f"【退款审核工单已提交】您已二次确认！订单【{order['orderId']}】实付金额为 ¥{amount:.2f} 元 (>= 3.00 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！"
-                cprint.node("order_query", f"[二次确认通过-转人工干涉] 订单 {order['orderId']} 金额 ¥{amount:.2f} >= 3元", "转人工核验")
+                cprint.node("order_refund", f"[二次确认通过-转人工干涉] 订单 {order['orderId']} 金额 ¥{amount:.2f} >= 3元", "转人工核验")
             pending_order = order
 
     elif action == "cancel":
-        # 用户在二次确认中断弹窗上点击了 【取消 / 我再想想】
         override_response = f"已为您取消退款申请，订单【{order['orderId'] if order else ''}】将保持正常签收状态。如需其他帮助，随时联系我！"
-        cprint.node("order_query", "用户点击取消退款申请", "恢复正常状态")
+        cprint.node("order_refund", "用户点击取消退款申请", "恢复正常状态")
 
     else:
-        # 2. 常规检测退款意图：触发二次确认中断卡片 (环节1: Customer Confirmation Gate)
+        # 2. 常规检测退款意图：触发二次确认中断卡片 (Customer Confirmation Gate)
         if order:
             is_refund_intent = any(k in user_msg for k in ["退款", "退货", "申请退款", "要退", "退钱", "退回"])
             was_pending = state.get("refund_confirmation_pending", False)
@@ -136,7 +160,6 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
                     f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
                     f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
                 )
-                # 触发 LangGraph 标准 interrupt 人在环路中断信号 (Human-in-the-Loop Interrupt)
                 try:
                     interrupt({
                         "type": "refund_confirmation_gate",
@@ -145,37 +168,30 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
                         "rule_text": rule_text,
                         "prompt": "退款前风险与权益确认挂起"
                     })
-                except Exception as e:
+                except Exception:
                     pass
 
-                cprint.node("order_query", f"[触发 LangGraph interrupt 退款二次确认中断] 订单 {order['orderId']} 金额 ¥{amount:.2f}", "等待用户点击二次确认")
+                cprint.node("order_refund", f"[触发 LangGraph interrupt 退款二次确认中断] 订单 {order['orderId']} 金额 ¥{amount:.2f}", "等待用户点击二次确认")
             elif was_pending and any(k in user_msg for k in ["进度", "好了吗", "退了吗", "审核过了吗", "处理了吗"]):
-                # 客户未点击按钮，但追问进度
                 refund_pending = True
                 pending_order = order
                 override_response = (
                     f"温馨提示：您的订单【{order['orderId']}】退款申请尚处于【待交互确认】状态，系统尚未正式提交。\n"
                     f"请您在上方卡片中点击【确认提交退款】（如需退款）或【取消 / 我再想想】（放弃退款），完成确认后系统将立即处理！"
                 )
-                cprint.node("order_query", f"[追问未确认的退款] 订单 {order['orderId']}", "提醒用户先点击卡片确认")
-
-    if order:
-        order_summary = order_service.format_order_summary_text(order)
+                cprint.node("order_refund", f"[追问未确认的退款] 订单 {order['orderId']}", "提醒用户先点击卡片确认")
 
     duration = int((time.time() - t0) * 1000)
     trace = state.get("step_trace", [])
     trace.append({
-        "node": "order_query",
-        "description": f"检索关联订单 [{order['orderId'] if order else '无'}]，退款二次确认挂起: {refund_pending}",
+        "node": "order_refund",
+        "description": f"处理退款动作与二次确认门槛，挂起状态: {refund_pending}",
         "durationMs": duration,
-        "status": "success" if order else "warning"
+        "status": "success"
     })
 
-    res = {
+    res: Dict[str, Any] = {
         "queried_order": order,
-        "order_query_info": order_summary,
-        "business_facts_text": order_summary,
-        "business_facts_list": [order] if order else [],
         "refund_confirmation_pending": refund_pending,
         "pending_refund_order": pending_order,
         "step_trace": trace

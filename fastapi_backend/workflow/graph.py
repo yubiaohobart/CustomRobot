@@ -9,6 +9,7 @@ from models.state import AgentState
 from .nodes import (
     analyze_query_node,
     order_query_node,
+    order_refund_node,
     qdrant_retrieve_node,
     memory_synthesis_node,
     deepseek_generate_node,
@@ -26,6 +27,7 @@ builder = StateGraph(AgentState)
 # 注册所有执行节点
 builder.add_node("analyze_query", analyze_query_node)
 builder.add_node("order_query", order_query_node)
+builder.add_node("order_refund", order_refund_node)
 builder.add_node("qdrant_retrieve", qdrant_retrieve_node)
 builder.add_node("memory_synthesis", memory_synthesis_node)
 builder.add_node("deepseek_generate", deepseek_generate_node)
@@ -45,8 +47,9 @@ builder.add_conditional_edges(
     }
 )
 
-# 订单查询完成后，进入政策与知识检索（实现订单信息与售后条款联通）
-builder.add_edge("order_query", "qdrant_retrieve")
+# 订单查询完成后，进入订单退款控制节点，再进入知识检索
+builder.add_edge("order_query", "order_refund")
+builder.add_edge("order_refund", "qdrant_retrieve")
 
 # 节点 2 后的条件分支
 builder.add_conditional_edges(
