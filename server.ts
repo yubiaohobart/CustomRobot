@@ -614,6 +614,99 @@ async function startServer() {
     res.json({ success: true, message: `订单 ${oid} 状态已重置为正常签收`, order: updated });
   });
 
+  // 人工坐席审核退款 (同意退款或驳回)
+  app.post(["/api/orders/:id/refund/audit", "/api/orders/:id/audit"], (req, res) => {
+    const oid = req.params.id;
+    const { action, operatorName, note } = req.body;
+    const ord = orders[oid];
+    if (!ord) return res.status(404).json({ error: "Order not found" });
+
+    const op = operatorName || "陈浩 (高级售后督导)";
+    const nowTime = new Date().toLocaleString("zh-CN");
+
+    if (action === "approve" || action === "pass") {
+      ord.status = "REFUNDED";
+      ord.statusText = "已退款(人工审核通过)";
+      ord.afterSales.refundStatus = "AUDIT_APPROVED";
+      ord.afterSales.auditOperator = op;
+      ord.afterSales.auditTime = nowTime;
+      ord.afterSales.auditNote = note || `人工坐席【${op}】干涉核验通过，资金已原路退回解冻`;
+      ord.afterSales.requiresHumanAudit = false;
+    } else {
+      ord.status = "DELIVERED";
+      ord.statusText = "已签收(退款已驳回)";
+      ord.afterSales.refundStatus = "AUDIT_REJECTED";
+      ord.afterSales.auditOperator = op;
+      ord.afterSales.auditTime = nowTime;
+      ord.afterSales.auditNote = note || `人工坐席【${op}】核验驳回退款申请`;
+      ord.afterSales.requiresHumanAudit = false;
+    }
+    ord.updatedAt = new Date().toISOString();
+
+    // 同时自动向关联会话发送一条人工客服的核验反馈通知
+    for (const s of Object.values(sessions)) {
+      if (s.customerProfile?.orderId === oid || oid === "ORD-2026-88992") {
+        if (action === "approve" || action === "pass") {
+          s.status = "HUMAN_INTERVENED";
+          s.assignedAgent = op;
+          s.assignedAgentId = "agent_101";
+          const auditMsg: ChatMessage = {
+            id: `m_${Date.now()}_${s.messages.length}`,
+            role: "human_agent",
+            content: `【人工干涉审核通过】王女士您好！我是值班售后督导【${op}】，您针对订单【${oid}】的退款申请（实付 ¥${ord.paidAmount.toFixed(2)} 元）已由我完成人工干涉核验并审核通过，退款已极速原路打款解冻，请您查收账户通知！`,
+            agentName: op,
+            agentId: "agent_101",
+            timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
+          };
+          s.messages.push(auditMsg);
+          broadcastToSession(s.id, { type: "message:new", sessionId: s.id, message: auditMsg, session: s });
+        } else {
+          const rejectMsg: ChatMessage = {
+            id: `m_${Date.now()}_${s.messages.length}`,
+            role: "human_agent",
+            content: `【退款申请驳回通知】王女士您好，经人工审核，订单【${oid}】暂不符合退换货政策要求（${note || "未满足无理由退货条件"}），退款申请已驳回，订单恢复正常签收。如有疑问可随时与我沟通。`,
+            agentName: op,
+            agentId: "agent_101",
+            timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
+          };
+          s.messages.push(rejectMsg);
+          broadcastToSession(s.id, { type: "message:new", sessionId: s.id, message: rejectMsg, session: s });
+        }
+        broadcastAll({ type: "session:update", sessionId: s.id, session: s });
+      }
+    }
+
+    broadcastAll({ type: "order:update", orderId: oid, order: ord });
+    res.json({ success: true, order: ord });
+  });
+
+  // 人工坐席发起退款申请
+  app.post("/api/orders/:id/refund", (req, res) => {
+    const oid = req.params.id;
+    const { refundAmount, reason } = req.body;
+    const ord = orders[oid];
+    if (!ord) return res.status(404).json({ error: "Order not found" });
+
+    const amt = refundAmount !== undefined ? Number(refundAmount) : ord.paidAmount;
+    if (amt < 3.0) {
+      ord.status = "REFUNDED";
+      ord.statusText = "已退款(秒级到账)";
+      ord.afterSales.refundStatus = "AUTO_REFUNDED";
+      ord.afterSales.refundAmount = amt;
+      ord.afterSales.requiresHumanAudit = false;
+    } else {
+      ord.status = "REFUND_PENDING_AUDIT";
+      ord.statusText = "退款待人工审核";
+      ord.afterSales.refundStatus = "PENDING_HUMAN_AUDIT";
+      ord.afterSales.refundAmount = amt;
+      ord.afterSales.requiresHumanAudit = true;
+      ord.afterSales.refundReason = reason || "人工客服工作台代发退款";
+    }
+    ord.updatedAt = new Date().toISOString();
+    broadcastAll({ type: "order:update", orderId: oid, order: ord });
+    res.json({ success: true, order: ord });
+  });
+
   app.post("/api/sessions/:id/transfer", (req, res) => {
     const { targetAgentId, reason, triggerType, operatorNote } = req.body;
     const s = sessions[req.params.id];

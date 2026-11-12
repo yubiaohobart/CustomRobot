@@ -121,6 +121,11 @@ export const DualChatView: React.FC = () => {
   const [copilotDraft, setCopilotDraft] = useState<string | null>(null);
   const [customerTypingNotice, setCustomerTypingNotice] = useState<string | null>(null);
 
+  // Order & Refund Management State
+  const [currentOrder, setCurrentOrder] = useState<OrderData | null>(null);
+  const [auditingRefund, setAuditingRefund] = useState(false);
+  const [auditNote, setAuditNote] = useState("");
+
   // Live Toast & WebSocket
   const [toast, setToast] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -130,6 +135,21 @@ export const DualChatView: React.FC = () => {
   const showToast = (text: string) => {
     setToast(text);
     setTimeout(() => setToast(null), 3500);
+  };
+
+  const fetchOrder = async (orderId: string) => {
+    if (!orderId) return;
+    try {
+      const res = await fetch(`/api/orders/${orderId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.order) {
+          setCurrentOrder(data.order);
+        }
+      }
+    } catch (e) {
+      console.error("fetchOrder error:", e);
+    }
   };
 
   // Fetch Session Data
@@ -147,6 +167,8 @@ export const DualChatView: React.FC = () => {
               messages: mergeServerMessages(prevMsgs, s.messages || []),
             };
           });
+          const oid = s.customerProfile?.orderId || "ORD-2026-88992";
+          fetchOrder(oid);
         }
       }
     } catch (e) {
@@ -169,6 +191,8 @@ export const DualChatView: React.FC = () => {
   useEffect(() => {
     loadSession();
     loadAllSessions();
+    const oid = session?.customerProfile?.orderId || "ORD-2026-88992";
+    fetchOrder(oid);
     let counter = 0;
     const interval = setInterval(() => {
       counter++;
@@ -227,6 +251,20 @@ export const DualChatView: React.FC = () => {
               showToast(`🎧 人工坐席【${payload.message.agentName || "陈浩"}】已回复客户`);
             } else if (payload.message.role === "user") {
               showToast(`👤 收到客户【${session?.customerProfile?.name || "客户"}】新提问`);
+            }
+          } else if (payload.type === "order:update") {
+            if (payload.order) {
+              setCurrentOrder((prev) => {
+                if (!prev || prev.orderId === payload.orderId || payload.orderId === (session?.customerProfile?.orderId || "ORD-2026-88992")) {
+                  return payload.order;
+                }
+                return prev;
+              });
+              if (payload.order.status === "REFUND_PENDING_AUDIT") {
+                showToast(`⚠️ 收到订单【${payload.order.orderId}】退款申请（¥${payload.order.paidAmount.toFixed(2)}），待人工坐席审核！`);
+              } else if (payload.order.status === "REFUNDED") {
+                showToast(`✅ 订单【${payload.order.orderId}】退款审核通过，款项已原路退回！`);
+              }
             }
           } else if (payload.type === "session:update" && (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId)) {
             setSession((prev) => {
@@ -315,6 +353,12 @@ export const DualChatView: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
+        if (data.queriedOrder) {
+          setCurrentOrder(data.queriedOrder);
+        }
+        if (data.pendingRefundOrder) {
+          setCurrentOrder(data.pendingRefundOrder);
+        }
         if (data.session) {
           const rawMessages: ChatMessage[] = data.session.messages || [];
           if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending) && rawMessages.length > 0) {
@@ -371,6 +415,85 @@ export const DualChatView: React.FC = () => {
       console.error(e);
     } finally {
       setAgentSending(false);
+    }
+  };
+
+  // Agent Refund Audit Handler
+  const handleAuditRefund = async (action: "approve" | "reject") => {
+    const oid = currentOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992";
+    setAuditingRefund(true);
+    try {
+      const res = await fetch(`/api/orders/${oid}/refund/audit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          operatorName: session?.assignedAgent || "陈浩 (高级售后督导)",
+          note: auditNote || (action === "approve" ? "人工坐席干涉核验通过，款项已原路全额退回解冻" : "人工审核驳回退款申请")
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.order) {
+          setCurrentOrder(data.order);
+        }
+        await loadSession();
+        if (action === "approve") {
+          showToast(`✅ 审核通过！订单【${oid}】退款已极速原路打款解冻！`);
+        } else {
+          showToast(`❌ 已驳回订单【${oid}】的退款申请！`);
+        }
+      }
+    } catch (e) {
+      console.error("handleAuditRefund error:", e);
+      showToast("审核操作失败，请重试");
+    } finally {
+      setAuditingRefund(false);
+    }
+  };
+
+  // Reset Order status for repeated test
+  const handleResetOrder = async (orderId?: string) => {
+    const oid = orderId || currentOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992";
+    try {
+      const res = await fetch(`/api/orders/${oid}/reset`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.order) {
+          setCurrentOrder(data.order);
+        }
+        await loadSession();
+        showToast(`订单 ${oid} 状态已重置为正常签收 (可重新测试退款审核流)`);
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("重置失败");
+    }
+  };
+
+  // Agent proactively initiates refund
+  const handleAgentInitiateRefund = async () => {
+    const oid = currentOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992";
+    try {
+      const res = await fetch(`/api/orders/${oid}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: "人工坐席在工作台主动代客户发起退款申请",
+          refundAmount: currentOrder?.paidAmount || 2999.00
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.order) {
+          setCurrentOrder(data.order);
+        }
+        await loadSession();
+        showToast(`已成功为订单 ${oid} 提交退款申请并转入审核队列！`);
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("发起退款失败");
     }
   };
 
@@ -458,6 +581,7 @@ export const DualChatView: React.FC = () => {
   const needsHuman = session?.status === "NEEDS_INTERVENTION";
 
   const cannedResponses = [
+    { label: "审核通过退款", text: "王女士您好！我是值班售后督导陈浩，您的退款申请（实付 ¥2999.00）已由我人工干涉核验通过！退款已极速原路打款解冻，专属免运费寄回面单已为您同步生成，请查收！" },
     { label: "黄金免邮", text: "王女士您好！已为您核验会员权益：您是黄金会员，享有平台全额补贴的专属“退货免运费”权益，无需您垫付任何运费，我马上为您生成免邮寄回面单！" },
     { label: "48h退款时效", text: "您好！仓库收到商品后48小时内质检入库，合格后系统原路退回：支付宝/微信零钱实时到账，银行卡1-3个工作日到账。已为您标记加急审核！" },
     { label: "顺丰上门", text: "已为您预约顺丰速运明天上午9:00-11:00上门取件，快递员会携带专用包装上门，请保持手机畅通！" },
@@ -687,8 +811,14 @@ export const DualChatView: React.FC = () => {
                               <Package className="w-3.5 h-3.5 text-blue-600" />
                               <span>订单: <span className="font-mono text-blue-900">{msg.queriedOrder.orderId}</span></span>
                             </div>
-                            <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] font-bold rounded">
-                              {msg.queriedOrder.statusText}
+                            <span className={`px-1.5 py-0.2 text-[10px] font-bold rounded ${
+                              (currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.status : msg.queriedOrder.status) === "REFUNDED"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : (currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.status : msg.queriedOrder.status) === "REFUND_PENDING_AUDIT"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-blue-100 text-blue-800"
+                            }`}>
+                              {(currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.statusText : msg.queriedOrder.statusText)}
                             </span>
                           </div>
                           {msg.queriedOrder.items?.[0] && (
@@ -704,7 +834,7 @@ export const DualChatView: React.FC = () => {
                             </div>
                           )}
                           <div className="pt-1 flex items-center gap-1.5 flex-wrap">
-                            {msg.queriedOrder.status !== "REFUNDED" && (
+                            {(currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.status : msg.queriedOrder.status) !== "REFUNDED" && (
                               <button
                                 onClick={() => handleCustomerSend(`我申请退款订单 ${msg.queriedOrder!.orderId}`)}
                                 className="px-2 py-0.5 text-[10px] text-white bg-rose-600 hover:bg-rose-700 rounded font-semibold cursor-pointer"
@@ -714,12 +844,7 @@ export const DualChatView: React.FC = () => {
                             )}
                             <button
                               onClick={async () => {
-                                try {
-                                  await fetch(`/api/orders/${msg.queriedOrder!.orderId}/reset`, { method: "POST" });
-                                  await handleCustomerSend(`申请退款订单 ${msg.queriedOrder!.orderId}`);
-                                } catch (e) {
-                                  console.error(e);
-                                }
+                                await handleResetOrder(msg.queriedOrder!.orderId);
                               }}
                               className="px-2 py-0.5 text-[10px] text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded font-medium cursor-pointer"
                             >
@@ -946,9 +1071,18 @@ export const DualChatView: React.FC = () => {
           {/* Customer Snapshot Dossier (客户背景档案) */}
           <div className="px-4 py-2.5 bg-white border-b border-slate-200 text-xs">
             <div className="flex items-center justify-between text-[11px] mb-1.5">
-              <span className="font-bold text-slate-700 flex items-center gap-1">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
                 <Package className="w-3.5 h-3.5 text-blue-600" />
-                关联订单: <span className="font-mono text-blue-900">{session?.customerProfile?.orderId || "ORD-2026-88992"}</span>
+                关联订单: <span className="font-mono text-blue-900">{currentOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}</span>
+                <span className={`px-1.5 py-0.2 text-[10px] font-bold rounded ${
+                  currentOrder?.status === "REFUND_PENDING_AUDIT"
+                    ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse"
+                    : currentOrder?.status === "REFUNDED"
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                    : "bg-blue-100 text-blue-800"
+                }`}>
+                  {currentOrder?.statusText || "已签收"}
+                </span>
               </span>
               <span className="px-2 py-0.2 bg-emerald-50 text-emerald-700 font-semibold rounded border border-emerald-200">
                 支持7天退货 (黄金会员免运费)
@@ -959,6 +1093,144 @@ export const DualChatView: React.FC = () => {
               {session?.summaryMemory || "客户咨询7天无理由退货运费及退款到账时效。"}
             </div>
           </div>
+
+          {/* 人工客服退款审核与风控干涉控制台 */}
+          {(currentOrder?.status === "REFUND_PENDING_AUDIT" || currentOrder?.afterSales?.refundStatus === "PENDING_HUMAN_AUDIT") ? (
+            <div className="mx-4 my-2.5 p-3.5 bg-gradient-to-br from-amber-50 via-orange-50/70 to-rose-50/60 rounded-xl border-2 border-amber-400 shadow-sm animate-in fade-in duration-300">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-2 border-b border-amber-200/80">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-amber-500 text-white rounded-lg shadow-2xs">
+                    <ShieldAlert className="w-4 h-4 animate-bounce" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-amber-950">
+                        【退款审核工单】客户已提交退款申请
+                      </span>
+                      <span className="px-2 py-0.5 bg-rose-600 text-white text-[10px] font-bold rounded-full animate-pulse shadow-2xs">
+                        待人工审核打款
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-amber-800">
+                      实付金额 ¥{(currentOrder?.paidAmount ?? 2999).toFixed(2)} ≥ 3.00 元 · 触发平台资金安全风控人工审核
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleResetOrder(currentOrder?.orderId)}
+                  className="px-2 py-1 bg-white hover:bg-amber-100 text-amber-900 text-[10px] font-medium border border-amber-300 rounded-md cursor-pointer transition-colors shadow-2xs"
+                  title="重置订单状态以重新测试"
+                >
+                  重置订单 (重测)
+                </button>
+              </div>
+
+              {/* Order Info Details */}
+              <div className="my-2.5 p-2.5 bg-white/95 rounded-lg border border-amber-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500">待退款商品:</span>
+                  <span className="font-semibold text-slate-800 truncate max-w-[240px]">
+                    {currentOrder?.items?.[0]?.title || "XX智能全自动扫地机器人 Pro"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500">应退实付金额:</span>
+                  <span className="font-bold text-rose-600 text-sm font-mono">
+                    ¥{(currentOrder?.paidAmount ?? 2999).toFixed(2)} 元
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                  <span>会员权益核验:</span>
+                  <span className="text-emerald-700 font-semibold">
+                    黄金会员享专属免运费特权 • 签收第3天(符合7天无理由退换)
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Preset Audit Notes */}
+              <div className="mb-2.5 flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] text-slate-400">快速批注:</span>
+                {[
+                  "7天无理由退货核验通过",
+                  "黄金会员免邮原路极速退款",
+                  "包装完好质检合格打款",
+                ].map((tag, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setAuditNote(tag)}
+                    className="px-1.5 py-0.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-200 rounded text-[10px] cursor-pointer transition-colors"
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+
+              {/* Audit Action Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleAuditRefund("approve")}
+                  disabled={auditingRefund}
+                  className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{auditingRefund ? "退款处理中..." : "【审核通过 · 立即原路退款】"}</span>
+                </button>
+                <button
+                  onClick={() => handleAuditRefund("reject")}
+                  disabled={auditingRefund}
+                  className="py-2 px-3 bg-white hover:bg-rose-50 text-rose-700 hover:text-rose-800 border border-rose-300 text-xs font-semibold rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <X className="w-3.5 h-3.5 text-rose-500" />
+                  <span>驳回退款</span>
+                </button>
+              </div>
+            </div>
+          ) : currentOrder?.status === "REFUNDED" ? (
+            <div className="mx-4 my-2 p-2.5 bg-emerald-50 rounded-xl border border-emerald-300 text-xs flex items-center justify-between text-emerald-950 shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <div>
+                  <div className="font-bold text-xs text-emerald-900">
+                    订单【{currentOrder.orderId}】已完成人工审核退款（实付 ¥{(currentOrder?.paidAmount ?? 2999).toFixed(2)} 元已原路解冻）
+                  </div>
+                  <div className="text-[10px] text-emerald-700">
+                    审核人: {currentOrder.afterSales?.auditOperator || "陈浩 (高级售后督导)"} • {currentOrder.afterSales?.auditNote || "人工核验通过，资金已原路解冻退回"}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => handleResetOrder(currentOrder.orderId)}
+                className="px-2 py-1 bg-white hover:bg-emerald-100 text-emerald-800 text-[10px] font-semibold border border-emerald-300 rounded cursor-pointer transition-colors shadow-2xs"
+              >
+                重置订单 (重测)
+              </button>
+            </div>
+          ) : (
+            <div className="mx-4 my-2 p-2 bg-slate-100 rounded-lg border border-slate-200 text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[11px] text-slate-700">
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                <span>订单状态: <strong className="text-slate-900">{currentOrder?.statusText || "已签收"}</strong></span>
+                <span>•</span>
+                <span>实付: <strong className="text-rose-600 font-mono">¥{(currentOrder?.paidAmount ?? 2999).toFixed(2)}</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleAgentInitiateRefund}
+                  className="px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-[10px] font-medium cursor-pointer transition-colors"
+                >
+                  坐席代发退款
+                </button>
+                <button
+                  onClick={() => handleResetOrder(currentOrder?.orderId)}
+                  className="px-2 py-0.5 bg-white hover:bg-slate-200 text-slate-600 border border-slate-300 rounded text-[10px] font-medium cursor-pointer transition-colors"
+                >
+                  重置订单
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Agent View Messages Stream */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-100/60">
