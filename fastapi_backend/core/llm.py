@@ -26,34 +26,40 @@ class DeepSeekLLMClient:
     async def generate_response(
         self,
         user_message: str,
-        retrieved_docs: List[Dict[str, Any]],
+        retrieved_docs: Optional[List[Dict[str, Any]]] = None,
+        hits: Optional[List[Dict[str, Any]]] = None,
         summary_memory: str = "",
+        memory_summary: str = "",
         user_profile: Optional[Dict[str, Any]] = None,
         business_facts: str = "",
         order_info: Optional[Dict[str, Any]] = None,
+        order_id: Optional[str] = None,
         order_summary: str = ""
     ) -> str:
         """
         调用 DeepSeek API 生成客服答复
-        采用通用业务事实槽位 (business_facts)，严格遵循知识库与业务实体作答
+        优先消费精炼 hits 与 memory_summary，严格遵循知识库与业务实体作答
         """
         user_profile = user_profile or {}
         vip_level = user_profile.get("vipLevel", "普通会员")
         customer_name = user_profile.get("name", "尊敬的客户")
 
-        # 1. 整理知识库参考条款
+        # 1. 整理知识库参考条款 (优先支持 hits 精简切片，兼容 retrieved_docs)
+        doc_list = hits if hits is not None else (retrieved_docs or [])
         context_blocks = []
-        for idx, doc in enumerate(retrieved_docs, 1):
+        for idx, doc in enumerate(doc_list, 1):
             title = doc.get("title", f"参考条款 {idx}")
-            content = doc.get("content", "")
+            content = doc.get("snippet") or doc.get("content", "")
             context_blocks.append(f"【参考条款 {idx} - {title}】\n{content}")
         context_str = "\n\n".join(context_blocks) if context_blocks else "暂无直接匹配的知识库条款。"
 
-        # 2. 提取通用业务事实 (优先 business_facts，兼容 order_summary / order_info)
+        # 2. 提取通用业务事实 (按需根据 order_id 查库或使用已有实体)
         facts_text = (business_facts or order_summary).strip()
-        if not facts_text and order_info:
+        if not facts_text:
             from services.order_service import order_service
-            facts_text = order_service.format_order_summary_text(order_info)
+            target_order = order_info or (order_service.get_order_by_id(order_id) if order_id else None)
+            if target_order:
+                facts_text = order_service.format_order_summary_text(target_order)
 
         business_facts_block = facts_text if facts_text else "当前客户尚未触发或关联特定业务中台实体数据。"
 

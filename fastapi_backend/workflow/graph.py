@@ -5,7 +5,7 @@ LangGraph 状态图组装与编译 (Graph Pipeline Assembly)
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from models.state import CSState, InputState, OutputState
+from .state import AgentState, InputState, OutputState
 from .nodes import (
     analyze_query_node,
     order_query_node,
@@ -22,8 +22,8 @@ from .nodes import (
 # 内存检查点状态管理器
 memory_saver = MemorySaver()
 
-# 构建客服问答状态机（采用输入输出模式分离的 CSState）
-builder = StateGraph(CSState, input_schema=InputState, output_schema=OutputState)
+# 构建客服问答状态机（采用输入输出模式分离的 AgentState）
+builder = StateGraph(AgentState, input_schema=InputState, output_schema=OutputState)
 
 # 注册所有执行节点
 builder.add_node("analyze_query", analyze_query_node)

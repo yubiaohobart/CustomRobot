@@ -17,7 +17,7 @@ from models.schemas import (
     GenerateSuggestionRequest,
     TestRequest
 )
-from workflow.state import CSState as AgentState
+from workflow.state import AgentState
 from core.qdrant_store import qdrant_store
 from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
@@ -119,23 +119,23 @@ async def chat_endpoint(req: ChatRequest):
             session=session
         )
 
-    # 组装初始 LangGraph 状态
+    # 组装初始 LangGraph 状态 (严格基于精简版 AgentState 契约)
+    confirm_action = req.refundConfirmationAction if req.refundConfirmationAction in ("confirm", "cancel") else None
+    user_id = session.get("customerProfile", {}).get("userId") or "user_001"
     initial_state: AgentState = {
         "session_id": req.sessionId,
+        "user_id": user_id,
         "user_message": req.message,
-        "intent": "待识别",
-        "sentiment": "neutral",
-        "explicit_human_request": False,
-        "retrieved_docs": [],
-        "retrieval_ran": False,
-        "top_similarity_score": 0.0,
+        "confirm_action": confirm_action,
         "user_profile": session["customerProfile"],
-        "summary_memory": session["summaryMemory"],
-        "current_order": None,
-        "refund_gate": {"pending": False, "action": req.refundConfirmationAction},
-        "escalated_to_human": False,
-        "escalation_reason": "",
-        "step_trace": []
+        "memory_summary": session["summaryMemory"],
+        "intent": "常规售后咨询",
+        "sentiment": "neutral",
+        "order_id": None,
+        "hits": [],
+        "refund": None,
+        "cards": [],
+        "trace": []
     }
 
     # 执行 LangGraph 状态图管线
@@ -150,34 +150,47 @@ async def chat_endpoint(req: ChatRequest):
         final_state = initial_state
         final_state.update(order_query_node(final_state))
         final_state.update(qdrant_retrieve_node(final_state))
-        if not final_state.get("generated_response"):
+        if not final_state.get("reply"):
             final_state.update(await deepseek_generate_node(final_state))
 
     latency_ms = int((time.time() - t_start) * 1000)
-    reply = final_state.get("generated_response", "非常抱歉，暂时未能查询到对应政策，请联系人工服务。")
-    conf_score = final_state.get("top_similarity_score", 0.90)
-    docs = final_state.get("retrieved_docs", [])
-    step_trace = final_state.get("step_trace", [])
-    current_order = final_state.get("current_order")
-    refund_gate = final_state.get("refund_gate", {})
-    refund_pending = refund_gate.get("pending", False)
+    reply = final_state.get("reply", "非常抱歉，暂时未能查询到对应政策，请联系人工服务。")
+    hits = final_state.get("hits", [])
+    top_score = hits[0]["score"] if hits else 0.90
+    order_id = final_state.get("order_id")
+    current_order = order_service.get_order_by_id(order_id) if order_id else None
+    refund_draft = final_state.get("refund")
+    refund_pending = refund_draft is not None and refund_draft.get("status") == "PENDING_CONFIRM"
 
-    # 包装参考文档来源
-    references = []
-    for d in docs:
-        references.append({
-            "id": d.get("id", ""),
-            "title": d.get("title", ""),
-            "score": round(float(conf_score), 4),
-            "snippet": d.get("content", "")[:120] + "..."
-        })
+    # 包装参考文档来源 (使用规范 Hit 切片)
+    references = [
+        {
+            "id": h.get("id", ""),
+            "title": h.get("title", ""),
+            "score": round(float(h.get("score", top_score)), 4),
+            "snippet": h.get("snippet", "")
+        }
+        for h in hits
+    ]
+
+    # 全链路追踪格式化给前端渲染
+    trace_list = final_state.get("trace", [])
+    step_trace = [
+        {
+            "node": item.split(":")[0].strip() if ":" in item else "step",
+            "description": item,
+            "durationMs": 1,
+            "status": "success"
+        }
+        for item in trace_list
+    ]
 
     # 将 AI 答复存入会话记忆并推送 WebSocket
     assistant_msg = memory_service.add_message(
         req.sessionId,
         "assistant",
         reply,
-        confidence_score=conf_score,
+        confidence_score=top_score,
         references=references,
         step_trace=step_trace,
         queried_order=current_order,
@@ -199,7 +212,7 @@ async def chat_endpoint(req: ChatRequest):
     })
 
     # 若状态机判定需要人工接入
-    if final_state.get("escalated_to_human") and session["status"] == "AI_HANDLING":
+    if final_state.get("handoff") and session["status"] == "AI_HANDLING":
         session["status"] = "NEEDS_INTERVENTION"
 
     cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})")

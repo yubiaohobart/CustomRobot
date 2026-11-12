@@ -8,7 +8,7 @@ from .schemas import (
     GenerateSuggestionRequest,
     KnowledgeDocItem
 )
-from .state import AgentState
+from workflow.state import AgentState
 from .entities import (
     CustomerModel,
     AgentModel,
