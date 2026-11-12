@@ -131,15 +131,10 @@ async def chat_endpoint(req: ChatRequest):
         "top_similarity_score": 0.0,
         "user_profile": session["customerProfile"],
         "summary_memory": session["summaryMemory"],
-        "assembled_prompt": "",
-        "generated_response": "",
+        "current_order": None,
+        "refund_gate": {"pending": False, "action": req.refundConfirmationAction},
         "escalated_to_human": False,
         "escalation_reason": "",
-        "queried_order": None,
-        "order_query_info": "",
-        "refund_confirmation_action": req.refundConfirmationAction,
-        "refund_confirmation_pending": False,
-        "pending_refund_order": None,
         "step_trace": []
     }
 
@@ -163,9 +158,9 @@ async def chat_endpoint(req: ChatRequest):
     conf_score = final_state.get("top_similarity_score", 0.90)
     docs = final_state.get("retrieved_docs", [])
     step_trace = final_state.get("step_trace", [])
-    queried_order = final_state.get("queried_order")
-    refund_pending = final_state.get("refund_confirmation_pending", False)
-    pending_refund_order = final_state.get("pending_refund_order")
+    current_order = final_state.get("current_order")
+    refund_gate = final_state.get("refund_gate", {})
+    refund_pending = refund_gate.get("pending", False)
 
     # 包装参考文档来源
     references = []
@@ -185,9 +180,9 @@ async def chat_endpoint(req: ChatRequest):
         confidence_score=conf_score,
         references=references,
         step_trace=step_trace,
-        queried_order=queried_order or pending_refund_order,
+        queried_order=current_order,
         refund_confirmation_pending=refund_pending,
-        pending_refund_order=pending_refund_order
+        pending_refund_order=current_order if refund_pending else None
     )
     
     updated_session = memory_service.get_session(req.sessionId)
@@ -207,7 +202,7 @@ async def chat_endpoint(req: ChatRequest):
     if final_state.get("escalated_to_human") and session["status"] == "AI_HANDLING":
         session["status"] = "NEEDS_INTERVENTION"
 
-    cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(queried_order)})")
+    cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})")
 
     return ChatResponse(
         sessionId=req.sessionId,
@@ -218,9 +213,9 @@ async def chat_endpoint(req: ChatRequest):
         escalatedToHuman=final_state.get("escalated_to_human", False),
         escalationReason=final_state.get("escalation_reason", None),
         references=references,
-        queriedOrder=queried_order or pending_refund_order,
+        queriedOrder=current_order,
         refundConfirmationPending=refund_pending,
-        pendingRefundOrder=pending_refund_order,
+        pendingRefundOrder=current_order if refund_pending else None,
         latencyMs=latency_ms,
         stepTrace=step_trace,
         session=session

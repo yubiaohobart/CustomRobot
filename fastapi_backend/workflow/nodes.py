@@ -87,9 +87,6 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
     profile = state.get("user_profile", {})
 
     order = order_service.detect_and_query_order(user_msg, profile)
-    order_summary = ""
-    if order:
-        order_summary = order_service.format_order_summary_text(order)
 
     duration = int((time.time() - t0) * 1000)
     trace = state.get("step_trace", [])
@@ -101,10 +98,7 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
     })
 
     return {
-        "queried_order": order,
-        "order_query_info": order_summary,
-        "business_facts_text": order_summary,
-        "business_facts_list": [order] if order else [],
+        "current_order": order,
         "step_trace": trace
     }
 
@@ -112,13 +106,13 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
     """3. 订单退款与人工干涉控制节点 (Order Refund Node)"""
     t0 = time.time()
     user_msg = state["user_message"]
-    action = state.get("refund_confirmation_action")
-    order = state.get("queried_order")
+    refund_gate = state.get("refund_gate", {})
+    action = refund_gate.get("action")
+    order = state.get("current_order")
 
     escalate_human = False
     escalation_reason = ""
     refund_pending = False
-    pending_order = None
     override_response = None
 
     # 1. 处理退款二次确认恢复动作 ('confirm' 或 'cancel')
@@ -135,7 +129,6 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 escalation_reason = f"订单 {order['orderId']} 申请退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列"
                 override_response = f"【退款审核工单已提交】您已二次确认！订单【{order['orderId']}】实付金额为 ¥{amount:.2f} 元 (>= 3.00 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！"
                 cprint.node("order_refund", f"[二次确认通过-转人工干涉] 订单 {order['orderId']} 金额 ¥{amount:.2f} >= 3元", "转人工核验")
-            pending_order = order
 
     elif action == "cancel":
         override_response = f"已为您取消退款申请，订单【{order['orderId'] if order else ''}】将保持正常签收状态。如需其他帮助，随时联系我！"
@@ -145,13 +138,12 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         # 2. 常规检测退款意图：触发二次确认中断卡片 (Customer Confirmation Gate)
         if order:
             is_refund_intent = any(k in user_msg for k in ["退款", "退货", "申请退款", "要退", "退钱", "退回"])
-            was_pending = state.get("refund_confirmation_pending", False)
+            was_pending = refund_gate.get("pending", False)
             current_status = order.get("status", "")
 
             if is_refund_intent:
                 amount = float(order.get("paidAmount", 0.0))
                 refund_pending = True
-                pending_order = order
                 rule_text = "金额 < 3.00 元，确认后将由智能客服直接秒退" if amount < 3.00 else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
                 
                 if current_status not in ["REFUNDED", "REFUND_PENDING_AUDIT"]:
@@ -174,21 +166,17 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                         f"该订单此前已完成退款解冻。如需重新提交申请测试，请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
                     )
 
-                try:
-                    interrupt({
-                        "type": "refund_confirmation_gate",
-                        "order_id": order['orderId'],
-                        "amount": amount,
-                        "rule_text": rule_text,
-                        "prompt": "退款前风险与权益确认挂起"
-                    })
-                except Exception:
-                    pass
+                interrupt({
+                    "type": "refund_confirmation_gate",
+                    "order_id": order['orderId'],
+                    "amount": amount,
+                    "rule_text": rule_text,
+                    "prompt": "退款前风险与权益确认挂起"
+                })
 
                 cprint.node("order_refund", f"[触发 LangGraph interrupt 退款二次确认中断] 订单 {order['orderId']} 金额 ¥{amount:.2f}", "等待用户点击二次确认")
             elif was_pending and any(k in user_msg for k in ["进度", "好了吗", "退了吗", "审核过了吗", "处理了吗"]):
                 refund_pending = True
-                pending_order = order
                 override_response = (
                     f"温馨提示：您的订单【{order['orderId']}】退款申请尚处于【待交互确认】状态，系统尚未正式提交。\n"
                     f"请您在下方卡片中点击【确认提交退款】（如需退款）或【取消 / 我再想想】（放弃退款），完成确认后系统将立即处理！"
@@ -205,9 +193,8 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
     })
 
     res: Dict[str, Any] = {
-        "queried_order": order,
-        "refund_confirmation_pending": refund_pending,
-        "pending_refund_order": pending_order,
+        "current_order": order,
+        "refund_gate": {"pending": refund_pending, "action": None},
         "step_trace": trace
     }
 
@@ -261,16 +248,13 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     }
 
 def memory_synthesis_node(state: AgentState) -> Dict[str, Any]:
-    """3. 结合长期会话记忆、用户画像与 Qdrant 检索结果构建提示上下文 (方案1: 业务实体事实抽象)"""
+    """3. 结合长期会话记忆、用户画像与 Qdrant 检索结果构建提示上下文"""
     t0 = time.time()
     docs = state.get("retrieved_docs", [])
     doc_titles = [d.get("title", "") for d in docs]
     
-    # 汇总通用业务事实（订单、物流、发票等中台数据统一汇聚）
-    facts_text = (state.get("business_facts_text") or state.get("order_query_info") or "").strip()
-    order = state.get("queried_order")
-    if not facts_text and order:
-        facts_text = order_service.format_order_summary_text(order)
+    order = state.get("current_order")
+    facts_text = order_service.format_order_summary_text(order) if order else ""
 
     facts_summary = f"注入业务实体事实 ({len(facts_text)}字)，" if facts_text else "无特定业务实体数据，"
     duration = int((time.time() - t0) * 1000)
@@ -290,12 +274,11 @@ def memory_synthesis_node(state: AgentState) -> Dict[str, Any]:
     })
 
     return {
-        "business_facts_text": facts_text,
         "step_trace": trace
     }
 
 async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
-    """4. 调用 DeepSeek 大模型生成温暖、严谨且符合政策的专业回答 (方案1: 接入通用业务事实槽位)"""
+    """4. 调用 DeepSeek 大模型生成温暖、严谨且符合政策的专业回答"""
     t0 = time.time()
     user_msg = state["user_message"]
     existing_reply = state.get("generated_response")
@@ -317,9 +300,8 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     docs = state.get("retrieved_docs", [])
     memory = state.get("summary_memory", "")
     profile = state.get("user_profile", {})
-    order = state.get("queried_order")
-    order_summary = state.get("order_query_info", "")
-    business_facts = state.get("business_facts_text", "") or order_summary
+    order = state.get("current_order")
+    business_facts = order_service.format_order_summary_text(order) if order else ""
 
     reply = await deepseek_client.generate_response(
         user_message=user_msg,
@@ -327,8 +309,7 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
         summary_memory=memory,
         user_profile=profile,
         business_facts=business_facts,
-        order_info=order,
-        order_summary=order_summary
+        order_info=order
     )
 
     duration = int((time.time() - t0) * 1000)

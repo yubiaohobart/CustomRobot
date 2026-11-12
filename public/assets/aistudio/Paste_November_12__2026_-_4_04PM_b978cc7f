@@ -1,0 +1,2047 @@
+[
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '退款质检与到账时效',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [
+                {
+                    'id': 'faq_chunk_3',
+                    'title': '3. 退款到账时间',
+                    'main_title': 'XX商城售后服务与退换货政策（2026版）',
+                    'category': '账务与退款',
+                    'content': '【XX商城售后服务与退换货政策（2026版） - 3. 退款到账时间】\n- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 
+质检合格后，系统自动原路发起退款：\n  - 微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                    'raw_content': '- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 质检合格后，系统自动原路发起退款：\n  - 
+微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                    'tags': ['XX商城', '2026新规', '退款到账', '质检入库', '原路退回', '微信到账', '银行卡'],
+                    'keywords': ['退款', '到账', '48小时', '质检', '微信', '支付宝', '借记卡', '信用卡', '多久到账', '工作日'],
+                    'updatedAt': '2026-01-15T09:00:00Z'
+                }
+            ],
+            'retrieval_ran': True,
+            'top_similarity_score': 0.6711,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= 3.00 
+元，确认后将提交人工干涉与资金安全审核），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 
+退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'business_facts_list': [
+                {
+                    'orderId': 'ORD-2026-88992',
+                    'orderSn': '202603258899201',
+                    'userId': 'user_001',
+                    'userName': '王女士',
+                    'userPhone': '138****6699',
+                    'vipLevel': '黄金会员',
+                    'status': 'DELIVERED',
+                    'statusText': '已签收(待评价)',
+                    'statusCode': 4,
+                    'createTime': '2026-03-22 14:20:10',
+                    'payTime': '2026-03-22 14:21:05',
+                    'shipTime': '2026-03-23 09:30:00',
+                    'deliveryTime': '2026-03-25 11:24:36',
+                    'items': [
+                        {
+                            'skuId': 'SKU-ROBOT-001',
+                            'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                            'category': '生活电器',
+                            'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                            'price': 2999.0,
+                            'quantity': 1,
+                            'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                            'isSpecialProduct': False,
+                            'isCustomized': False
+                        }
+                    ],
+                    'totalAmount': 2999.0,
+                    'paidAmount': 2999.0,
+                    'shippingFee': 0.0,
+                    'express': {
+                        'company': '顺丰速运',
+                        'companyCode': 'SF',
+                        'trackingNumber': 'SF1882049281',
+                        'status': 'DELIVERED',
+                        'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                        'timeline': [
+                            {
+                                'time': '2026-03-25 11:24:36',
+                                'status': '已签收',
+                                'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                            },
+                            {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                        ]
+                    },
+                    'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                    'afterSales': {
+                        'canReturn7Days': True,
+                        'returnDaysRemaining': 4,
+                        'signedDays': 3,
+                        'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                        'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                        'warrantyStatus': '生效中',
+                        'warrantyExpiredDate': '2027-03-25',
+                        'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                        'refundAmount': 0.0,
+                        'refundReason': '用户二次确认提交退款',
+                        'refundStatus': 'NONE',
+                        'requiresHumanAudit': False,
+                        'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                        'auditOperator': '陈浩 (高级售后督导)',
+                        'auditTime': '2026-11-12 14:47:00'
+                    },
+                    'updatedAt': '2026-11-12 14:54:26'
+                }
+            ],
+            'queried_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'order_query_info': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 购买商品：XX智能全自动扫地机器人
+Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 (运单号: SF1882049281)\n- 
+最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 
+退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 
+元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 运费权益：黄金会员享有平台免运费退货补贴\n  * 
+保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': True,
+            'pending_refund_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'step_trace': [
+                {
+                    'node': 'analyze_query',
+                    'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                    'durationMs': 0,
+                    'status': 'success'
+                },
+                {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                {'node': 'order_refund', 'description': '处理退款动作与二次确认门槛，挂起状态: True', 'durationMs': 0, 'status': 'success'},
+                {
+                    'node': 'qdrant_retrieve',
+                    'description': 'Qdrant (BGE-M3 1024维) 命中 1 条强相关条款 (最高分: 0.67 >= 阈值 0.65)',
+                    'durationMs': 151,
+                    'status': 'success'
+                },
+                {
+                    'node': 'memory_synthesis',
+                    'description': '合成上下文：注入业务实体事实 (418字)，关联政策 [3. 退款到账时间]，注入长期记忆与VIP画像',
+                    'durationMs': 0,
+                    'status': 'success'
+                },
+                {'node': 'deepseek_generate', 'description': '前置节点已生成确切交互文案，保留既定回复', 'durationMs': 0, 'status': 'success'}
+            ]
+        },
+        next=(),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2cdc-605a-8006-5d006a377c26'}
+        },
+        metadata={'source': 'loop', 'step': 6, 'parents': {}},
+        created_at='2026-11-12T07:42:12.598755+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2cd8-63f6-8005-e626b589439d'}
+        },
+        tasks=(),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '退款质检与到账时效',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [
+                {
+                    'id': 'faq_chunk_3',
+                    'title': '3. 退款到账时间',
+                    'main_title': 'XX商城售后服务与退换货政策（2026版）',
+                    'category': '账务与退款',
+                    'content': '【XX商城售后服务与退换货政策（2026版） - 3. 退款到账时间】\n- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 
+质检合格后，系统自动原路发起退款：\n  - 微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                    'raw_content': '- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 质检合格后，系统自动原路发起退款：\n  - 
+微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                    'tags': ['XX商城', '2026新规', '退款到账', '质检入库', '原路退回', '微信到账', '银行卡'],
+                    'keywords': ['退款', '到账', '48小时', '质检', '微信', '支付宝', '借记卡', '信用卡', '多久到账', '工作日'],
+                    'updatedAt': '2026-01-15T09:00:00Z'
+                }
+            ],
+            'retrieval_ran': True,
+            'top_similarity_score': 0.6711,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= 3.00 
+元，确认后将提交人工干涉与资金安全审核），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 
+退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'business_facts_list': [
+                {
+                    'orderId': 'ORD-2026-88992',
+                    'orderSn': '202603258899201',
+                    'userId': 'user_001',
+                    'userName': '王女士',
+                    'userPhone': '138****6699',
+                    'vipLevel': '黄金会员',
+                    'status': 'DELIVERED',
+                    'statusText': '已签收(待评价)',
+                    'statusCode': 4,
+                    'createTime': '2026-03-22 14:20:10',
+                    'payTime': '2026-03-22 14:21:05',
+                    'shipTime': '2026-03-23 09:30:00',
+                    'deliveryTime': '2026-03-25 11:24:36',
+                    'items': [
+                        {
+                            'skuId': 'SKU-ROBOT-001',
+                            'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                            'category': '生活电器',
+                            'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                            'price': 2999.0,
+                            'quantity': 1,
+                            'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                            'isSpecialProduct': False,
+                            'isCustomized': False
+                        }
+                    ],
+                    'totalAmount': 2999.0,
+                    'paidAmount': 2999.0,
+                    'shippingFee': 0.0,
+                    'express': {
+                        'company': '顺丰速运',
+                        'companyCode': 'SF',
+                        'trackingNumber': 'SF1882049281',
+                        'status': 'DELIVERED',
+                        'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                        'timeline': [
+                            {
+                                'time': '2026-03-25 11:24:36',
+                                'status': '已签收',
+                                'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                            },
+                            {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                        ]
+                    },
+                    'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                    'afterSales': {
+                        'canReturn7Days': True,
+                        'returnDaysRemaining': 4,
+                        'signedDays': 3,
+                        'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                        'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                        'warrantyStatus': '生效中',
+                        'warrantyExpiredDate': '2027-03-25',
+                        'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                        'refundAmount': 0.0,
+                        'refundReason': '用户二次确认提交退款',
+                        'refundStatus': 'NONE',
+                        'requiresHumanAudit': False,
+                        'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                        'auditOperator': '陈浩 (高级售后督导)',
+                        'auditTime': '2026-11-12 14:47:00'
+                    },
+                    'updatedAt': '2026-11-12 14:54:26'
+                }
+            ],
+            'queried_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'order_query_info': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 购买商品：XX智能全自动扫地机器人
+Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 (运单号: SF1882049281)\n- 
+最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 
+退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 
+元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 运费权益：黄金会员享有平台免运费退货补贴\n  * 
+保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': True,
+            'pending_refund_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'step_trace': [
+                {
+                    'node': 'analyze_query',
+                    'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                    'durationMs': 0,
+                    'status': 'success'
+                },
+                {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                {'node': 'order_refund', 'description': '处理退款动作与二次确认门槛，挂起状态: True', 'durationMs': 0, 'status': 'success'},
+                {
+                    'node': 'qdrant_retrieve',
+                    'description': 'Qdrant (BGE-M3 1024维) 命中 1 条强相关条款 (最高分: 0.67 >= 阈值 0.65)',
+                    'durationMs': 151,
+                    'status': 'success'
+                },
+                {
+                    'node': 'memory_synthesis',
+                    'description': '合成上下文：注入业务实体事实 (418字)，关联政策 [3. 退款到账时间]，注入长期记忆与VIP画像',
+                    'durationMs': 0,
+                    'status': 'success'
+                }
+            ]
+        },
+        next=('deepseek_generate',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2cd8-63f6-8005-e626b589439d'}
+        },
+        metadata={'source': 'loop', 'step': 5, 'parents': {}},
+        created_at='2026-11-12T07:42:12.597200+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2cd3-67f2-8004-8a31ce731cce'}
+        },
+        tasks=(
+            PregelTask(
+                id='3e1f7420-db17-5494-87eb-4ac0eb828a56',
+                name='deepseek_generate',
+                path=('__pregel_pull', 'deepseek_generate'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'generated_response': '收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= 3.00 
+元，确认后将提交人工干涉与资金安全审核），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 
+退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：',
+                    'step_trace': [
+                        {
+                            'node': 'analyze_query',
+                            'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                        {
+                            'node': 'order_refund',
+                            'description': '处理退款动作与二次确认门槛，挂起状态: True',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {
+                            'node': 'qdrant_retrieve',
+                            'description': 'Qdrant (BGE-M3 1024维) 命中 1 条强相关条款 (最高分: 0.67 >= 阈值 0.65)',
+                            'durationMs': 151,
+                            'status': 'success'
+                        },
+                        {
+                            'node': 'memory_synthesis',
+                            'description': '合成上下文：注入业务实体事实 (418字)，关联政策 [3. 退款到账时间]，注入长期记忆与VIP画像',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {
+                            'node': 'deepseek_generate',
+                            'description': '前置节点已生成确切交互文案，保留既定回复',
+                            'durationMs': 0,
+                            'status': 'success'
+                        }
+                    ]
+                }
+            ),
+        ),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '退款质检与到账时效',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [
+                {
+                    'id': 'faq_chunk_3',
+                    'title': '3. 退款到账时间',
+                    'main_title': 'XX商城售后服务与退换货政策（2026版）',
+                    'category': '账务与退款',
+                    'content': '【XX商城售后服务与退换货政策（2026版） - 3. 退款到账时间】\n- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 
+质检合格后，系统自动原路发起退款：\n  - 微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                    'raw_content': '- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 质检合格后，系统自动原路发起退款：\n  - 
+微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                    'tags': ['XX商城', '2026新规', '退款到账', '质检入库', '原路退回', '微信到账', '银行卡'],
+                    'keywords': ['退款', '到账', '48小时', '质检', '微信', '支付宝', '借记卡', '信用卡', '多久到账', '工作日'],
+                    'updatedAt': '2026-01-15T09:00:00Z'
+                }
+            ],
+            'retrieval_ran': True,
+            'top_similarity_score': 0.6711,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= 3.00 
+元，确认后将提交人工干涉与资金安全审核），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 
+退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'business_facts_list': [
+                {
+                    'orderId': 'ORD-2026-88992',
+                    'orderSn': '202603258899201',
+                    'userId': 'user_001',
+                    'userName': '王女士',
+                    'userPhone': '138****6699',
+                    'vipLevel': '黄金会员',
+                    'status': 'DELIVERED',
+                    'statusText': '已签收(待评价)',
+                    'statusCode': 4,
+                    'createTime': '2026-03-22 14:20:10',
+                    'payTime': '2026-03-22 14:21:05',
+                    'shipTime': '2026-03-23 09:30:00',
+                    'deliveryTime': '2026-03-25 11:24:36',
+                    'items': [
+                        {
+                            'skuId': 'SKU-ROBOT-001',
+                            'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                            'category': '生活电器',
+                            'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                            'price': 2999.0,
+                            'quantity': 1,
+                            'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                            'isSpecialProduct': False,
+                            'isCustomized': False
+                        }
+                    ],
+                    'totalAmount': 2999.0,
+                    'paidAmount': 2999.0,
+                    'shippingFee': 0.0,
+                    'express': {
+                        'company': '顺丰速运',
+                        'companyCode': 'SF',
+                        'trackingNumber': 'SF1882049281',
+                        'status': 'DELIVERED',
+                        'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                        'timeline': [
+                            {
+                                'time': '2026-03-25 11:24:36',
+                                'status': '已签收',
+                                'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                            },
+                            {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                        ]
+                    },
+                    'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                    'afterSales': {
+                        'canReturn7Days': True,
+                        'returnDaysRemaining': 4,
+                        'signedDays': 3,
+                        'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                        'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                        'warrantyStatus': '生效中',
+                        'warrantyExpiredDate': '2027-03-25',
+                        'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                        'refundAmount': 0.0,
+                        'refundReason': '用户二次确认提交退款',
+                        'refundStatus': 'NONE',
+                        'requiresHumanAudit': False,
+                        'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                        'auditOperator': '陈浩 (高级售后督导)',
+                        'auditTime': '2026-11-12 14:47:00'
+                    },
+                    'updatedAt': '2026-11-12 14:54:26'
+                }
+            ],
+            'queried_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'order_query_info': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 购买商品：XX智能全自动扫地机器人
+Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 (运单号: SF1882049281)\n- 
+最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 
+退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 
+元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 运费权益：黄金会员享有平台免运费退货补贴\n  * 
+保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': True,
+            'pending_refund_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'step_trace': [
+                {
+                    'node': 'analyze_query',
+                    'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                    'durationMs': 0,
+                    'status': 'success'
+                },
+                {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                {'node': 'order_refund', 'description': '处理退款动作与二次确认门槛，挂起状态: True', 'durationMs': 0, 'status': 'success'},
+                {
+                    'node': 'qdrant_retrieve',
+                    'description': 'Qdrant (BGE-M3 1024维) 命中 1 条强相关条款 (最高分: 0.67 >= 阈值 0.65)',
+                    'durationMs': 151,
+                    'status': 'success'
+                }
+            ]
+        },
+        next=('memory_synthesis',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2cd3-67f2-8004-8a31ce731cce'}
+        },
+        metadata={'source': 'loop', 'step': 4, 'parents': {}},
+        created_at='2026-11-12T07:42:12.595258+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b5b-6be0-8003-8e7dfa20481c'}
+        },
+        tasks=(
+            PregelTask(
+                id='214ca285-90db-ff5c-994b-ed83bfdc348c',
+                name='memory_synthesis',
+                path=('__pregel_pull', 'memory_synthesis'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+                    'step_trace': [
+                        {
+                            'node': 'analyze_query',
+                            'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                        {
+                            'node': 'order_refund',
+                            'description': '处理退款动作与二次确认门槛，挂起状态: True',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {
+                            'node': 'qdrant_retrieve',
+                            'description': 'Qdrant (BGE-M3 1024维) 命中 1 条强相关条款 (最高分: 0.67 >= 阈值 0.65)',
+                            'durationMs': 151,
+                            'status': 'success'
+                        },
+                        {
+                            'node': 'memory_synthesis',
+                            'description': '合成上下文：注入业务实体事实 (418字)，关联政策 [3. 退款到账时间]，注入长期记忆与VIP画像',
+                            'durationMs': 0,
+                            'status': 'success'
+                        }
+                    ]
+                }
+            ),
+        ),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '退款质检与到账时效',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [],
+            'retrieval_ran': False,
+            'top_similarity_score': 0.0,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= 3.00 
+元，确认后将提交人工干涉与资金安全审核），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 
+退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'business_facts_list': [
+                {
+                    'orderId': 'ORD-2026-88992',
+                    'orderSn': '202603258899201',
+                    'userId': 'user_001',
+                    'userName': '王女士',
+                    'userPhone': '138****6699',
+                    'vipLevel': '黄金会员',
+                    'status': 'DELIVERED',
+                    'statusText': '已签收(待评价)',
+                    'statusCode': 4,
+                    'createTime': '2026-03-22 14:20:10',
+                    'payTime': '2026-03-22 14:21:05',
+                    'shipTime': '2026-03-23 09:30:00',
+                    'deliveryTime': '2026-03-25 11:24:36',
+                    'items': [
+                        {
+                            'skuId': 'SKU-ROBOT-001',
+                            'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                            'category': '生活电器',
+                            'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                            'price': 2999.0,
+                            'quantity': 1,
+                            'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                            'isSpecialProduct': False,
+                            'isCustomized': False
+                        }
+                    ],
+                    'totalAmount': 2999.0,
+                    'paidAmount': 2999.0,
+                    'shippingFee': 0.0,
+                    'express': {
+                        'company': '顺丰速运',
+                        'companyCode': 'SF',
+                        'trackingNumber': 'SF1882049281',
+                        'status': 'DELIVERED',
+                        'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                        'timeline': [
+                            {
+                                'time': '2026-03-25 11:24:36',
+                                'status': '已签收',
+                                'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                            },
+                            {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                        ]
+                    },
+                    'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                    'afterSales': {
+                        'canReturn7Days': True,
+                        'returnDaysRemaining': 4,
+                        'signedDays': 3,
+                        'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                        'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                        'warrantyStatus': '生效中',
+                        'warrantyExpiredDate': '2027-03-25',
+                        'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                        'refundAmount': 0.0,
+                        'refundReason': '用户二次确认提交退款',
+                        'refundStatus': 'NONE',
+                        'requiresHumanAudit': False,
+                        'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                        'auditOperator': '陈浩 (高级售后督导)',
+                        'auditTime': '2026-11-12 14:47:00'
+                    },
+                    'updatedAt': '2026-11-12 14:54:26'
+                }
+            ],
+            'queried_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'order_query_info': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 购买商品：XX智能全自动扫地机器人
+Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 (运单号: SF1882049281)\n- 
+最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 
+退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 
+元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 运费权益：黄金会员享有平台免运费退货补贴\n  * 
+保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': True,
+            'pending_refund_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'step_trace': [
+                {
+                    'node': 'analyze_query',
+                    'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                    'durationMs': 0,
+                    'status': 'success'
+                },
+                {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                {'node': 'order_refund', 'description': '处理退款动作与二次确认门槛，挂起状态: True', 'durationMs': 0, 'status': 'success'}
+            ]
+        },
+        next=('qdrant_retrieve',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b5b-6be0-8003-8e7dfa20481c'}
+        },
+        metadata={'source': 'loop', 'step': 3, 'parents': {}},
+        created_at='2026-11-12T07:42:12.441364+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b58-61c0-8002-d0fc936d3c3e'}
+        },
+        tasks=(
+            PregelTask(
+                id='3fae848e-bdbc-b1b2-2eb9-7f37d4424329',
+                name='qdrant_retrieve',
+                path=('__pregel_pull', 'qdrant_retrieve'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'retrieved_docs': [
+                        {
+                            'id': 'faq_chunk_3',
+                            'title': '3. 退款到账时间',
+                            'main_title': 'XX商城售后服务与退换货政策（2026版）',
+                            'category': '账务与退款',
+                            'content': '【XX商城售后服务与退换货政策（2026版） - 3. 退款到账时间】\n- 仓库在收到退回商品并在 48 
+小时内完成质检入库；\n- 质检合格后，系统自动原路发起退款：\n  - 微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 
+个工作日到账。',
+                            'raw_content': '- 仓库在收到退回商品并在 48 小时内完成质检入库；\n- 质检合格后，系统自动原路发起退款：\n  - 
+微信/支付宝零钱：即时到账；\n  - 借记卡：1~3 个工作日到账；\n  - 信用卡：3~5 个工作日到账。',
+                            'tags': ['XX商城', '2026新规', '退款到账', '质检入库', '原路退回', '微信到账', '银行卡'],
+                            'keywords': ['退款', '到账', '48小时', '质检', '微信', '支付宝', '借记卡', '信用卡', '多久到账', '工作日'],
+                            'updatedAt': '2026-01-15T09:00:00Z'
+                        }
+                    ],
+                    'top_similarity_score': 0.6711,
+                    'retrieval_ran': True,
+                    'step_trace': [
+                        {
+                            'node': 'analyze_query',
+                            'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                        {
+                            'node': 'order_refund',
+                            'description': '处理退款动作与二次确认门槛，挂起状态: True',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {
+                            'node': 'qdrant_retrieve',
+                            'description': 'Qdrant (BGE-M3 1024维) 命中 1 条强相关条款 (最高分: 0.67 >= 阈值 0.65)',
+                            'durationMs': 151,
+                            'status': 'success'
+                        }
+                    ]
+                }
+            ),
+        ),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '退款质检与到账时效',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [],
+            'retrieval_ran': False,
+            'top_similarity_score': 0.0,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'business_facts_list': [
+                {
+                    'orderId': 'ORD-2026-88992',
+                    'orderSn': '202603258899201',
+                    'userId': 'user_001',
+                    'userName': '王女士',
+                    'userPhone': '138****6699',
+                    'vipLevel': '黄金会员',
+                    'status': 'DELIVERED',
+                    'statusText': '已签收(待评价)',
+                    'statusCode': 4,
+                    'createTime': '2026-03-22 14:20:10',
+                    'payTime': '2026-03-22 14:21:05',
+                    'shipTime': '2026-03-23 09:30:00',
+                    'deliveryTime': '2026-03-25 11:24:36',
+                    'items': [
+                        {
+                            'skuId': 'SKU-ROBOT-001',
+                            'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                            'category': '生活电器',
+                            'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                            'price': 2999.0,
+                            'quantity': 1,
+                            'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                            'isSpecialProduct': False,
+                            'isCustomized': False
+                        }
+                    ],
+                    'totalAmount': 2999.0,
+                    'paidAmount': 2999.0,
+                    'shippingFee': 0.0,
+                    'express': {
+                        'company': '顺丰速运',
+                        'companyCode': 'SF',
+                        'trackingNumber': 'SF1882049281',
+                        'status': 'DELIVERED',
+                        'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                        'timeline': [
+                            {
+                                'time': '2026-03-25 11:24:36',
+                                'status': '已签收',
+                                'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                            },
+                            {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                        ]
+                    },
+                    'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                    'afterSales': {
+                        'canReturn7Days': True,
+                        'returnDaysRemaining': 4,
+                        'signedDays': 3,
+                        'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                        'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                        'warrantyStatus': '生效中',
+                        'warrantyExpiredDate': '2027-03-25',
+                        'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                        'refundAmount': 0.0,
+                        'refundReason': '用户二次确认提交退款',
+                        'refundStatus': 'NONE',
+                        'requiresHumanAudit': False,
+                        'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                        'auditOperator': '陈浩 (高级售后督导)',
+                        'auditTime': '2026-11-12 14:47:00'
+                    },
+                    'updatedAt': '2026-11-12 14:54:26'
+                }
+            ],
+            'queried_order': {
+                'orderId': 'ORD-2026-88992',
+                'orderSn': '202603258899201',
+                'userId': 'user_001',
+                'userName': '王女士',
+                'userPhone': '138****6699',
+                'vipLevel': '黄金会员',
+                'status': 'DELIVERED',
+                'statusText': '已签收(待评价)',
+                'statusCode': 4,
+                'createTime': '2026-03-22 14:20:10',
+                'payTime': '2026-03-22 14:21:05',
+                'shipTime': '2026-03-23 09:30:00',
+                'deliveryTime': '2026-03-25 11:24:36',
+                'items': [
+                    {
+                        'skuId': 'SKU-ROBOT-001',
+                        'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                        'category': '生活电器',
+                        'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                        'price': 2999.0,
+                        'quantity': 1,
+                        'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                        'isSpecialProduct': False,
+                        'isCustomized': False
+                    }
+                ],
+                'totalAmount': 2999.0,
+                'paidAmount': 2999.0,
+                'shippingFee': 0.0,
+                'express': {
+                    'company': '顺丰速运',
+                    'companyCode': 'SF',
+                    'trackingNumber': 'SF1882049281',
+                    'status': 'DELIVERED',
+                    'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                    'timeline': [
+                        {
+                            'time': '2026-03-25 11:24:36',
+                            'status': '已签收',
+                            'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                        },
+                        {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                    ]
+                },
+                'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                'afterSales': {
+                    'canReturn7Days': True,
+                    'returnDaysRemaining': 4,
+                    'signedDays': 3,
+                    'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                    'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                    'warrantyStatus': '生效中',
+                    'warrantyExpiredDate': '2027-03-25',
+                    'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                    'refundAmount': 0.0,
+                    'refundReason': '用户二次确认提交退款',
+                    'refundStatus': 'NONE',
+                    'requiresHumanAudit': False,
+                    'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                    'auditOperator': '陈浩 (高级售后督导)',
+                    'auditTime': '2026-11-12 14:47:00'
+                },
+                'updatedAt': '2026-11-12 14:54:26'
+            },
+            'order_query_info': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 购买商品：XX智能全自动扫地机器人
+Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 (运单号: SF1882049281)\n- 
+最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 
+退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 
+元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 运费权益：黄金会员享有平台免运费退货补贴\n  * 
+保修政策：1年全国联保，15天内非人为故障可免费换新机',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': False,
+            'pending_refund_order': None,
+            'step_trace': [
+                {
+                    'node': 'analyze_query',
+                    'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                    'durationMs': 0,
+                    'status': 'success'
+                },
+                {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'}
+            ]
+        },
+        next=('order_refund',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b58-61c0-8002-d0fc936d3c3e'}
+        },
+        metadata={'source': 'loop', 'step': 2, 'parents': {}},
+        created_at='2026-11-12T07:42:12.439878+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b3e-67f2-8001-7a19208327c9'}
+        },
+        tasks=(
+            PregelTask(
+                id='2f79dc86-e636-c69e-124a-8393c137c519',
+                name='order_refund',
+                path=('__pregel_pull', 'order_refund'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'queried_order': {
+                        'orderId': 'ORD-2026-88992',
+                        'orderSn': '202603258899201',
+                        'userId': 'user_001',
+                        'userName': '王女士',
+                        'userPhone': '138****6699',
+                        'vipLevel': '黄金会员',
+                        'status': 'DELIVERED',
+                        'statusText': '已签收(待评价)',
+                        'statusCode': 4,
+                        'createTime': '2026-03-22 14:20:10',
+                        'payTime': '2026-03-22 14:21:05',
+                        'shipTime': '2026-03-23 09:30:00',
+                        'deliveryTime': '2026-03-25 11:24:36',
+                        'items': [
+                            {
+                                'skuId': 'SKU-ROBOT-001',
+                                'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                                'category': '生活电器',
+                                'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                                'price': 2999.0,
+                                'quantity': 1,
+                                'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                                'isSpecialProduct': False,
+                                'isCustomized': False
+                            }
+                        ],
+                        'totalAmount': 2999.0,
+                        'paidAmount': 2999.0,
+                        'shippingFee': 0.0,
+                        'express': {
+                            'company': '顺丰速运',
+                            'companyCode': 'SF',
+                            'trackingNumber': 'SF1882049281',
+                            'status': 'DELIVERED',
+                            'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                            'timeline': [
+                                {
+                                    'time': '2026-03-25 11:24:36',
+                                    'status': '已签收',
+                                    'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                                },
+                                {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                            ]
+                        },
+                        'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                        'afterSales': {
+                            'canReturn7Days': True,
+                            'returnDaysRemaining': 4,
+                            'signedDays': 3,
+                            'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                            'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                            'warrantyStatus': '生效中',
+                            'warrantyExpiredDate': '2027-03-25',
+                            'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                            'refundAmount': 0.0,
+                            'refundReason': '用户二次确认提交退款',
+                            'refundStatus': 'NONE',
+                            'requiresHumanAudit': False,
+                            'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                            'auditOperator': '陈浩 (高级售后督导)',
+                            'auditTime': '2026-11-12 14:47:00'
+                        },
+                        'updatedAt': '2026-11-12 14:54:26'
+                    },
+                    'refund_confirmation_pending': True,
+                    'pending_refund_order': {
+                        'orderId': 'ORD-2026-88992',
+                        'orderSn': '202603258899201',
+                        'userId': 'user_001',
+                        'userName': '王女士',
+                        'userPhone': '138****6699',
+                        'vipLevel': '黄金会员',
+                        'status': 'DELIVERED',
+                        'statusText': '已签收(待评价)',
+                        'statusCode': 4,
+                        'createTime': '2026-03-22 14:20:10',
+                        'payTime': '2026-03-22 14:21:05',
+                        'shipTime': '2026-03-23 09:30:00',
+                        'deliveryTime': '2026-03-25 11:24:36',
+                        'items': [
+                            {
+                                'skuId': 'SKU-ROBOT-001',
+                                'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                                'category': '生活电器',
+                                'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                                'price': 2999.0,
+                                'quantity': 1,
+                                'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                                'isSpecialProduct': False,
+                                'isCustomized': False
+                            }
+                        ],
+                        'totalAmount': 2999.0,
+                        'paidAmount': 2999.0,
+                        'shippingFee': 0.0,
+                        'express': {
+                            'company': '顺丰速运',
+                            'companyCode': 'SF',
+                            'trackingNumber': 'SF1882049281',
+                            'status': 'DELIVERED',
+                            'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                            'timeline': [
+                                {
+                                    'time': '2026-03-25 11:24:36',
+                                    'status': '已签收',
+                                    'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                                },
+                                {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                            ]
+                        },
+                        'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                        'afterSales': {
+                            'canReturn7Days': True,
+                            'returnDaysRemaining': 4,
+                            'signedDays': 3,
+                            'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                            'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                            'warrantyStatus': '生效中',
+                            'warrantyExpiredDate': '2027-03-25',
+                            'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                            'refundAmount': 0.0,
+                            'refundReason': '用户二次确认提交退款',
+                            'refundStatus': 'NONE',
+                            'requiresHumanAudit': False,
+                            'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                            'auditOperator': '陈浩 (高级售后督导)',
+                            'auditTime': '2026-11-12 14:47:00'
+                        },
+                        'updatedAt': '2026-11-12 14:54:26'
+                    },
+                    'step_trace': [
+                        {
+                            'node': 'analyze_query',
+                            'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'},
+                        {
+                            'node': 'order_refund',
+                            'description': '处理退款动作与二次确认门槛，挂起状态: True',
+                            'durationMs': 0,
+                            'status': 'success'
+                        }
+                    ],
+                    'generated_response': '收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= 3.00 
+元，确认后将提交人工干涉与资金安全审核），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n• 
+退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：'
+                }
+            ),
+        ),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '退款质检与到账时效',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [],
+            'retrieval_ran': False,
+            'top_similarity_score': 0.0,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'queried_order': None,
+            'order_query_info': '',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': False,
+            'pending_refund_order': None,
+            'step_trace': [
+                {
+                    'node': 'analyze_query',
+                    'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                    'durationMs': 0,
+                    'status': 'success'
+                }
+            ]
+        },
+        next=('order_query',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b3e-67f2-8001-7a19208327c9'}
+        },
+        metadata={'source': 'loop', 'step': 1, 'parents': {}},
+        created_at='2026-11-12T07:42:12.429394+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b39-6a7c-8000-90a745452f1a'}
+        },
+        tasks=(
+            PregelTask(
+                id='e74abaf9-2cb2-d4f2-e023-4729257413b6',
+                name='order_query',
+                path=('__pregel_pull', 'order_query'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'queried_order': {
+                        'orderId': 'ORD-2026-88992',
+                        'orderSn': '202603258899201',
+                        'userId': 'user_001',
+                        'userName': '王女士',
+                        'userPhone': '138****6699',
+                        'vipLevel': '黄金会员',
+                        'status': 'DELIVERED',
+                        'statusText': '已签收(待评价)',
+                        'statusCode': 4,
+                        'createTime': '2026-03-22 14:20:10',
+                        'payTime': '2026-03-22 14:21:05',
+                        'shipTime': '2026-03-23 09:30:00',
+                        'deliveryTime': '2026-03-25 11:24:36',
+                        'items': [
+                            {
+                                'skuId': 'SKU-ROBOT-001',
+                                'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                                'category': '生活电器',
+                                'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                                'price': 2999.0,
+                                'quantity': 1,
+                                'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                                'isSpecialProduct': False,
+                                'isCustomized': False
+                            }
+                        ],
+                        'totalAmount': 2999.0,
+                        'paidAmount': 2999.0,
+                        'shippingFee': 0.0,
+                        'express': {
+                            'company': '顺丰速运',
+                            'companyCode': 'SF',
+                            'trackingNumber': 'SF1882049281',
+                            'status': 'DELIVERED',
+                            'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                            'timeline': [
+                                {
+                                    'time': '2026-03-25 11:24:36',
+                                    'status': '已签收',
+                                    'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                                },
+                                {'time': '2026-03-25 08:15:20', 'status': '派送中', 'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'}
+                            ]
+                        },
+                        'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                        'afterSales': {
+                            'canReturn7Days': True,
+                            'returnDaysRemaining': 4,
+                            'signedDays': 3,
+                            'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                            'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                            'warrantyStatus': '生效中',
+                            'warrantyExpiredDate': '2027-03-25',
+                            'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                            'refundAmount': 0.0,
+                            'refundReason': '用户二次确认提交退款',
+                            'refundStatus': 'NONE',
+                            'requiresHumanAudit': False,
+                            'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                            'auditOperator': '陈浩 (高级售后督导)',
+                            'auditTime': '2026-11-12 14:47:00'
+                        },
+                        'updatedAt': '2026-11-12 14:54:26'
+                    },
+                    'order_query_info': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+                    'business_facts_text': '【关联订单事实】\n- 订单编号：ORD-2026-88992 (下单时间: 2026-03-22 14:20:10)\n- 
+购买商品：XX智能全自动扫地机器人 Pro (双向避障激光导航版) (x1)\n- 实付金额：¥2999.00\n- 当前状态：【已签收(待评价)】\n- 物流承运：顺丰速运 
+(运单号: SF1882049281)\n- 最新物流节点：【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。\n- 
+收件地址：北京市朝阳区亮马桥路88号XX花园3号楼1202室\n- 退款与售后状态：暂无退款申请\n- 售后权益政策：\n  * 退款审核规则：金额 < 3.00 
+元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。\n  * 7天无理由退货：支持（签收第3天，剩余4天）\n  * 
+运费权益：黄金会员享有平台免运费退货补贴\n  * 保修政策：1年全国联保，15天内非人为故障可免费换新机',
+                    'business_facts_list': [
+                        {
+                            'orderId': 'ORD-2026-88992',
+                            'orderSn': '202603258899201',
+                            'userId': 'user_001',
+                            'userName': '王女士',
+                            'userPhone': '138****6699',
+                            'vipLevel': '黄金会员',
+                            'status': 'DELIVERED',
+                            'statusText': '已签收(待评价)',
+                            'statusCode': 4,
+                            'createTime': '2026-03-22 14:20:10',
+                            'payTime': '2026-03-22 14:21:05',
+                            'shipTime': '2026-03-23 09:30:00',
+                            'deliveryTime': '2026-03-25 11:24:36',
+                            'items': [
+                                {
+                                    'skuId': 'SKU-ROBOT-001',
+                                    'title': 'XX智能全自动扫地机器人 Pro (双向避障激光导航版)',
+                                    'category': '生活电器',
+                                    'spec': '曜石黑 / 双盘旋转擦地 / 自动集尘基站',
+                                    'price': 2999.0,
+                                    'quantity': 1,
+                                    'imageUrl': 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=160&q=80',
+                                    'isSpecialProduct': False,
+                                    'isCustomized': False
+                                }
+                            ],
+                            'totalAmount': 2999.0,
+                            'paidAmount': 2999.0,
+                            'shippingFee': 0.0,
+                            'express': {
+                                'company': '顺丰速运',
+                                'companyCode': 'SF',
+                                'trackingNumber': 'SF1882049281',
+                                'status': 'DELIVERED',
+                                'statusDescription': '买家已在菜鸟驿站/自提柜签收',
+                                'timeline': [
+                                    {
+                                        'time': '2026-03-25 11:24:36',
+                                        'status': '已签收',
+                                        'context': '【已签收】您的快件已由本人在 [北京市朝阳区亮马桥路XX花园菜鸟驿站] 签收。'
+                                    },
+                                    {
+                                        'time': '2026-03-25 08:15:20',
+                                        'status': '派送中',
+                                        'context': '【派送中】顺丰速运 派件员 张师傅正在派送。'
+                                    }
+                                ]
+                            },
+                            'receiver': {'name': '王女士', 'phone': '138****6699', 'address': '北京市朝阳区亮马桥路88号XX花园3号楼1202室'},
+                            'afterSales': {
+                                'canReturn7Days': True,
+                                'returnDaysRemaining': 4,
+                                'signedDays': 3,
+                                'returnPolicy': '支持7天无理由退货（商品完好、配件齐全、未影响二次销售）',
+                                'shippingSubsidy': '黄金会员享有平台免运费退货补贴',
+                                'warrantyStatus': '生效中',
+                                'warrantyExpiredDate': '2027-03-25',
+                                'warrantyPolicy': '1年全国联保，15天内非人为故障可免费换新机',
+                                'refundAmount': 0.0,
+                                'refundReason': '用户二次确认提交退款',
+                                'refundStatus': 'NONE',
+                                'requiresHumanAudit': False,
+                                'auditNote': '人工坐席干涉核验通过，款项已原路全额退回解冻',
+                                'auditOperator': '陈浩 (高级售后督导)',
+                                'auditTime': '2026-11-12 14:47:00'
+                            },
+                            'updatedAt': '2026-11-12 14:54:26'
+                        }
+                    ],
+                    'step_trace': [
+                        {
+                            'node': 'analyze_query',
+                            'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                            'durationMs': 0,
+                            'status': 'success'
+                        },
+                        {'node': 'order_query', 'description': '检索关联订单 [ORD-2026-88992]', 'durationMs': 8, 'status': 'success'}
+                    ]
+                }
+            ),
+        ),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={
+            'session_id': 'session_user_001',
+            'user_message': '我要退款',
+            'intent': '待识别',
+            'sentiment': 'neutral',
+            'explicit_human_request': False,
+            'retrieved_docs': [],
+            'retrieval_ran': False,
+            'top_similarity_score': 0.0,
+            'user_profile': {
+                'name': '王女士',
+                'phone': '138****6699',
+                'vipLevel': '黄金会员',
+                'sentiment': 'frustrated',
+                'urgency': '高',
+                'intent': '7天无理由退货运费与到账时间',
+                'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                'orderId': 'ORD-2026-88992'
+            },
+            'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+            'assembled_prompt': '',
+            'generated_response': '',
+            'escalated_to_human': False,
+            'escalation_reason': '',
+            'queried_order': None,
+            'order_query_info': '',
+            'refund_confirmation_action': None,
+            'refund_confirmation_pending': False,
+            'pending_refund_order': None,
+            'step_trace': []
+        },
+        next=('analyze_query',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b39-6a7c-8000-90a745452f1a'}
+        },
+        metadata={'source': 'loop', 'step': 0, 'parents': {}},
+        created_at='2026-11-12T07:42:12.427411+00:00',
+        parent_config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b36-6ee4-bfff-ed67a26edaca'}
+        },
+        tasks=(
+            PregelTask(
+                id='38c1c057-a052-01c6-1849-c9ef2f650e39',
+                name='analyze_query',
+                path=('__pregel_pull', 'analyze_query'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'intent': '退款质检与到账时效',
+                    'sentiment': 'neutral',
+                    'explicit_human_request': False,
+                    'step_trace': [
+                        {
+                            'node': 'analyze_query',
+                            'description': '意图识别: 退款质检与到账时效 | 情绪: neutral | 显式人工请求: False',
+                            'durationMs': 0,
+                            'status': 'success'
+                        }
+                    ]
+                }
+            ),
+        ),
+        interrupts=()
+    ),
+    StateSnapshot(
+        values={},
+        next=('__start__',),
+        config={
+            'configurable': {'thread_id': 'session_user_001', 'checkpoint_ns': '', 'checkpoint_id': '1f1de6c9-2b36-6ee4-bfff-ed67a26edaca'}
+        },
+        metadata={'source': 'input', 'step': -1, 'parents': {}},
+        created_at='2026-11-12T07:42:12.426304+00:00',
+        parent_config=None,
+        tasks=(
+            PregelTask(
+                id='0115887c-33ae-2856-aeba-3a6a620afd3a',
+                name='__start__',
+                path=('__pregel_pull', '__start__'),
+                error=None,
+                interrupts=(),
+                state=None,
+                result={
+                    'session_id': 'session_user_001',
+                    'user_message': '我要退款',
+                    'intent': '待识别',
+                    'sentiment': 'neutral',
+                    'explicit_human_request': False,
+                    'retrieved_docs': [],
+                    'retrieval_ran': False,
+                    'top_similarity_score': 0.0,
+                    'user_profile': {
+                        'name': '王女士',
+                        'phone': '138****6699',
+                        'vipLevel': '黄金会员',
+                        'sentiment': 'frustrated',
+                        'urgency': '高',
+                        'intent': '7天无理由退货运费与到账时间',
+                        'tags': ['黄金会员', '免运费特权', '急躁', '签收第3天'],
+                        'orderId': 'ORD-2026-88992'
+                    },
+                    'summary_memory': "单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+人工坐席答复：'【退款审核工单已提交】王女士，您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元（≥ 3...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我确认提交退款申请'； AI答复：'【退款审核工单已提交】您已二次确认！订单【ORD-2026-88992】实付金额为 ¥2999.00 元 (>= 3.0...'； 
+客户提问：'我申请退款订单 ORD-2026-88992'； AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 
+元）的退款申请。\n该订单当前正处于【退款待人工审...'； 客户提问：'取消退款申请'； 
+AI答复：'已为您取消退款申请，订单【ORD-2026-88992】将保持正常签收状态。如需其他帮助，随时联系我！...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】（X...'； 
+人工坐席答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'你好'； 
+AI答复：'您好，王女士！很高兴为您服务，我是XX商城智能客服主管 😊\n\n看到您之前关注的是订单【ORD-2026-88992】，请...'； 客户提问：'退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'； 
+AI答复：'收到您针对订单【ORD-2026-88992】（实付 ¥2999.00 元）的退款申请。\n根据商城退款规则（金额 >= ...'； 客户提问：'我要退款'；",
+                    'assembled_prompt': '',
+                    'generated_response': '',
+                    'escalated_to_human': False,
+                    'escalation_reason': '',
+                    'queried_order': None,
+                    'order_query_info': '',
+                    'refund_confirmation_action': None,
+                    'refund_confirmation_pending': False,
+                    'pending_refund_order': None,
+                    'step_trace': []
+                }
+            ),
+        ),
+        interrupts=()
+    )
+]
