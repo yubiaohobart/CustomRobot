@@ -48,6 +48,8 @@ class OutputState(TypedDict, total=False):
     reply: str                       # 智能客服最终生成的回复文本内容
     cards: list[dict]                # 携带的交互式卡片数据（如订单卡片、退款确认卡片等，同类型已去重）
     handoff: bool                    # 是否触发人工客服转接标识 (True 表示需要转人工坐席)
+    intent: Optional[str]            # 意图识别结果 (透传给 API 响应)
+    sentiment: Optional[str]         # 客户情绪分析 (透传给 API 响应)
     order_id: Optional[str]          # 命中的关联订单 ID
     refund: Optional[RefundDraft]    # 退款处理草稿/凭据
     hits: list[Hit]                  # 命中的知识切片

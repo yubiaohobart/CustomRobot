@@ -157,6 +157,7 @@ async def chat_endpoint(req: ChatRequest):
     reply = final_state.get("reply", "非常抱歉，暂时未能查询到对应政策，请联系人工服务。")
     hits = final_state.get("hits", [])
     top_score = hits[0]["score"] if hits else 0.90
+    conf_score = round(float(top_score), 4)
     order_id = final_state.get("order_id")
     current_order = order_service.get_order_by_id(order_id) if order_id else None
     refund_draft = final_state.get("refund")
@@ -167,7 +168,7 @@ async def chat_endpoint(req: ChatRequest):
         {
             "id": h.get("id", ""),
             "title": h.get("title", ""),
-            "score": round(float(h.get("score", top_score)), 4),
+            "score": round(float(h.get("score", conf_score)), 4),
             "snippet": h.get("snippet", "")
         }
         for h in hits
@@ -190,7 +191,7 @@ async def chat_endpoint(req: ChatRequest):
         req.sessionId,
         "assistant",
         reply,
-        confidence_score=top_score,
+        confidence_score=conf_score,
         references=references,
         step_trace=step_trace,
         queried_order=current_order,
@@ -212,7 +213,8 @@ async def chat_endpoint(req: ChatRequest):
     })
 
     # 若状态机判定需要人工接入
-    if final_state.get("handoff") and session["status"] == "AI_HANDLING":
+    handoff = bool(final_state.get("handoff", False))
+    if handoff and session["status"] == "AI_HANDLING":
         session["status"] = "NEEDS_INTERVENTION"
 
     cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})")
@@ -222,8 +224,8 @@ async def chat_endpoint(req: ChatRequest):
         reply=reply,
         confidenceScore=conf_score,
         sentiment=final_state.get("sentiment", "neutral"),
-        intent=final_state.get("intent", "售后服务咨询"),
-        escalatedToHuman=final_state.get("escalated_to_human", False),
+        intent=final_state.get("intent", "常规售后咨询"),
+        escalatedToHuman=handoff,
         escalationReason=final_state.get("escalation_reason", None),
         references=references,
         queriedOrder=current_order,
@@ -231,7 +233,7 @@ async def chat_endpoint(req: ChatRequest):
         pendingRefundOrder=current_order if refund_pending else None,
         latencyMs=latency_ms,
         stepTrace=step_trace,
-        session=session
+        session=updated_session or session
     )
 
 @router.get("/sessions")
