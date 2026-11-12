@@ -78,6 +78,3 @@ class AgentState(InputState, OutputState, total=False):
     hits: list[Hit]                                          # 检索切片
     refund: RefundDraft | None                               # 退款幂等草稿
     trace: Annotated[list[str], operator.add]                # 增量追踪列表 (Reducer)
-
-# 兼容别名
-CSState = AgentState
