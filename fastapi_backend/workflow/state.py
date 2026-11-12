@@ -1,7 +1,7 @@
 """
-LangGraph 状态图契约定义 (AgentState - 工业级精简版)
+LangGraph 状态图契约定义 (AgentState - 工业级精简加固版)
 包含 InputState、OutputState、AgentState 及辅助类型定义。
-收敛至 workflow 目录下，彻底剔除冗余字段，遵循单一数据源原则。
+收敛至 workflow 目录下，彻底剔除冗余字段与死代码，遵循单一数据源原则。
 """
 
 import operator
@@ -9,12 +9,6 @@ from typing import Annotated, Literal, TypedDict, List, Dict, Any, Optional
 from langgraph.graph.message import add_messages
 
 Intent = Literal[
-    "refund_request", 
-    "refund_status", 
-    "order_status", 
-    "faq", 
-    "handoff", 
-    "chitchat",
     "订单查询与物流追踪",
     "退换货运费承担与会员权益",
     "7天无理由退货政策",
@@ -22,7 +16,8 @@ Intent = Literal[
     "退款到账时效查询",
     "退款申请与审批",
     "1年联保与硬件保修条款",
-    "常规售后咨询"
+    "常规售后咨询",
+    "handoff"
 ]
 
 class Hit(TypedDict):
@@ -30,7 +25,7 @@ class Hit(TypedDict):
     id: str           # 知识切片唯一标识符 (UUID / Chunk ID)
     title: str        # 知识点标题或政策条款名称
     score: float      # 向量相似度得分 (Vector Cosine Similarity Score, 0.0 - 1.0)
-    snippet: str      # 知识点正文精简片段 (只留核心文本，减少上下文膨胀)
+    snippet: str      # 知识点正文片段 (保留完整条款，防止截断关键到账时效)
 
 class RefundDraft(TypedDict):
     """订单退款草稿与幂等状态机控制结构"""
@@ -50,13 +45,13 @@ class InputState(TypedDict, total=False):
 
 class OutputState(TypedDict, total=False):
     """LangGraph 状态图执行完毕后最终返回给 API 接口的输出契约 (Output Schema)"""
-    reply: str                  # 智能客服最终生成的回复文本内容
-    cards: list[dict]           # 携带的交互式卡片数据（如订单卡片、退款确认卡片等）
-    handoff: bool               # 是否触发人工客服转接标识 (True 表示需要转人工坐席)
-    order_id: Optional[str]     # 命中的关联订单 ID
-    refund: Optional[RefundDraft] # 退款处理草稿/凭据
-    hits: list[Hit]             # 命中的知识切片
-    trace: list[str]            # 全链路节点流转日志
+    reply: str                       # 智能客服最终生成的回复文本内容
+    cards: list[dict]                # 携带的交互式卡片数据（如订单卡片、退款确认卡片等，同类型已去重）
+    handoff: bool                    # 是否触发人工客服转接标识 (True 表示需要转人工坐席)
+    order_id: Optional[str]          # 命中的关联订单 ID
+    refund: Optional[RefundDraft]    # 退款处理草稿/凭据
+    hits: list[Hit]                  # 命中的知识切片
+    trace: list[str]                 # 全链路节点流转日志 (普通列表，供外部消费)
     escalation_reason: Optional[str] # 转人工原因（若 handoff=True）
 
 class AgentState(InputState, OutputState, total=False):
@@ -71,10 +66,11 @@ class AgentState(InputState, OutputState, total=False):
     - 去除 step_trace 冗余字典存储 (统一使用 trace Reducer)
     """
     messages: Annotated[list, add_messages]
-    memory_summary: str                                      # 滚动摘要记忆
-    intent: Intent                                           # 意图枚举
-    sentiment: Literal["calm", "neutral", "frustrated", "angry"] # 情绪识别
-    order_id: str | None                                     # 订单唯一标识符
-    hits: list[Hit]                                          # 检索切片
-    refund: RefundDraft | None                               # 退款幂等草稿
-    trace: Annotated[list[str], operator.add]                # 增量追踪列表 (Reducer)
+    memory_summary: str                                           # 滚动摘要记忆
+    intent: Intent                                                # 意图枚举 (纯净无死代码)
+    sentiment: Literal["calm", "neutral", "frustrated", "angry"]      # 情绪识别
+    order_id: str | None                                          # 订单唯一标识符
+    hits: list[Hit]                                               # 检索切片
+    refund: RefundDraft | None                                    # 退款幂等草稿
+    # 状态图内部使用 operator.add Reducer 增量追加流转日志；OutputState 外部消费时为标准 list[str]
+    trace: Annotated[list[str], operator.add]

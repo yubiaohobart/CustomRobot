@@ -1,5 +1,6 @@
 """
-LangGraph 状态图组装与编译 (Graph Pipeline Assembly)
+LangGraph 状态图组装与编译 (Graph Pipeline Assembly - 精简拓扑版)
+去除了空转的 memory_synthesis 节点，优化了状态流转与执行时延。
 """
 
 from langgraph.graph import StateGraph, START, END
@@ -11,7 +12,6 @@ from .nodes import (
     order_query_node,
     order_refund_node,
     qdrant_retrieve_node,
-    memory_synthesis_node,
     deepseek_generate_node,
     human_escalation_node,
     router_after_analysis,
@@ -30,7 +30,6 @@ builder.add_node("analyze_query", analyze_query_node)
 builder.add_node("order_query", order_query_node)
 builder.add_node("order_refund", order_refund_node)
 builder.add_node("qdrant_retrieve", qdrant_retrieve_node)
-builder.add_node("memory_synthesis", memory_synthesis_node)
 builder.add_node("deepseek_generate", deepseek_generate_node)
 builder.add_node("human_escalation", human_escalation_node)
 
@@ -61,18 +60,17 @@ builder.add_conditional_edges(
 )
 builder.add_edge("order_refund", "qdrant_retrieve")
 
-# 节点 2 后的条件分支
+# 节点 2 后的条件分支 (检索 -> 人工升级 / DeepSeek 生成)
 builder.add_conditional_edges(
     "qdrant_retrieve",
     router_after_retrieval,
     {
         "human_escalation": "human_escalation",
-        "memory_synthesis": "memory_synthesis"
+        "deepseek_generate": "deepseek_generate"
     }
 )
 
-# 正常生成路径
-builder.add_edge("memory_synthesis", "deepseek_generate")
+# 终点连接
 builder.add_edge("deepseek_generate", END)
 builder.add_edge("human_escalation", END)
 
