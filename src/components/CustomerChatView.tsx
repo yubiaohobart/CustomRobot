@@ -50,59 +50,80 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const [expandedRefId, setExpandedRefId] = useState<string | null>(null);
   const [showMemoryPanel, setShowMemoryPanel] = useState(true);
 
-  // 健壮的去重算法：基于唯一 ID 去重，若有临时 temp- 且服务端落库了相同内容，才平滑替换；绝不误删用户连续发送的真实发言
+  // 严格基于唯一 ID 去重，绝不按文本内容误杀用户的多次发言
   const uniqueMessages = (msgs: ChatMessage[]): ChatMessage[] => {
     const result: ChatMessage[] = [];
     const seenIds = new Set<string>();
-
     for (const m of msgs) {
       if (!m || !m.id) continue;
-      if (seenIds.has(m.id)) continue;
-
-      // 如果当前是临时乐观消息，检查同批次中是否已有服务端确认的正式消息（非 temp-，角色和内容相同）
-      if (m.id.startsWith("temp-")) {
-        const hasServerConfirmed = result.some(
-          ex => !ex.id.startsWith("temp-") && ex.role === m.role && ex.content.trim() === m.content.trim()
-        );
-        if (hasServerConfirmed) {
-          continue; // 服务端已落库，忽略临时的 temp
-        }
+      if (!seenIds.has(m.id)) {
+        seenIds.add(m.id);
+        result.push(m);
       }
-
-      seenIds.add(m.id);
-      result.push(m);
     }
     return result;
   };
 
-  // 核心消息保护器：当收到服务端全量更新时，绝对不冲刷掉客户端刚刚发送且尚未入库的 temp- 乐观消息气泡
-  const mergeServerMessages = (prevMsgs: ChatMessage[], serverMsgs: ChatMessage[]): ChatMessage[] => {
-    if (!serverMsgs || serverMsgs.length === 0) return prevMsgs;
+  // 核心消息保护器：当收到服务端全量/增量消息时，平滑替换 temp 乐观气泡，未落库的 temp 永不丢弃
+  const mergeServerMessages = (prevMsgs: ChatMessage[] = [], incomingMsgs: ChatMessage[] = []): ChatMessage[] => {
+    if (!incomingMsgs || incomingMsgs.length === 0) return prevMsgs;
 
-    const pendingTemps = prevMsgs.filter(p => p && p.id && p.id.startsWith("temp-"));
-    const mergedList: ChatMessage[] = [];
-    const matchedTempIds = new Set<string>();
+    const pendingTemps = prevMsgs.filter(m => m && m.id && m.id.startsWith("temp-"));
+    const confirmedPrev = prevMsgs.filter(m => m && m.id && !m.id.startsWith("temp-"));
 
-    for (const sm of serverMsgs) {
-      if (!sm || !sm.id) continue;
-      mergedList.push(sm);
-      // 如果服务端消息列表中已存在角色与文本相同的消息，标记对应的临时 temp 消息已被服务端确认
-      const matchingTemp = pendingTemps.find(
-        p => p.role === sm.role && p.content.trim() === sm.content.trim()
-      );
-      if (matchingTemp) {
-        matchedTempIds.add(matchingTemp.id);
+    const result: ChatMessage[] = [];
+    const seenIds = new Set<string>();
+
+    const isFullList = incomingMsgs.length > 1 || (incomingMsgs.length === 1 && confirmedPrev.some(p => p.id === incomingMsgs[0].id));
+    const baseServerList = isFullList 
+      ? incomingMsgs 
+      : [...confirmedPrev, ...incomingMsgs.filter(m => !confirmedPrev.some(p => p.id === m.id))];
+
+    for (const sm of baseServerList) {
+      if (!sm || !sm.id || seenIds.has(sm.id)) continue;
+      seenIds.add(sm.id);
+      result.push(sm);
+    }
+
+    const keyCounts = new Map<string, number>();
+    for (const sm of result) {
+      const k = `${sm.role}:::${sm.content.trim()}`;
+      keyCounts.set(k, (keyCounts.get(k) || 0) + 1);
+    }
+
+    const prevCounts = new Map<string, number>();
+    for (const pm of confirmedPrev) {
+      const k = `${pm.role}:::${pm.content.trim()}`;
+      prevCounts.set(k, (prevCounts.get(k) || 0) + 1);
+    }
+
+    const newConfirmations = new Map<string, number>();
+    for (const [k, count] of keyCounts.entries()) {
+      const prevC = prevCounts.get(k) || 0;
+      if (count > prevC) {
+        newConfirmations.set(k, count - prevC);
       }
     }
 
-    // 将尚未收到服务端确认的临时 temp 消息平滑追加在最尾部，保证用户发言绝不闪烁消失
-    for (const p of pendingTemps) {
-      if (!matchedTempIds.has(p.id)) {
-        mergedList.push(p);
+    const consumedPerKey = new Map<string, number>();
+    const remainingTemps: ChatMessage[] = [];
+
+    for (const temp of pendingTemps) {
+      const k = `${temp.role}:::${temp.content.trim()}`;
+      const allowedToConsume = newConfirmations.get(k) || 0;
+      const alreadyConsumed = consumedPerKey.get(k) || 0;
+
+      if (alreadyConsumed < allowedToConsume) {
+        consumedPerKey.set(k, alreadyConsumed + 1);
+      } else {
+        if (!seenIds.has(temp.id)) {
+          seenIds.add(temp.id);
+          remainingTemps.push(temp);
+        }
       }
     }
 
-    return uniqueMessages(mergedList);
+    return [...result, ...remainingTemps];
   };
 
   // Seamless Transfer State
@@ -896,7 +917,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                     )}
 
                     {/* Scenario 1: Pre-Refund Interactive Confirmation Gate Card */}
-                    {(msg.refundConfirmationPending || msg.pendingRefundOrder || (msg.role === "assistant" && (msg.content.includes("【退款前确认") || msg.content.includes("退款风险") || msg.content.includes("确认提交退款")))) && (
+                    {(msg.refundConfirmationPending || msg.pendingRefundOrder || (msg.role === "assistant" && (
+                      msg.content.includes("确认提交退款") || 
+                      msg.content.includes("退款风险") || 
+                      msg.content.includes("退款前确认") || 
+                      msg.content.includes("请在下方卡片中点击") ||
+                      msg.content.includes("待交互确认")
+                    ))) && (
                       <div className="mt-3.5 p-4 bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-50 rounded-2xl border-2 border-amber-300 shadow-xs text-slate-800 space-y-3">
                         {/* Header */}
                         <div className="flex items-center justify-between pb-2 border-b border-amber-200">

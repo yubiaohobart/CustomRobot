@@ -148,18 +148,32 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
             was_pending = state.get("refund_confirmation_pending", False)
             current_status = order.get("status", "")
 
-            if is_refund_intent and current_status not in ["REFUNDED", "REFUND_PENDING_AUDIT"]:
+            if is_refund_intent:
                 amount = float(order.get("paidAmount", 0.0))
                 refund_pending = True
                 pending_order = order
                 rule_text = "金额 < 3.00 元，确认后将由智能客服直接秒退" if amount < 3.00 else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
-                override_response = (
-                    f"收到您针对订单【{order['orderId']}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
-                    f"根据商城退款规则（{rule_text}），在正式提交前，请您确认以下权益调整：\n"
-                    f"• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n"
-                    f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
-                    f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
-                )
+                
+                if current_status not in ["REFUNDED", "REFUND_PENDING_AUDIT"]:
+                    override_response = (
+                        f"收到您针对订单【{order['orderId']}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+                        f"根据商城退款规则（{rule_text}），在正式提交前，请您确认以下权益调整：\n"
+                        f"• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n"
+                        f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
+                        f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
+                    )
+                elif current_status == "REFUND_PENDING_AUDIT":
+                    override_response = (
+                        f"收到您针对订单【{order['orderId']}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+                        f"该订单当前正处于【退款待人工审核】状态（因金额 >= 3.00 元触发资金安全人工干涉）。\n"
+                        f"如需重新提交确认或变更诉求，请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
+                    )
+                else: # REFUNDED
+                    override_response = (
+                        f"收到您针对订单【{order['orderId']}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+                        f"该订单此前已完成退款解冻。如需重新提交申请测试，请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
+                    )
+
                 try:
                     interrupt({
                         "type": "refund_confirmation_gate",
@@ -177,22 +191,9 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 pending_order = order
                 override_response = (
                     f"温馨提示：您的订单【{order['orderId']}】退款申请尚处于【待交互确认】状态，系统尚未正式提交。\n"
-                    f"请您在上方卡片中点击【确认提交退款】（如需退款）或【取消 / 我再想想】（放弃退款），完成确认后系统将立即处理！"
+                    f"请您在下方卡片中点击【确认提交退款】（如需退款）或【取消 / 我再想想】（放弃退款），完成确认后系统将立即处理！"
                 )
                 cprint.node("order_refund", f"[追问未确认的退款] 订单 {order['orderId']}", "提醒用户先点击卡片确认")
-            elif is_refund_intent and current_status == "REFUND_PENDING_AUDIT":
-                pending_order = order
-                override_response = (
-                    f"您针对订单【{order['orderId']}】（实付 ¥{float(order.get('paidAmount', 0.0)):.2f} 元）的退款申请已处于【退款待人工审核】状态。\n"
-                    f"工单已自动接入专属坐席加急干涉，请您耐心等待核验结果！"
-                )
-                cprint.node("order_refund", f"[重复发起已在审核中的退款] 订单 {order['orderId']}", "提示审核处理中")
-            elif is_refund_intent and current_status == "REFUNDED":
-                pending_order = order
-                override_response = (
-                    f"订单【{order['orderId']}】（实付 ¥{float(order.get('paidAmount', 0.0)):.2f} 元）此前已完成退款解冻，款项已原路退回您的支付账户。"
-                )
-                cprint.node("order_refund", f"[重复发起已退款订单] 订单 {order['orderId']}", "提示已完成退款")
 
     duration = int((time.time() - t0) * 1000)
     trace = state.get("step_trace", [])

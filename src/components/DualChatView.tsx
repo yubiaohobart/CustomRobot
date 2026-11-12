@@ -18,7 +18,9 @@ import {
   ChevronRight,
   Smile,
   ShieldAlert,
-  Volume2
+  Volume2,
+  Copy,
+  X
 } from "lucide-react";
 import { ConversationSession, ChatMessage, OrderData } from "../types";
 
@@ -27,19 +29,83 @@ export const DualChatView: React.FC = () => {
   const [session, setSession] = useState<ConversationSession | null>(null);
   const [sessionsList, setSessionsList] = useState<ConversationSession[]>([]);
 
+  // 严格基于唯一 ID 去重，绝不按文本内容误杀用户的多次发言
   const uniqueMessages = (msgs: ChatMessage[]): ChatMessage[] => {
-    const map = new Map<string, ChatMessage>();
+    const result: ChatMessage[] = [];
+    const seenIds = new Set<string>();
     for (const m of msgs) {
-      if (!m.id) continue;
-      // 过滤同一角色且内容相同的重复消息
-      const isDuplicate = Array.from(map.values()).some(
-        ex => ex.role === m.role && ex.content.trim() === m.content.trim() && Math.abs(map.size - 1) >= 0
-      );
-      if (!map.has(m.id) && !isDuplicate) {
-        map.set(m.id, m);
+      if (!m || !m.id) continue;
+      if (!seenIds.has(m.id)) {
+        seenIds.add(m.id);
+        result.push(m);
       }
     }
-    return Array.from(map.values());
+    return result;
+  };
+
+  // 核心消息保护器：当收到服务端全量/增量消息时，平滑替换 temp 乐观气泡，未落库的 temp 永不丢弃
+  const mergeServerMessages = (prevMsgs: ChatMessage[] = [], incomingMsgs: ChatMessage[] = []): ChatMessage[] => {
+    if (!incomingMsgs || incomingMsgs.length === 0) return prevMsgs;
+
+    const pendingTemps = prevMsgs.filter(m => m && m.id && m.id.startsWith("temp-"));
+    const confirmedPrev = prevMsgs.filter(m => m && m.id && !m.id.startsWith("temp-"));
+
+    const result: ChatMessage[] = [];
+    const seenIds = new Set<string>();
+
+    // 区分是全量消息列表还是单条增量消息
+    const isFullList = incomingMsgs.length > 1 || (incomingMsgs.length === 1 && confirmedPrev.some(p => p.id === incomingMsgs[0].id));
+    const baseServerList = isFullList 
+      ? incomingMsgs 
+      : [...confirmedPrev, ...incomingMsgs.filter(m => !confirmedPrev.some(p => p.id === m.id))];
+
+    for (const sm of baseServerList) {
+      if (!sm || !sm.id || seenIds.has(sm.id)) continue;
+      seenIds.add(sm.id);
+      result.push(sm);
+    }
+
+    // 计算各角色文本新增的确认条数
+    const keyCounts = new Map<string, number>();
+    for (const sm of result) {
+      const k = `${sm.role}:::${sm.content.trim()}`;
+      keyCounts.set(k, (keyCounts.get(k) || 0) + 1);
+    }
+
+    const prevCounts = new Map<string, number>();
+    for (const pm of confirmedPrev) {
+      const k = `${pm.role}:::${pm.content.trim()}`;
+      prevCounts.set(k, (prevCounts.get(k) || 0) + 1);
+    }
+
+    const newConfirmations = new Map<string, number>();
+    for (const [k, count] of keyCounts.entries()) {
+      const prevC = prevCounts.get(k) || 0;
+      if (count > prevC) {
+        newConfirmations.set(k, count - prevC);
+      }
+    }
+
+    // 按照先进先出匹配 temp 消息：新到落库的抵扣掉对应 temp，其余尚未被服务端收录的 temp 绝不丢失
+    const consumedPerKey = new Map<string, number>();
+    const remainingTemps: ChatMessage[] = [];
+
+    for (const temp of pendingTemps) {
+      const k = `${temp.role}:::${temp.content.trim()}`;
+      const allowedToConsume = newConfirmations.get(k) || 0;
+      const alreadyConsumed = consumedPerKey.get(k) || 0;
+
+      if (alreadyConsumed < allowedToConsume) {
+        consumedPerKey.set(k, alreadyConsumed + 1);
+      } else {
+        if (!seenIds.has(temp.id)) {
+          seenIds.add(temp.id);
+          remainingTemps.push(temp);
+        }
+      }
+    }
+
+    return [...result, ...remainingTemps];
   };
 
   // Customer Side State
@@ -73,10 +139,15 @@ export const DualChatView: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         const s = data.session;
-        if (s && s.messages) {
-          s.messages = uniqueMessages(s.messages);
+        if (s) {
+          setSession((prev) => {
+            const prevMsgs = prev?.messages || [];
+            return {
+              ...s,
+              messages: mergeServerMessages(prevMsgs, s.messages || []),
+            };
+          });
         }
-        setSession(s);
       }
     } catch (e) {
       console.error("loadSession error:", e);
@@ -143,7 +214,8 @@ export const DualChatView: React.FC = () => {
           if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
             setSession((prev) => {
               if (!prev) return payload.session;
-              const merged = uniqueMessages([...prev.messages, payload.message]);
+              const prevMsgs = prev.messages || [];
+              const merged = mergeServerMessages(prevMsgs, [payload.message]);
               return {
                 ...prev,
                 messages: merged,
@@ -157,7 +229,14 @@ export const DualChatView: React.FC = () => {
               showToast(`👤 收到客户【${session?.customerProfile?.name || "客户"}】新提问`);
             }
           } else if (payload.type === "session:update" && (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId)) {
-            setSession(payload.session);
+            setSession((prev) => {
+              if (!prev) return payload.session;
+              const prevMsgs = prev.messages || [];
+              return {
+                ...payload.session,
+                messages: mergeServerMessages(prevMsgs, payload.session.messages || []),
+              };
+            });
           } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
             if (payload.sender === "agent") {
               setAgentTypingNotice(payload.isTyping ? "人工坐席正在输入..." : null);
@@ -199,7 +278,7 @@ export const DualChatView: React.FC = () => {
   }, [session?.messages]);
 
   // Customer Send Action
-  const handleCustomerSend = async (customText?: string) => {
+  const handleCustomerSend = async (customText?: string, actionParam?: string) => {
     const text = (customText || customerInput).trim();
     if (!text || customerLoading) return;
 
@@ -213,7 +292,13 @@ export const DualChatView: React.FC = () => {
       content: text,
       timestamp: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
     };
-    setSession((prev) => prev ? { ...prev, messages: uniqueMessages([...prev.messages, tempUserMsg]) } : prev);
+    setSession((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        messages: [...(prev.messages || []), tempUserMsg],
+      };
+    });
     setTimeout(() => {
       customerMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
@@ -225,16 +310,28 @@ export const DualChatView: React.FC = () => {
         body: JSON.stringify({
           sessionId: selectedSessionId,
           message: text,
+          refundConfirmationAction: actionParam || null
         }),
       });
       if (res.ok) {
         const data = await res.json();
         if (data.session) {
-          const s = data.session;
-          if (s && s.messages) {
-            s.messages = uniqueMessages(s.messages);
+          const rawMessages: ChatMessage[] = data.session.messages || [];
+          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending) && rawMessages.length > 0) {
+            const lastMsg = rawMessages[rawMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              if (data.queriedOrder) lastMsg.queriedOrder = data.queriedOrder;
+              if (data.pendingRefundOrder) lastMsg.pendingRefundOrder = data.pendingRefundOrder;
+              if (data.refundConfirmationPending !== undefined) lastMsg.refundConfirmationPending = data.refundConfirmationPending;
+            }
           }
-          setSession(s);
+          setSession((prev) => {
+            const currentMsgs = prev?.messages || [];
+            return {
+              ...data.session,
+              messages: mergeServerMessages(currentMsgs, rawMessages),
+            };
+          });
         } else {
           await loadSession();
         }
@@ -581,6 +678,145 @@ export const DualChatView: React.FC = () => {
                         </div>
                       )}
                       <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                      {/* Interactive Order Card */}
+                      {msg.queriedOrder && (
+                        <div className="mt-2.5 p-3 bg-gradient-to-b from-blue-50/70 via-slate-50 to-white rounded-xl border border-blue-200 text-slate-800 space-y-2">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-blue-100">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold">
+                              <Package className="w-3.5 h-3.5 text-blue-600" />
+                              <span>订单: <span className="font-mono text-blue-900">{msg.queriedOrder.orderId}</span></span>
+                            </div>
+                            <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] font-bold rounded">
+                              {msg.queriedOrder.statusText}
+                            </span>
+                          </div>
+                          {msg.queriedOrder.items?.[0] && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="truncate text-slate-700 max-w-[220px]">{msg.queriedOrder.items[0].title}</span>
+                              <span className="font-bold text-rose-600">¥{msg.queriedOrder.paidAmount.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {msg.queriedOrder.express && (
+                            <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
+                              <span>承运: {msg.queriedOrder.express.company}</span>
+                              <span className="text-blue-700 font-medium">{msg.queriedOrder.express.statusDescription}</span>
+                            </div>
+                          )}
+                          <div className="pt-1 flex items-center gap-1.5 flex-wrap">
+                            {msg.queriedOrder.status !== "REFUNDED" && (
+                              <button
+                                onClick={() => handleCustomerSend(`我申请退款订单 ${msg.queriedOrder!.orderId}`)}
+                                className="px-2 py-0.5 text-[10px] text-white bg-rose-600 hover:bg-rose-700 rounded font-semibold cursor-pointer"
+                              >
+                                申请退款
+                              </button>
+                            )}
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await fetch(`/api/orders/${msg.queriedOrder!.orderId}/reset`, { method: "POST" });
+                                  await handleCustomerSend(`申请退款订单 ${msg.queriedOrder!.orderId}`);
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                              className="px-2 py-0.5 text-[10px] text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded font-medium cursor-pointer"
+                            >
+                              重置订单状态 (重测退款)
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Interactive Pre-Refund Confirmation Gate Card */}
+                      {(msg.refundConfirmationPending || msg.pendingRefundOrder || (msg.role === "assistant" && (
+                        msg.content.includes("确认提交退款") || 
+                        msg.content.includes("退款风险") || 
+                        msg.content.includes("退款前确认") || 
+                        msg.content.includes("请在下方卡片中点击") ||
+                        msg.content.includes("待交互确认")
+                      ))) && (
+                        <div className="mt-3 p-3.5 bg-gradient-to-br from-amber-50 via-orange-50/60 to-amber-50 rounded-xl border-2 border-amber-300 shadow-xs text-slate-800 space-y-2.5">
+                          {/* Header */}
+                          <div className="flex items-center justify-between pb-2 border-b border-amber-200">
+                            <div className="flex items-center gap-1.5">
+                              <div className="p-1 bg-amber-500 text-white rounded-md shadow-2xs">
+                                <ShieldAlert className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-xs text-amber-950">退款申请前交互确认门槛</h4>
+                                <p className="text-[9px] text-amber-700 font-mono">Pre-Refund Customer Confirmation Gate</p>
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 bg-amber-200/80 text-amber-900 text-[10px] font-bold rounded-full border border-amber-300 animate-pulse">
+                              待客户交互确认
+                            </span>
+                          </div>
+
+                          {/* Order Summary */}
+                          <div className="p-2 bg-white rounded-lg border border-amber-200/80 text-xs space-y-1">
+                            <div className="flex justify-between items-center text-[11px]">
+                              <span className="text-slate-500">待处理订单号:</span>
+                              <span className="font-mono font-bold text-amber-900">
+                                {(msg.pendingRefundOrder || msg.queriedOrder)?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-[11px]">
+                              <span className="text-slate-500">实付金额:</span>
+                              <span className="font-bold text-rose-600 text-xs">
+                                ¥{((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount ?? 2999.00).toFixed(2)} 元
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px] pt-1 border-t border-slate-100">
+                              <span className="text-slate-500">退款执行路径:</span>
+                              <span className={`font-semibold px-1.5 py-0.2 rounded text-[10px] ${
+                                ((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount ?? 2999.00) < 3.00
+                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                  : "bg-amber-100 text-amber-800 border border-amber-200"
+                              }`}>
+                                {((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount ?? 2999.00) < 3.00
+                                  ? "< 3.00 元 · 智能客服直接秒级退款"
+                                  : "≥ 3.00 元 · 提交人工干涉审核队列"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Notice Box */}
+                          <div className="p-2 bg-white/90 rounded-lg border border-amber-200/60 space-y-1 text-[10px] text-slate-700">
+                            <div className="font-bold text-amber-900 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3 text-amber-600" />
+                              <span>权益及规则说明：</span>
+                            </div>
+                            <ul className="list-disc list-inside space-y-0.5 text-slate-600 pl-1 leading-normal text-[10px]">
+                              <li>退款成功后，对应订单获赠的 VIP 积分与专属免运费特权将同步收回。</li>
+                              <li><strong>实付 &lt; 3.00 元：</strong>点击确认后，智能客服将直接完成原路秒级退款。</li>
+                              <li><strong>实付 &ge; 3.00 元：</strong>点击确认后，将转入工单并接入人工客服核验干涉。</li>
+                            </ul>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="pt-0.5 flex items-center gap-2">
+                            <button
+                              onClick={() => handleCustomerSend("我确认提交退款申请", "confirm")}
+                              disabled={customerLoading}
+                              className="flex-1 py-2 px-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>【确认提交退款】</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleCustomerSend("取消退款申请", "cancel")}
+                              disabled={customerLoading}
+                              className="flex-1 py-2 px-2.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-300 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
+                            >
+                              <X className="w-3.5 h-3.5 text-slate-500" />
+                              <span>【取消 / 我再想想】</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

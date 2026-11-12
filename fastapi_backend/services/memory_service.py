@@ -88,7 +88,9 @@ class MemoryService:
         confidence_score: Optional[float] = None,
         references: Optional[List[Dict[str, Any]]] = None,
         step_trace: Optional[List[Dict[str, Any]]] = None,
-        queried_order: Optional[Dict[str, Any]] = None
+        queried_order: Optional[Dict[str, Any]] = None,
+        refund_confirmation_pending: Optional[bool] = None,
+        pending_refund_order: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         session = self.get_or_create_session(session_id)
         msg_id = f"m_{int(time.time() * 1000)}_{len(session.get('messages', []))}"
@@ -108,6 +110,12 @@ class MemoryService:
             msg["stepTrace"] = step_trace
         if queried_order:
             msg["queriedOrder"] = queried_order
+        if refund_confirmation_pending:
+            msg["refundConfirmationPending"] = True
+        if pending_refund_order:
+            msg["pendingRefundOrder"] = pending_refund_order
+            if "queriedOrder" not in msg:
+                msg["queriedOrder"] = pending_refund_order
 
         session.setdefault("messages", []).append(msg)
         if "metrics" not in session or not isinstance(session["metrics"], dict):

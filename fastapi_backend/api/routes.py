@@ -85,6 +85,7 @@ async def chat_endpoint(req: ChatRequest):
 
     # 记录客户输入消息并向 WebSocket 广播
     user_msg = memory_service.add_message(req.sessionId, "user", req.message)
+    session = memory_service.get_session(req.sessionId) or session
     await ws_manager.broadcast_to_session(req.sessionId, {
         "type": "message:new",
         "sessionId": req.sessionId,
@@ -183,13 +184,11 @@ async def chat_endpoint(req: ChatRequest):
         reply,
         confidence_score=conf_score,
         references=references,
-        step_trace=step_trace
+        step_trace=step_trace,
+        queried_order=queried_order or pending_refund_order,
+        refund_confirmation_pending=refund_pending,
+        pending_refund_order=pending_refund_order
     )
-    if refund_pending:
-        assistant_msg["refundConfirmationPending"] = True
-    if pending_refund_order:
-        assistant_msg["pendingRefundOrder"] = pending_refund_order
-        assistant_msg["queriedOrder"] = pending_refund_order
     
     updated_session = memory_service.get_session(req.sessionId)
     await ws_manager.broadcast_to_session(req.sessionId, {
