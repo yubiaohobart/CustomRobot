@@ -516,6 +516,19 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // 全局 API 路由请求日志中间件 (在后台终端输出路由拦截与打印信息)
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      const startMs = Date.now();
+      const timeStr = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      res.on("finish", () => {
+        const duration = Date.now() - startMs;
+        console.log(`[Route Gateway] ${timeStr} | ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`);
+      });
+    }
+    next();
+  });
+
   // 全局 CORS 支持
   app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");

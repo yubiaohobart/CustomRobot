@@ -125,6 +125,7 @@ export const DualChatView: React.FC = () => {
   const [currentOrder, setCurrentOrder] = useState<OrderData | null>(null);
   const [auditingRefund, setAuditingRefund] = useState(false);
   const [auditNote, setAuditNote] = useState("");
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
 
   // Live Toast & WebSocket
   const [toast, setToast] = useState<string | null>(null);
@@ -1069,8 +1070,8 @@ export const DualChatView: React.FC = () => {
           </div>
 
           {/* Customer Snapshot Dossier (客户背景档案) */}
-          <div className="px-4 py-2.5 bg-white border-b border-slate-200 text-xs">
-            <div className="flex items-center justify-between text-[11px] mb-1.5">
+          <div className="px-4 py-2 bg-white border-b border-slate-200 text-xs">
+            <div className="flex items-center justify-between text-[11px] mb-1">
               <span className="font-bold text-slate-700 flex items-center gap-1.5">
                 <Package className="w-3.5 h-3.5 text-blue-600" />
                 关联订单: <span className="font-mono text-blue-900">{currentOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}</span>
@@ -1084,14 +1085,26 @@ export const DualChatView: React.FC = () => {
                   {currentOrder?.statusText || "已签收"}
                 </span>
               </span>
-              <span className="px-2 py-0.2 bg-emerald-50 text-emerald-700 font-semibold rounded border border-emerald-200">
-                支持7天退货 (黄金会员免运费)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.2 bg-emerald-50 text-emerald-700 font-semibold rounded border border-emerald-200 hidden sm:inline">
+                  支持7天退货 (黄金会员免运费)
+                </span>
+                <button
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                  className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium px-2 py-0.5 bg-blue-50 hover:bg-blue-100 rounded transition-colors cursor-pointer"
+                >
+                  <span>{summaryExpanded ? "收起备忘" : "上下文备忘"}</span>
+                  <span className="text-[10px]">{summaryExpanded ? "▲" : "▼"}</span>
+                </button>
+              </div>
             </div>
-            <div className="text-[11px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-200/80 leading-relaxed">
-              <strong className="text-slate-800">上下文备忘: </strong>
-              {session?.summaryMemory || "客户咨询7天无理由退货运费及退款到账时效。"}
-            </div>
+
+            {summaryExpanded && (
+              <div className="mt-1.5 text-[11px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-200/80 leading-relaxed max-h-32 overflow-y-auto animate-in fade-in duration-200">
+                <strong className="text-slate-800">上下文备忘录: </strong>
+                {session?.summaryMemory || "客户咨询7天无理由退货运费及退款到账时效。"}
+              </div>
+            )}
           </div>
 
           {/* 人工客服退款审核与风控干涉控制台 */}
