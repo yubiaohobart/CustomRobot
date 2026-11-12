@@ -464,6 +464,9 @@ async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
             "order": updated
         })
         return {"success": True, "order": updated}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 @router.post("/orders/{order_id}/reset")
 async def reset_order_status_endpoint(order_id: str):
     """方便测试：重置指定订单状态为已签收状态，可重新进行退款前门槛卡片测试"""
