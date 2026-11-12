@@ -17,7 +17,7 @@ from models.schemas import (
     GenerateSuggestionRequest,
     TestRequest
 )
-from models.state import AgentState
+from workflow.state import CSState as AgentState
 from core.qdrant_store import qdrant_store
 from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
