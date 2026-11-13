@@ -30,6 +30,10 @@ from workflow.nodes import (
     qdrant_retrieve_node,
     deepseek_generate_node
 )
+try:
+    from langgraph.types import Command
+except ImportError:
+    Command = None
 from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
 
@@ -139,22 +143,59 @@ async def chat_endpoint(req: ChatRequest):
     }
 
     # 执行 LangGraph 状态图管线
+    graph_config = {"configurable": {"thread_id": req.sessionId}}
     try:
-        final_state = await customer_service_graph.ainvoke(
-            initial_state,
-            config={"configurable": {"thread_id": req.sessionId}}
-        )
+        invoke_input: Any = initial_state
+        if confirm_action in ("confirm", "cancel") and Command is not None:
+            try:
+                snapshot = await customer_service_graph.aget_state(graph_config)
+                if snapshot and getattr(snapshot, "next", None):
+                    invoke_input = Command(resume={"action": confirm_action})
+            except Exception:
+                pass
+
+        final_state = dict(await customer_service_graph.ainvoke(
+            invoke_input,
+            config=graph_config
+        ))
+
+        # 若图因 LangGraph interrupt 挂起（如退款前客户交互确认门槛），从 __interrupt__ 提取确认提示与状态
+        interrupts = final_state.get("__interrupt__") or []
+        if interrupts:
+            first_intr = interrupts[0]
+            intr_val = first_intr.value if hasattr(first_intr, "value") else first_intr
+            if isinstance(intr_val, dict):
+                if intr_val.get("reply"):
+                    final_state["reply"] = intr_val["reply"]
+                intr_order_id = intr_val.get("order_id")
+                if intr_order_id and not final_state.get("order_id"):
+                    final_state["order_id"] = intr_order_id
+                if not final_state.get("intent") or final_state.get("intent") == "常规售后咨询":
+                    final_state["intent"] = "退款申请与审批"
+                final_state["refund"] = {
+                    "order_id": intr_order_id or final_state.get("order_id") or "",
+                    "amount_cents": intr_val.get("amount_cents", 0),
+                    "request_id": intr_val.get("request_id", ""),
+                    "status": "PENDING_CONFIRM"
+                }
+                if intr_val.get("card"):
+                    existing_cards = [c for c in (final_state.get("cards") or []) if c.get("type") != "refund_gate"]
+                    existing_cards.append(intr_val["card"])
+                    final_state["cards"] = existing_cards
+                trace_list_intr = list(final_state.get("trace") or [])
+                trace_list_intr.append(f"order_refund: [LangGraph interrupt 挂起] 订单 {intr_order_id or ''} 等待客户交互确认")
+                final_state["trace"] = trace_list_intr
     except Exception as e:
         cprint.error(f"[Graph Fallback 降级]: {e}")
         # 极简方案 B：直接复用图节点纯函数，无需重复编写检索与组装逻辑
-        final_state = initial_state
+        final_state = dict(initial_state)
         final_state.update(order_query_node(final_state))
         final_state.update(qdrant_retrieve_node(final_state))
         if not final_state.get("reply"):
             final_state.update(await deepseek_generate_node(final_state))
 
     latency_ms = int((time.time() - t_start) * 1000)
-    reply = final_state.get("reply", "非常抱歉，暂时未能查询到对应政策，请联系人工服务。")
+    reply = final_state.get("reply") or "非常抱歉，暂时未能查询到对应政策，请联系人工服务。"
     hits = final_state.get("hits", [])
     top_score = hits[0]["score"] if hits else 0.90
     conf_score = round(float(top_score), 4)

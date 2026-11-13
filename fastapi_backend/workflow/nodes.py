@@ -21,6 +21,18 @@ except ImportError:
             """LangGraph 人在环路 (Human-in-the-Loop) 中断信号机制"""
             return value
 
+try:
+    from langgraph.errors import GraphInterrupt, GraphBubbleUp
+    _INTERRUPT_EXCEPTIONS = (GraphInterrupt, GraphBubbleUp)
+except ImportError:
+    try:
+        from langgraph.errors import GraphInterrupt
+        _INTERRUPT_EXCEPTIONS = (GraphInterrupt,)
+    except ImportError:
+        class GraphInterrupt(Exception):
+            pass
+        _INTERRUPT_EXCEPTIONS = (GraphInterrupt,)
+
 from .state import AgentState, Hit, RefundDraft, Intent
 from core.qdrant_store import qdrant_store
 from core.llm import deepseek_client
@@ -33,9 +45,22 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     msg = state.get("user_message", "").lower()
     
-    # 显式人工请求判定
-    explicit = any(k in msg for k in ["转人工", "人工", "投诉", "找人工", "人工客服", "主管", "消协", "找领导"])
-    
+    # 政策/时效/运费咨询检测（防止咨询类问题误触发退款动作或被“申请退货”抢占）
+    is_fee_or_policy_q = any(k in msg for k in [
+        "运费", "谁出", "谁付", "包邮", "免运费",
+        "到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效",
+        "7天", "七天", "无理由", "政策", "流程是什么", "可以退吗", "能不能退", "怎么退"
+    ])
+    is_refund_apply = (not is_fee_or_policy_q) and any(k in msg for k in [
+        "申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款", "提交退款", "申请退货"
+    ])
+
+    # 显式人工请求判定（若用户正在发起“申请退款”且仅说明金额>=3元需人工审核，不跳过确认门槛直接转人工）
+    pure_handoff_keywords = ["转人工", "找人工", "人工客服", "投诉", "消协", "找领导", "不要机器人", "马上帮我转接人工"]
+    explicit = any(k in msg for k in pure_handoff_keywords) or (
+        ("人工" in msg or "主管" in msg) and not is_refund_apply
+    )
+
     # 情绪识别 (映射为: calm, neutral, frustrated, angry)
     sentiment = "neutral"
     if any(k in msg for k in ["骗子", "投诉", "消协", "火大", "气死", "态度差", "打死"]):
@@ -45,23 +70,23 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     elif any(k in msg for k in ["谢谢", "感谢", "好的", "明白了", "点赞", "挺快"]):
         sentiment = "calm"
 
-    # 意图识别 (精准映射为标准枚举，无死代码)
+    # 意图识别 (精准映射为标准枚举，退款申请优先于订单号关键词匹配)
     intent: Intent = "常规售后咨询"
     if explicit:
         intent = "handoff"
-    elif any(k in msg for k in ["订单", "查订单", "物流", "快递", "运单", "发货", "到哪了", "什么时候到", "送达", "签收", "收件地址", "ord-", "88992", "90412", "77310"]):
-        intent = "订单查询与物流追踪"
-    elif any(k in msg for k in ["运费", "谁出", "谁付", "包邮", "免运费"]):
-        intent = "退换货运费承担与会员权益"
-    elif any(k in msg for k in ["7天", "七天", "无理由", "退货", "退换"]):
-        intent = "7天无理由退货政策"
-    elif any(k in msg for k in ["特殊商品", "不能退", "不给退", "定制", "生鲜", "内裤", "母婴", "拆封"]):
-        intent = "特殊不可退换商品范围"
+    elif is_refund_apply:
+        intent = "退款申请与审批"
     elif any(k in msg for k in ["到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效"]):
         # 严格分离：退款到账时效查询，绝非退款申请！
         intent = "退款到账时效查询"
-    elif any(k in msg for k in ["申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款", "提交退款"]):
-        intent = "退款申请与审批"
+    elif any(k in msg for k in ["运费", "谁出", "谁付", "包邮", "免运费"]):
+        intent = "退换货运费承担与会员权益"
+    elif any(k in msg for k in ["特殊商品", "不能退", "不给退", "定制", "生鲜", "内裤", "母婴", "拆封"]):
+        intent = "特殊不可退换商品范围"
+    elif any(k in msg for k in ["7天", "七天", "无理由", "退货", "退换"]):
+        intent = "7天无理由退货政策"
+    elif any(k in msg for k in ["订单", "查订单", "物流", "快递", "运单", "发货", "到哪了", "什么时候到", "送达", "签收", "收件地址", "ord-", "88992", "90412", "77310"]):
+        intent = "订单查询与物流追踪"
     elif any(k in msg for k in ["保修", "维修", "坏了", "换新", "质保", "联保", "进水", "摔坏"]):
         intent = "1年联保与硬件保修条款"
 
@@ -172,16 +197,17 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                     f"该订单此前已完成退款解冻。如需重新提交申请测试，请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
                 )
 
-            cards.append({
+            gate_card = {
                 "type": "refund_gate",
                 "order_id": order["orderId"],
                 "amount_cents": amount_cents,
                 "amount": amount,
                 "rule_text": rule_text,
                 "status": "PENDING_CONFIRM"
-            })
+            }
+            cards.append(gate_card)
 
-            # [P0-1 核心修复]：接住 interrupt 返回值，支持 LangGraph resume 传入唤醒动作！
+            # [P0-1 核心修复]：接住 interrupt 返回值，并将确认文案与卡片随 interrupt payload 透传给外层 API
             cprint.node("order_refund", f"[触发 LangGraph interrupt 挂起] 订单 {order['orderId']}", "等待用户确认")
             resume_data = interrupt({
                 "type": "refund_confirmation_gate",
@@ -189,6 +215,9 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 "amount_cents": amount_cents,
                 "amount": amount,
                 "rule_text": rule_text,
+                "request_id": request_id,
+                "reply": override_response,
+                "card": gate_card,
                 "prompt": "退款前风险与权益确认挂起"
             })
 
@@ -270,6 +299,9 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 "status": "PENDING_CONFIRM"
             }
 
+    except _INTERRUPT_EXCEPTIONS:
+        # LangGraph 原生 interrupt 信号必须直接向外抛出，严禁被 Exception 兜底吞掉！
+        raise
     except Exception as e:
         cprint.error(f"[order_refund_node 异常兜底]: {e}")
         override_response = "系统在处理您的退款申请时遇到临时校验异常，已为您转接人工客服专员为您紧急处理，请稍候..."
@@ -404,7 +436,10 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
 # ================= 智能条件路由 =================
 
 def router_after_analysis(state: AgentState) -> str:
-    """第一级路由：若显式要求人工或意图为 handoff，直接转人工；若涉及订单，进入 order_query 节点"""
+    """第一级路由：若显式要求人工或意图为 handoff，直接转人工；若涉及订单或确认动作，进入 order_query 节点"""
+    if state.get("confirm_action") in ("confirm", "cancel"):
+        return "order_query"
+
     if state.get("explicit_human_request") or state.get("intent") == "handoff":
         return "human_escalation"
     
@@ -420,13 +455,12 @@ def router_after_analysis(state: AgentState) -> str:
     return "qdrant_retrieve"
 
 def router_after_order_query(state: AgentState) -> str:
-    """订单查询后的条件路由：仅当明确为退款申请意图、存在确认动作或处于待确认挂起状态时才进入退款节点"""
+    """订单查询后的条件路由：仅当明确为退款申请意图或存在确认动作时才进入退款节点"""
     action = state.get("confirm_action")
     intent = state.get("intent", "")
-    was_pending = (state.get("refund") or {}).get("status") == "PENDING_CONFIRM"
 
     # [P0-2 修复]：彻底去掉关键字模糊匹配，"退款到账时效查询" 将平滑直达 qdrant_retrieve 回答用户问题
-    if action in ["confirm", "cancel"] or intent == "退款申请与审批" or was_pending:
+    if action in ["confirm", "cancel"] or intent == "退款申请与审批":
         return "order_refund"
     return "qdrant_retrieve"
 

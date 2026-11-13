@@ -874,9 +874,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                                 const oid = msg.queriedOrder!.orderId;
                                 const amt = msg.queriedOrder!.paidAmount;
                                 if (amt < 3.00) {
-                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 < 3元），请通过智能客服帮我直接办理退款！`);
+                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 < 3元），请通过智能客服帮我办理退款！`);
                                 } else {
-                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 >= 3元），请提交工单并转接人工干涉！`);
+                                  handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 >= 3元），请按退款确认流程办理！`);
                                 }
                               }}
                               className="px-2 py-0.5 text-[11px] text-white bg-rose-600 hover:bg-rose-700 rounded-md font-semibold cursor-pointer shadow-2xs transition-colors"

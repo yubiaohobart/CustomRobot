@@ -907,7 +907,11 @@ async function startServer() {
     let escalationReason: string | null = null;
 
     const lowerMsg = message.toLowerCase();
-    const isRefundIntent = ["退款", "退货", "申请退款", "要退", "退钱", "退回"].some((k) => lowerMsg.includes(k));
+    const isFeeQuestion = ["运费", "谁出", "谁付", "包邮", "免运费"].some((k) => lowerMsg.includes(k));
+    const isTimelineQuestion = ["到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效"].some((k) => lowerMsg.includes(k));
+    const isPolicyQuestion = ["7天", "七天", "无理由", "政策", "流程是什么", "可以退吗", "能不能退", "怎么退", "特殊商品", "定制"].some((k) => lowerMsg.includes(k));
+    const isRefundIntent = !isFeeQuestion && !isTimelineQuestion && !isPolicyQuestion && ["申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款", "提交退款", "申请退货", "退钱", "要退", "退款"].some((k) => lowerMsg.includes(k));
+    const isHandoffIntent = !isRefundIntent && ["转人工", "人工", "找人工", "投诉", "人工客服", "客服专员"].some((k) => lowerMsg.includes(k));
 
     // 1. 处理退款二次确认按钮点击事件
     if (refundConfirmationAction === "confirm") {
@@ -935,6 +939,11 @@ async function startServer() {
     } else if (refundConfirmationAction === "cancel") {
       reply = `已为您取消退款申请，订单【${targetOrder.orderId}】将保持正常签收状态。如需其他帮助，随时联系我！`;
       queriedOrder = targetOrder;
+    } else if (isHandoffIntent) {
+      s.status = "NEEDS_INTERVENTION";
+      escalatedToHuman = true;
+      escalationReason = "客户主动要求转人工客服服务";
+      reply = "【智能管家温馨提示】收到您的需求，正在为您无缝转接 XX商城 官方售后值班专员。系统已保留您的完整对话快照与订单记录，请稍候片刻...";
     } else if (isRefundIntent) {
       // 2. 触发退款前交互确认卡片 (Customer Confirmation Gate)
       const amt = targetOrder.paidAmount;
@@ -943,16 +952,16 @@ async function startServer() {
       queriedOrder = targetOrder;
       const ruleText = amt < 3.0 ? "金额 < 3.00 元，确认后将由智能客服直接秒退" : "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核";
       reply = `收到您针对订单【${targetOrder.orderId}】（实付 ¥${amt.toFixed(2)} 元）的退款申请。\n根据商城退款规则（${ruleText}），在正式提交前，请您确认以下权益调整：\n• 订单对应的黄金/钻石会员积分及专属运费补贴将同步收回；\n• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】：`;
-    } else if (["转人工", "人工", "找人工", "投诉", "人工客服", "客服专员"].some((k) => lowerMsg.includes(k))) {
-      s.status = "NEEDS_INTERVENTION";
-      escalatedToHuman = true;
-      escalationReason = "客户主动要求转人工客服服务";
-      reply = "【智能管家温馨提示】收到您的需求，正在为您无缝转接 XX商城 官方售后值班专员。系统已保留您的完整对话快照与订单记录，请稍候片刻...";
+    } else if (isFeeQuestion) {
+      reply = `王女士您好！根据XX商城政策：签收7天内商品完好支持7天无理由退换。虽然个人原因退换通常由买家承担运费，但检测到您是【黄金会员】，享有平台全额补贴的专属“退货免运费”特权，您无需承担任何寄回运费！`;
+    } else if (isTimelineQuestion) {
+      reply = `王女士您好！仓库收到退货商品质检合格后将在48小时内发起退款：支付宝/微信零钱原路退回通常1-3个工作日到账；银行卡/信用卡视发卡行清算周期一般为3-7个工作日。`;
     } else if (["查订单", "物流", "快递", "运单", "到哪了", "顺丰", "发货"].some((k) => lowerMsg.includes(k))) {
       queriedOrder = targetOrder;
       reply = `已为您查询到订单【${targetOrder.orderId}】（${targetOrder.items[0]?.title || "商品"}）的最新物流轨迹：\n承运快递：${targetOrder.express.company}（运单号: ${targetOrder.express.trackingNumber}）\n当前状态：${targetOrder.express.statusDescription}\n最新节点：${targetOrder.express.timeline[0]?.context || "运输中"}`;
-    } else if (["运费", "谁出", "谁付", "包邮", "免运费"].some((k) => lowerMsg.includes(k))) {
-      reply = `王女士您好！根据XX商城政策：签收7天内商品完好支持7天无理由退换。虽然个人原因退换通常由买家承担运费，但检测到您是【黄金会员】，享有平台全额补贴的专属“退货免运费”特权，您无需承担任何寄回运费！`;
+    } else if (isPolicyQuestion) {
+      queriedOrder = targetOrder;
+      reply = `根据XX商城售后规范：签收7天内（商品完好、未拆封使用不影响二次销售）支持7天无理由退换货；黄金/钻石会员享有免运费补贴特权，个人定制刻字、生鲜等特殊商品除外。`;
     } else {
       reply = `您好，王女士！我是XX商城智能客服主管，很高兴为您服务！\n我们已连接商城售后政策知识库与订单中台，您可以向我咨询订单查询、7天无理由退换货、运费补贴、退款到账时效或输入「转人工」接入人工坐席！`;
     }
