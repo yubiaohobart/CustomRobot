@@ -58,7 +58,7 @@ builder.add_conditional_edges(
         "qdrant_retrieve": "qdrant_retrieve"
     }
 )
-builder.add_edge("order_refund", "qdrant_retrieve")
+builder.add_edge("order_refund", END)
 
 # 节点 2 后的条件分支 (检索 -> 人工升级 / DeepSeek 生成)
 builder.add_conditional_edges(
