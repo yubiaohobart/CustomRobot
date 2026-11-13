@@ -5,6 +5,8 @@ LangGraph 状态图执行器与降级调度器 (Workflow Runner)
 
 import asyncio
 from typing import Dict, Any, Optional
+from langgraph.types import Command
+from langgraph.errors import GraphInterrupt
 from core.logger import cprint
 from workflow.state import InputState
 from workflow.graph import customer_service_graph
@@ -18,13 +20,7 @@ from workflow.nodes import (
     router_after_analysis,
     router_after_order_query,
     router_after_retrieval,
-    _INTERRUPT_EXCEPTIONS,
 )
-
-try:
-    from langgraph.types import Command
-except ImportError:
-    Command = None
 
 _session_locks: Dict[str, asyncio.Lock] = {}
 
@@ -142,7 +138,7 @@ async def _run_fallback_pipeline(input_state: InputState, session: Dict[str, Any
         if router_after_order_query(state) == "order_refund":
             try:
                 _merge_node_update(state, order_refund_node(state))
-            except _INTERRUPT_EXCEPTIONS as exc:
+            except GraphInterrupt as exc:
                 intr_val = getattr(exc, "args", [None])[0]
                 if isinstance(intr_val, (list, tuple)) and intr_val:
                     intr_val = intr_val[0]
@@ -170,7 +166,7 @@ async def run_customer_service_graph(
     async with _get_session_lock(session_id):
         try:
             invoke_payload: Any = input_state
-            if input_state.get("confirm_action") in ("confirm", "cancel") and Command is not None:
+            if input_state.get("confirm_action") in ("confirm", "cancel"):
                 try:
                     snapshot = await customer_service_graph.aget_state(graph_config)
                     if _has_pending_interrupt(snapshot):

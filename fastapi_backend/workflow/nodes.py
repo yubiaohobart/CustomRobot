@@ -11,27 +11,8 @@ LangGraph 状态图执行节点与路由定义 (Workflow Nodes)
 
 from typing import Dict, Any, List, Optional, Tuple
 import time
-
-try:
-    from langgraph.types import interrupt
-except ImportError:
-    try:
-        from langgraph.checkpoint.base import interrupt
-    except ImportError:
-        def interrupt(value: Any) -> Any:
-            return value
-
-try:
-    from langgraph.errors import GraphInterrupt, GraphBubbleUp
-    _INTERRUPT_EXCEPTIONS = (GraphInterrupt, GraphBubbleUp)
-except ImportError:
-    try:
-        from langgraph.errors import GraphInterrupt
-        _INTERRUPT_EXCEPTIONS = (GraphInterrupt,)
-    except ImportError:
-        class GraphInterrupt(Exception):
-            pass
-        _INTERRUPT_EXCEPTIONS = (GraphInterrupt,)
+from langgraph.types import interrupt
+from langgraph.errors import GraphInterrupt
 
 from .state import AgentState, Hit, RefundDraft, Intent
 from core.qdrant_store import qdrant_store
@@ -338,7 +319,7 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 order, action, amount, amount_cents, request_id
             )
 
-    except _INTERRUPT_EXCEPTIONS:
+    except GraphInterrupt:
         raise
     except Exception as e:
         cprint.error(f"[order_refund_node 异常兜底]: {e}")
