@@ -45,14 +45,16 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     msg = state.get("user_message", "").lower()
     
-    # 政策/时效/运费咨询检测（防止咨询类问题误触发退款动作或被“申请退货”抢占）
+    # 政策/时效/运费/进度咨询检测（防止咨询类问题误触发退款动作）
     is_fee_or_policy_q = any(k in msg for k in [
         "运费", "谁出", "谁付", "包邮", "免运费",
-        "到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效",
-        "7天", "七天", "无理由", "政策", "流程是什么", "可以退吗", "能不能退", "怎么退"
+        "到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效", "几天",
+        "7天", "七天", "无理由", "政策", "规定", "条件", "流程是什么", "可以退吗", "能不能退", "怎么退", "如何退",
+        "进度", "状态", "审核到哪", "特殊商品", "不能退", "不给退", "定制", "生鲜", "拆封"
     ])
     is_refund_apply = (not is_fee_or_policy_q) and any(k in msg for k in [
-        "申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款", "提交退款", "申请退货"
+        "申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款", "提交退款", "申请退货", "我要退货",
+        "退款", "退货", "退钱", "要退", "退掉"
     ])
 
     # 显式人工请求判定（若用户正在发起“申请退款”且仅说明金额>=3元需人工审核，不跳过确认门槛直接转人工）
@@ -150,7 +152,7 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
             if persisted_order:
                 user_profile = state.get("user_profile", {})
                 profile_name = user_profile.get("name", "")
-                if not profile_name or profile_name in persisted_order.get("userName", ""):
+                if not profile_name or profile_name in ("客户", "访客") or profile_name in persisted_order.get("userName", ""):
                     order = persisted_order
 
         if not order:
