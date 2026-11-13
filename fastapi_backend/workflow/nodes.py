@@ -14,6 +14,7 @@ from services.order_service import order_service
 from config import settings
 from core.logger import cprint, LogColor
 
+# 政策/规则/时效咨询保护词：命中此类词时优先走知识库问答，避免“退货运费谁出”等纯咨询误触发退款确认卡片
 _POLICY_GUARD_KEYWORDS = (
     "运费", "谁出", "谁付", "包邮", "免运费",
     "到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效", "几天",
@@ -22,15 +23,18 @@ _POLICY_GUARD_KEYWORDS = (
     "进度", "状态", "审核到哪", "特殊商品", "不能退", "不给退", "定制", "生鲜", "拆封",
 )
 
+# 显式退款/退货申请触发词（仅在未命中政策咨询保护词时生效）
 _REFUND_APPLY_KEYWORDS = (
     "申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款",
     "提交退款", "申请退货", "我要退货", "退款", "退货", "退钱", "要退", "退掉",
 )
 
+# 强转人工客服关键词（优先级最高，命中后直接路由到 human_escalation）
 _HANDOFF_PURE_KEYWORDS = (
     "转人工", "找人工", "人工客服", "投诉", "消协", "找领导", "不要机器人", "马上帮我转接人工",
 )
 
+# 按业务优先级排序的意图规则表
 _INTENT_RULES: Tuple[Tuple[Intent, Tuple[str, ...]], ...] = (
     ("退款到账时效查询", ("到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效", "几天")),
     ("退换货运费承担与会员权益", ("运费", "谁出", "谁付", "包邮", "免运费")),
@@ -40,6 +44,7 @@ _INTENT_RULES: Tuple[Tuple[Intent, Tuple[str, ...]], ...] = (
     ("1年联保与硬件保修条款", ("保修", "维修", "坏了", "换新", "质保", "联保", "进水", "摔坏")),
 )
 
+# 需要先经过 order_query 节点查询关联订单中台数据的意图集合
 _ORDER_QUERY_INTENTS = frozenset({
     "订单查询与物流追踪",
     "退款申请与审批",
@@ -60,6 +65,7 @@ def _detect_sentiment(msg: str, explicit_handoff: bool) -> str:
 
 
 def _resolve_owned_order(state: AgentState) -> Optional[Dict[str, Any]]:
+    """校验并加载归属当前客户的持久化订单，防止跨客户越权查询或退款"""
     order_id = state.get("order_id")
     if not order_id:
         return None
@@ -182,6 +188,7 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     duration = int((time.time() - t0) * 1000)
     cprint.node("analyze_query", f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}", f"耗时 {duration}ms")
 
+    # 关键：MemorySaver 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染
     return {
         "intent": intent,
         "sentiment": sentiment,
@@ -241,6 +248,7 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         amount_cents = int(round(amount * 100))
         request_id = (state.get("refund") or {}).get("request_id") or f"ref_{oid}_{int(time.time() * 1000)}"
 
+        # 首次发起退款申请（尚未选择确认/取消）：触发 LangGraph interrupt 挂起，向前端下发确认卡片
         if not action and state.get("intent") == "退款申请与审批":
             rule_text = "金额 < 3.00 元，确认后将由智能客服直接秒退" if amount_cents < 300 else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
             override_response = _build_refund_gate_reply(oid, amount, rule_text, order.get("status", ""))
@@ -266,6 +274,7 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 "card": gate_card,
             })
 
+            # 通过 Command(resume=...) 恢复时，提取前端回传的 confirm/cancel 动作
             if isinstance(resume_data, dict):
                 action = resume_data.get("action") or resume_data.get("confirm_action") or action
             elif isinstance(resume_data, str) and resume_data in ("confirm", "cancel"):
@@ -274,12 +283,14 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
             if not action:
                 refund_draft = {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "PENDING_CONFIRM"}
 
+        # 已获得客户确认或取消动作（包括通过 Command(resume=...) 恢复或显式 confirm_action 重入）：执行退款/取消分流
         if action in ("confirm", "cancel"):
             order, override_response, refund_draft, escalate_human, escalation_reason = _execute_refund_action(
                 order, action, amount, amount_cents, request_id
             )
 
     except GraphInterrupt:
+        # 必须原样向上抛出 LangGraph 中断信号，交由 Checkpointer 保存现场并中断图执行（绝不能被通用异常捕获）
         raise
     except Exception as e:
         cprint.error(f"[order_refund_node 异常兜底]: {e}")
@@ -378,6 +389,7 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
 # ================= 智能条件路由 =================
 
 def router_after_analysis(state: AgentState) -> str:
+    """意图分析后的路由：二次确认动作或涉订单意图先查订单，纯转人工直接升级，其余直接走向量检索"""
     if state.get("confirm_action") in ("confirm", "cancel"):
         return "order_query"
     if state.get("intent") == "handoff":
@@ -388,12 +400,14 @@ def router_after_analysis(state: AgentState) -> str:
 
 
 def router_after_order_query(state: AgentState) -> str:
+    """订单查询后的路由：退款申请或确认回调进 order_refund，纯查物流/查政策进知识检索"""
     if state.get("confirm_action") in ("confirm", "cancel") or state.get("intent") == "退款申请与审批":
         return "order_refund"
     return "qdrant_retrieve"
 
 
 def router_after_retrieval(state: AgentState) -> str:
+    """向量检索后的路由：命中得分低于阈值且客户情绪焦躁/愤怒时转人工防误答，否则交由 DeepSeek 生成"""
     hits = state.get("hits", [])
     top_score = hits[0]["score"] if hits else 0.0
     if top_score < settings.SIMILARITY_THRESHOLD and state.get("sentiment") in ("frustrated", "angry"):

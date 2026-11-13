@@ -24,28 +24,70 @@ class MemoryService:
         # 依赖 storage_service 实现跨进程、跨重启持久化固化
         pass
 
+    def _ensure_session_defaults(self, session: Dict[str, Any], user_profile: Optional[Dict[str, Any]] = None) -> bool:
+        """补齐缺损字段并将新传入的 userProfile 增量合并进会话画像，返回是否发生变更"""
+        changed = False
+        if "metrics" not in session or not isinstance(session["metrics"], dict):
+            session["metrics"] = {"totalTurns": len(session.get("messages", [])), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
+            changed = True
+        if "customerProfile" not in session or not isinstance(session["customerProfile"], dict):
+            session["customerProfile"] = {
+                "name": session.get("userName", "客户"),
+                "vipLevel": "普通会员",
+                "sentiment": "neutral",
+                "urgency": "中",
+                "intent": "常规业务咨询",
+                "tags": ["普通会员"],
+                "orderId": ""
+            }
+            changed = True
+
+        if user_profile:
+            profile = session["customerProfile"]
+            for k, v in user_profile.items():
+                if v is not None and v != "" and profile.get(k) != v:
+                    profile[k] = v
+                    changed = True
+            resolved_name = user_profile.get("name") or user_profile.get("userName")
+            if resolved_name and profile.get("name") != resolved_name:
+                profile["name"] = resolved_name
+                session["userName"] = resolved_name
+                changed = True
+            resolved_vip = user_profile.get("vipLevel") or user_profile.get("tier")
+            if resolved_vip and profile.get("vipLevel") != resolved_vip:
+                profile["vipLevel"] = resolved_vip
+                changed = True
+
+        return changed
+
     def get_or_create_session(self, session_id: str, user_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         session = storage_service.get_session(session_id)
         if session:
-            # 补齐缺损字段兼容旧数据
-            if "metrics" not in session or not isinstance(session["metrics"], dict):
-                session["metrics"] = {"totalTurns": len(session.get("messages", [])), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
-            if "customerProfile" not in session or not isinstance(session["customerProfile"], dict):
-                session["customerProfile"] = {
-                    "name": session.get("userName", "客户"),
-                    "vipLevel": "普通会员",
-                    "sentiment": "neutral",
-                    "urgency": "中",
-                    "intent": "常规业务咨询",
-                    "tags": ["普通会员"],
-                    "orderId": ""
-                }
+            if self._ensure_session_defaults(session, user_profile):
+                session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                storage_service.save_session(session)
             return session
 
         # 不存在则创建并立即固化到磁盘
-        name = (user_profile or {}).get("name", "客户")
-        vip = (user_profile or {}).get("vipLevel", "普通会员")
+        up = user_profile or {}
+        name = up.get("name") or up.get("userName") or "客户"
+        vip = up.get("vipLevel") or up.get("tier") or "普通会员"
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        profile = {
+            "name": name,
+            "phone": up.get("phone", ""),
+            "vipLevel": vip,
+            "sentiment": up.get("sentiment", "neutral"),
+            "urgency": up.get("urgency", "中"),
+            "intent": up.get("intent", "售后咨询"),
+            "tags": up.get("tags", [vip]),
+            "orderId": up.get("orderId", f"ORD-2026-{uuid.uuid4().hex[:6].upper()}"),
+        }
+        # 保留前端/调用方传入的额外上下文键（如 tier、userId、recentOrder 等）
+        for k, v in up.items():
+            if k not in profile and v is not None:
+                profile[k] = v
 
         new_session = {
             "id": session_id,
@@ -53,16 +95,7 @@ class MemoryService:
             "status": "AI_HANDLING",
             "assignedAgent": None,
             "assignedAgentId": None,
-            "customerProfile": {
-                "name": name,
-                "phone": (user_profile or {}).get("phone", ""),
-                "vipLevel": vip,
-                "sentiment": (user_profile or {}).get("sentiment", "neutral"),
-                "urgency": (user_profile or {}).get("urgency", "中"),
-                "intent": (user_profile or {}).get("intent", "售后咨询"),
-                "tags": (user_profile or {}).get("tags", [vip]),
-                "orderId": (user_profile or {}).get("orderId", f"ORD-2026-{uuid.uuid4().hex[:6].upper()}")
-            },
+            "customerProfile": profile,
             "summaryMemory": f"{name}（{vip}）于今日建立咨询连接。",
             "messages": [],
             "metrics": {
@@ -80,9 +113,9 @@ class MemoryService:
         storage_service.save_session(new_session)
         return new_session
 
-    def add_message(
+    def _append_message_in_place(
         self,
-        session_id: str,
+        session: Dict[str, Any],
         role: str,
         content: str,
         confidence_score: Optional[float] = None,
@@ -90,17 +123,15 @@ class MemoryService:
         step_trace: Optional[List[Dict[str, Any]]] = None,
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
-        pending_refund_order: Optional[Dict[str, Any]] = None
+        pending_refund_order: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        session = self.get_or_create_session(session_id)
+        """在已加载的 session 对象上原地追加消息与摘要更新（不单独落盘）"""
         msg_id = f"m_{int(time.time() * 1000)}_{len(session.get('messages', []))}"
-        now_time = time.strftime("%H:%M:%S")
-
-        msg = {
+        msg: Dict[str, Any] = {
             "id": msg_id,
             "role": role,
             "content": content,
-            "timestamp": now_time
+            "timestamp": time.strftime("%H:%M:%S"),
         }
         if confidence_score is not None:
             msg["confidenceScore"] = confidence_score
@@ -118,12 +149,9 @@ class MemoryService:
                 msg["queriedOrder"] = pending_refund_order
 
         session.setdefault("messages", []).append(msg)
-        if "metrics" not in session or not isinstance(session["metrics"], dict):
-            session["metrics"] = {"totalTurns": len(session["messages"]), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
-        else:
-            session["metrics"]["totalTurns"] = len(session["messages"])
+        self._ensure_session_defaults(session)
+        session["metrics"]["totalTurns"] = len(session["messages"])
 
-        # 增量更新摘要
         summary = session.get("summaryMemory", "")
         if role == "user":
             session["summaryMemory"] = (summary + f" 客户提问：'{content}'；")[-1000:]
@@ -132,10 +160,107 @@ class MemoryService:
             session["summaryMemory"] = (summary + f" {prefix}：'{content[:60]}...'；")[-1000:]
 
         session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return msg
 
-        # 立即固化存储至磁盘 sessions.json
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        confidence_score: Optional[float] = None,
+        references: Optional[List[Dict[str, Any]]] = None,
+        step_trace: Optional[List[Dict[str, Any]]] = None,
+        queried_order: Optional[Dict[str, Any]] = None,
+        refund_confirmation_pending: Optional[bool] = None,
+        pending_refund_order: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        session = self.get_or_create_session(session_id)
+        msg = self._append_message_in_place(
+            session,
+            role,
+            content,
+            confidence_score=confidence_score,
+            references=references,
+            step_trace=step_trace,
+            queried_order=queried_order,
+            refund_confirmation_pending=refund_confirmation_pending,
+            pending_refund_order=pending_refund_order,
+        )
         storage_service.save_session(session)
         return msg
+
+    def record_user_turn(
+        self,
+        session_id: str,
+        content: str,
+        user_profile: Optional[Dict[str, Any]] = None,
+        human_takeover_statuses: Tuple[str, ...] = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN"),
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """单次读写完成：获取/创建会话 + 合并最新画像 + 写入用户消息 + 人工模式未读标记 + 落盘"""
+        session = storage_service.get_session(session_id)
+        if session:
+            self._ensure_session_defaults(session, user_profile)
+        else:
+            session = self.get_or_create_session(session_id, user_profile)
+
+        if session.get("status") in human_takeover_statuses:
+            session["unreadForAgent"] = True
+
+        user_msg = self._append_message_in_place(session, "user", content)
+        storage_service.save_session(session)
+        return user_msg, session
+
+    def record_ai_turn(
+        self,
+        session_id: str,
+        reply: str,
+        *,
+        intent: str,
+        sentiment: str,
+        latency_ms: int,
+        confidence_score: float,
+        handoff: bool,
+        references: Optional[List[Dict[str, Any]]] = None,
+        step_trace: Optional[List[Dict[str, Any]]] = None,
+        queried_order: Optional[Dict[str, Any]] = None,
+        refund_confirmation_pending: Optional[bool] = None,
+        pending_refund_order: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 真实延迟/置信度指标 + AI消息落盘"""
+        session = self.get_or_create_session(session_id)
+        profile = session["customerProfile"]
+        profile["intent"] = intent
+        profile["sentiment"] = sentiment
+
+        metrics = session["metrics"]
+        ai_count = sum(1 for m in session.get("messages", []) if m.get("role") == "assistant")
+        if ai_count == 0:
+            metrics["avgLatencyMs"] = latency_ms
+            metrics["avgConfidence"] = round(confidence_score, 4)
+        else:
+            metrics["avgLatencyMs"] = int((metrics.get("avgLatencyMs", latency_ms) * ai_count + latency_ms) / (ai_count + 1))
+            metrics["avgConfidence"] = round((metrics.get("avgConfidence", confidence_score) * ai_count + confidence_score) / (ai_count + 1), 4)
+
+        if handoff:
+            if session.get("status") == "AI_HANDLING":
+                session["status"] = "NEEDS_INTERVENTION"
+            session["unreadForAgent"] = True
+            if not metrics.get("escalatedAt"):
+                metrics["escalatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        assistant_msg = self._append_message_in_place(
+            session,
+            "assistant",
+            reply,
+            confidence_score=confidence_score,
+            references=references,
+            step_trace=step_trace,
+            queried_order=queried_order,
+            refund_confirmation_pending=refund_confirmation_pending,
+            pending_refund_order=pending_refund_order,
+        )
+        storage_service.save_session(session)
+        return assistant_msg, session
 
     def transfer_session(
         self,

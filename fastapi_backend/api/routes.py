@@ -24,28 +24,32 @@ from core.llm import deepseek_client
 from services.memory_service import memory_service
 from services.order_service import order_service
 from services.websocket_manager import ws_manager
-from workflow.runner import run_customer_service_graph
+from workflow.runner import run_customer_service_graph, get_session_lock
 from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
 
 _DURATION_RE = re.compile(r"\((\d+)ms\)")
+_HUMAN_TAKEOVER_STATUSES = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN")
 
 
 async def _emit_message_event(session_id: str, message: Dict[str, Any], session: Optional[Dict[str, Any]]) -> None:
-    """统一推送单会话新消息与全局会话列表更新事件"""
-    await ws_manager.broadcast_to_session(session_id, {
-        "type": "message:new",
-        "sessionId": session_id,
-        "message": message,
-        "session": session,
-    })
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": session_id,
-        "session": session,
-    })
+    """统一推送单会话新消息与全局会话列表更新事件（隔离 WS 异常以免影响 HTTP 主响应）"""
+    try:
+        await ws_manager.broadcast_to_session(session_id, {
+            "type": "message:new",
+            "sessionId": session_id,
+            "message": message,
+            "session": session,
+        })
+        await ws_manager.broadcast_all({
+            "type": "session:update",
+            "sessionId": session_id,
+            "session": session,
+        })
+    except Exception as e:
+        cprint.warning(f"WebSocket 广播失败 (已忽略，不影响主请求): {e}")
 
 
 def _build_human_takeover_response(session_id: str, session: Dict[str, Any], t_start: float) -> ChatResponse:
@@ -69,12 +73,12 @@ def _build_human_takeover_response(session_id: str, session: Dict[str, Any], t_s
     )
 
 
-def _format_references(hits: List[Dict[str, Any]], fallback_score: float) -> List[Dict[str, Any]]:
+def _format_references(hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
         {
             "id": h.get("id", ""),
             "title": h.get("title", ""),
-            "score": round(float(h.get("score", fallback_score)), 4),
+            "score": round(float(h.get("score", 0.0)), 4),
             "snippet": h.get("snippet", ""),
         }
         for h in hits
@@ -134,73 +138,81 @@ async def chat_get_info():
 async def chat_endpoint(req: ChatRequest):
     """
     智能客服问答主入口：
-    接收客户消息 -> LangGraph 状态机编排 -> BGE-M3 向量检索 -> Qdrant 召回 -> DeepSeek 生成 -> 记忆留存
+    按会话加锁 -> 记录用户消息 -> 人工接管检查 -> LangGraph 状态机 -> 回写画像/指标/回复 -> WS 广播
     """
     t_start = time.time()
-    session = memory_service.get_or_create_session(req.sessionId, req.userProfile)
-    profile = session.get("customerProfile") or {}
-    tier = profile.get("vipLevel") or profile.get("tier") or "NORMAL"
-    user_name = profile.get("name") or profile.get("userName") or "访客"
+    message_text = req.message.strip()
+    if not message_text:
+        raise HTTPException(status_code=422, detail="消息内容不能为空")
 
-    print(f"\n{LogColor.BOLD}{LogColor.BRIGHT_CYAN}💬 [收到客户问答请求]{LogColor.RESET} 会话: {req.sessionId} | 客户: {user_name} ({tier})")
-    print(f"   {LogColor.WHITE}❓ 消息内容: \"{req.message}\"{LogColor.RESET}")
+    async with get_session_lock(req.sessionId):
+        # 1. 记录客户输入与最新画像（单次持久化）并推送至 WebSocket
+        user_msg, session = memory_service.record_user_turn(
+            req.sessionId,
+            message_text,
+            user_profile=req.userProfile,
+            human_takeover_statuses=_HUMAN_TAKEOVER_STATUSES,
+        )
+        profile = session.get("customerProfile") or {}
+        tier = profile.get("vipLevel") or profile.get("tier") or "NORMAL"
+        user_name = profile.get("name") or profile.get("userName") or "访客"
+        cprint.info(f"💬 [收到客户问答] 会话: {req.sessionId} | 客户: {user_name} ({tier}) | 内容: \"{message_text}\"")
 
-    # 记录客户输入并实时推送
-    user_msg = memory_service.add_message(req.sessionId, "user", req.message)
-    session = memory_service.get_session(req.sessionId) or session
-    await _emit_message_event(req.sessionId, user_msg, session)
+        await _emit_message_event(req.sessionId, user_msg, session)
 
-    # 若当前会话已被人工接管，直接走人工坐席协同通道
-    if session.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
-        cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
-        return _build_human_takeover_response(req.sessionId, session, t_start)
+        # 2. 若当前会话已被人工接管，AI 暂停自主介入，直接返回坐席协同提示
+        if session.get("status") in _HUMAN_TAKEOVER_STATUSES:
+            cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
+            return _build_human_takeover_response(req.sessionId, session, t_start)
 
-    # 执行 LangGraph 状态机（包含 interrupt 挂起提取、Command 恢复与异常降级）
-    final_state = await run_customer_service_graph(
-        session_id=req.sessionId,
-        message=req.message,
-        confirm_action=req.refundConfirmationAction,
-        session=session,
-    )
+        # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
+        final_state = await run_customer_service_graph(
+            session_id=req.sessionId,
+            message=message_text,
+            confirm_action=req.refundConfirmationAction,
+            session=session,
+            acquire_lock=False,
+        )
 
-    latency_ms = int((time.time() - t_start) * 1000)
-    reply = final_state.get("reply") or "非常抱歉，暂时未能查询到对应政策，请联系人工服务。"
-    hits = final_state.get("hits", [])
-    order_id = final_state.get("order_id")
-    current_order = order_service.get_order_by_id(order_id) if order_id else None
-    refund_draft = final_state.get("refund")
-    refund_pending = refund_draft is not None and refund_draft.get("status") == "PENDING_CONFIRM"
-    handoff = bool(final_state.get("handoff", False))
+        latency_ms = int((time.time() - t_start) * 1000)
+        reply = final_state.get("reply") or "非常抱歉，暂时未能查询到对应政策，请联系人工服务。"
+        hits = final_state.get("hits", [])
+        intent = final_state.get("intent", "常规售后咨询")
+        sentiment = final_state.get("sentiment", "neutral")
+        order_id = final_state.get("order_id")
+        current_order = order_service.get_order_by_id(order_id) if order_id else None
+        refund_draft = final_state.get("refund")
+        refund_pending = refund_draft is not None and refund_draft.get("status") == "PENDING_CONFIRM"
+        handoff = bool(final_state.get("handoff", False))
 
-    # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给 0.95；其余无命中给 0.0
-    if hits:
-        conf_score = round(float(hits[0]["score"]), 4)
-    elif refund_pending or refund_draft or handoff:
-        conf_score = 0.95
-    else:
-        conf_score = 0.0
+        # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给 0.95；其余无命中给 0.0
+        if hits:
+            conf_score = round(float(hits[0]["score"]), 4)
+        elif refund_pending or refund_draft or handoff:
+            conf_score = 0.95
+        else:
+            conf_score = 0.0
 
-    references = _format_references(hits, conf_score)
-    step_trace = _format_step_trace(final_state.get("trace", []))
+        references = _format_references(hits)
+        step_trace = _format_step_trace(final_state.get("trace", []))
 
-    # 先同步人工介入状态并落盘，再写入助手消息并广播最新会话状态
-    if handoff and session.get("status") == "AI_HANDLING":
-        memory_service.update_session_status(req.sessionId, "NEEDS_INTERVENTION")
+        # 4. 一次性回写意图/情绪画像、人工升级状态、真实指标与 AI 回复并落盘
+        assistant_msg, updated_session = memory_service.record_ai_turn(
+            req.sessionId,
+            reply,
+            intent=intent,
+            sentiment=sentiment,
+            latency_ms=latency_ms,
+            confidence_score=conf_score,
+            handoff=handoff,
+            references=references,
+            step_trace=step_trace,
+            queried_order=current_order,
+            refund_confirmation_pending=refund_pending,
+            pending_refund_order=current_order if refund_pending else None,
+        )
 
-    assistant_msg = memory_service.add_message(
-        req.sessionId,
-        "assistant",
-        reply,
-        confidence_score=conf_score,
-        references=references,
-        step_trace=step_trace,
-        queried_order=current_order,
-        refund_confirmation_pending=refund_pending,
-        pending_refund_order=current_order if refund_pending else None,
-    )
-    updated_session = memory_service.get_session(req.sessionId) or session
     await _emit_message_event(req.sessionId, assistant_msg, updated_session)
-
     cprint.success(
         f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})"
     )
@@ -209,8 +221,8 @@ async def chat_endpoint(req: ChatRequest):
         sessionId=req.sessionId,
         reply=reply,
         confidenceScore=conf_score,
-        sentiment=final_state.get("sentiment", "neutral"),
-        intent=final_state.get("intent", "常规售后咨询"),
+        sentiment=sentiment,
+        intent=intent,
         escalatedToHuman=handoff,
         escalationReason=final_state.get("escalation_reason"),
         references=references,
