@@ -19,6 +19,8 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="用户咨询内容")
     userProfile: Optional[Dict[str, Any]] = Field(default=None, description="客户画像（VIP等级、关联订单等）")
     refundConfirmationAction: Optional[str] = Field(default=None, description="退款二次确认动作：'confirm' (确认提交) 或 'cancel' (取消退款)")
+    refundOrderId: Optional[str] = Field(default=None, description="待确认退款的目标订单号（用于断点恢复或重入防串单）")
+    refundRequestId: Optional[str] = Field(default=None, description="退款确认请求幂等流水号（防止重复提交）")
 
 class ChatResponse(BaseModel):
     sessionId: str
@@ -32,6 +34,8 @@ class ChatResponse(BaseModel):
     queriedOrder: Optional[Dict[str, Any]] = None
     refundConfirmationPending: bool = False
     pendingRefundOrder: Optional[Dict[str, Any]] = None
+    refundOrderId: Optional[str] = None
+    refundRequestId: Optional[str] = None
     latencyMs: int = 35
     stepTrace: List[Union[Dict[str, Any], str]] = Field(default_factory=list)
     session: Optional[Dict[str, Any]] = None

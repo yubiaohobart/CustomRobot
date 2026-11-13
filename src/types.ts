@@ -114,6 +114,8 @@ export interface ChatMessage {
   queriedOrder?: OrderData;
   refundConfirmationPending?: boolean;
   pendingRefundOrder?: OrderData;
+  refundOrderId?: string;
+  refundRequestId?: string;
 }
 
 export interface CustomerProfile {

@@ -47,6 +47,8 @@ class InputState(TypedDict, total=False):
     user_id: str                                        # 客户唯一标识，用于日志追踪与归属校验
     user_message: str                                   # 本轮客户发送的原始消息文本
     confirm_action: Optional[Literal["confirm", "cancel"]]  # 退款确认卡片回调动作："confirm"=确认提交 / "cancel"=取消 / None=常规对话
+    refund_order_id: Optional[str]                      # 退款确认回调携带的目标订单号（Checkpointer 丢失时的防串单兜底）
+    refund_request_id: Optional[str]                    # 退款确认回调携带的幂等流水号（确保挂起->恢复使用同一 request_id）
     user_profile: Optional[Dict[str, Any]]              # 客户画像（姓名、会员等级 vipLevel/tier 等，用于订单校验与个性化回答）
     memory_summary: str                                 # 会话长期记忆摘要（跨轮次上下文沉淀，供 DeepSeek 生成连贯回复）
 

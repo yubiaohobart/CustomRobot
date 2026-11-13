@@ -279,7 +279,11 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const handleSendMessage = async (textToSend?: string, actionParam?: string) => {
+  const handleSendMessage = async (
+    textToSend?: string,
+    actionParam?: string,
+    refundCtx?: { orderId?: string; requestId?: string }
+  ) => {
     const text = (textToSend || inputMessage).trim();
     if (!text || loading) return;
 
@@ -305,7 +309,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         body: JSON.stringify({
           sessionId: currentSessionId,
           message: text,
-          refundConfirmationAction: actionParam || null
+          refundConfirmationAction: actionParam || null,
+          refundOrderId: refundCtx?.orderId || null,
+          refundRequestId: refundCtx?.requestId || null,
         }),
       });
 
@@ -313,12 +319,14 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         const data = await res.json();
         if (data.session) {
           const rawMessages: ChatMessage[] = data.session.messages || [];
-          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending) && rawMessages.length > 0) {
+          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending || data.refundRequestId) && rawMessages.length > 0) {
             const lastMsg = rawMessages[rawMessages.length - 1];
             if (lastMsg.role === "assistant") {
               if (data.queriedOrder) lastMsg.queriedOrder = data.queriedOrder;
               if (data.pendingRefundOrder) lastMsg.pendingRefundOrder = data.pendingRefundOrder;
               if (data.refundConfirmationPending !== undefined) lastMsg.refundConfirmationPending = data.refundConfirmationPending;
+              if (data.refundOrderId) lastMsg.refundOrderId = data.refundOrderId;
+              if (data.refundRequestId) lastMsg.refundRequestId = data.refundRequestId;
             }
           }
           setSession(data.session);
@@ -987,7 +995,10 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         {/* Action Buttons */}
                         <div className="pt-1 flex items-center gap-2">
                           <button
-                            onClick={() => handleSendMessage("我确认提交退款申请", "confirm")}
+                            onClick={() => handleSendMessage("我确认提交退款申请", "confirm", {
+                              orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
+                              requestId: msg.refundRequestId,
+                            })}
                             disabled={loading}
                             className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                           >
@@ -996,7 +1007,10 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                           </button>
 
                           <button
-                            onClick={() => handleSendMessage("取消退款申请", "cancel")}
+                            onClick={() => handleSendMessage("取消退款申请", "cancel", {
+                              orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
+                              requestId: msg.refundRequestId,
+                            })}
                             disabled={loading}
                             className="flex-1 py-2.5 px-3 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                           >

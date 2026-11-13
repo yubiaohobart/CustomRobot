@@ -147,11 +147,12 @@ class OrderService:
         self,
         order_id: str,
         reason: str = "7天无理由退货",
-        refund_amount: Optional[float] = None
+        refund_amount: Optional[float] = None,
+        request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        处理客户订单退款申请：
-        核心逻辑：
+        处理客户订单退款申请（支持基于 request_id 的请求级幂等控制）：
+        - 若同一个 request_id 已处理过，直接返回当前订单状态，避免重复提交或覆盖审计记录
         - 若退款金额 < 3.00 元：智能客服直接秒退（无需人工干涉），状态变更为 REFUNDED / AUTO_REFUNDED
         - 若退款金额 >= 3.00 元：需人工干涉与资金安全审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
         """
@@ -159,12 +160,20 @@ class OrderService:
         if not order:
             raise ValueError(f"订单 {order_id} 不存在")
 
+        after_sales = order.get("afterSales", {})
+        processed_ids = list(after_sales.get("processedRequestIds") or [])
+        if request_id and request_id in processed_ids:
+            return order
+
         amount = refund_amount if refund_amount is not None and refund_amount > 0 else float(order.get("paidAmount", 0.0))
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        after_sales = order.get("afterSales", {})
         after_sales["refundAmount"] = amount
         after_sales["refundReason"] = reason
+        if request_id:
+            after_sales["lastRequestId"] = request_id
+            processed_ids.append(request_id)
+            after_sales["processedRequestIds"] = processed_ids[-20:]
 
         # 判断是否需要人工干涉 (金额大于等于3元)
         requires_audit = amount >= 3.00

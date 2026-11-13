@@ -166,11 +166,17 @@ async def chat_endpoint(req: ChatRequest):
             return _build_human_takeover_response(req.sessionId, session, t_start)
 
         # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
+        pending_refund = session.get("pendingRefund") or {}
+        req_refund_order_id = req.refundOrderId or pending_refund.get("orderId")
+        req_refund_request_id = req.refundRequestId or pending_refund.get("requestId")
+
         final_state = await run_customer_service_graph(
             session_id=req.sessionId,
             message=message_text,
             confirm_action=req.refundConfirmationAction,
             session=session,
+            refund_order_id=req_refund_order_id,
+            refund_request_id=req_refund_request_id,
             acquire_lock=False,
         )
 
@@ -181,8 +187,10 @@ async def chat_endpoint(req: ChatRequest):
         sentiment = final_state.get("sentiment", "neutral")
         order_id = final_state.get("order_id")
         current_order = order_service.get_order_by_id(order_id) if order_id else None
-        refund_draft = final_state.get("refund")
-        refund_pending = refund_draft is not None and refund_draft.get("status") == "PENDING_CONFIRM"
+        refund_draft = final_state.get("refund") or {}
+        refund_pending = refund_draft.get("status") == "PENDING_CONFIRM"
+        refund_order_id = refund_draft.get("order_id") or (order_id if refund_pending else None)
+        refund_request_id = refund_draft.get("request_id")
         handoff = bool(final_state.get("handoff", False))
 
         # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给 0.95；其余无命中给 0.0
@@ -196,7 +204,7 @@ async def chat_endpoint(req: ChatRequest):
         references = _format_references(hits)
         step_trace = _format_step_trace(final_state.get("trace", []))
 
-        # 4. 一次性回写意图/情绪画像、人工升级状态、真实指标与 AI 回复并落盘
+        # 4. 一次性回写意图/情绪画像、人工升级状态、挂起退款上下文、真实指标与 AI 回复并落盘
         assistant_msg, updated_session = memory_service.record_ai_turn(
             req.sessionId,
             reply,
@@ -210,6 +218,9 @@ async def chat_endpoint(req: ChatRequest):
             queried_order=current_order,
             refund_confirmation_pending=refund_pending,
             pending_refund_order=current_order if refund_pending else None,
+            refund_order_id=refund_order_id,
+            refund_request_id=refund_request_id,
+            clear_pending_refund=bool(req.refundConfirmationAction in ("confirm", "cancel") and not refund_pending),
         )
 
     await _emit_message_event(req.sessionId, assistant_msg, updated_session)
@@ -229,6 +240,8 @@ async def chat_endpoint(req: ChatRequest):
         queriedOrder=current_order,
         refundConfirmationPending=refund_pending,
         pendingRefundOrder=current_order if refund_pending else None,
+        refundOrderId=refund_order_id if refund_pending else None,
+        refundRequestId=refund_request_id if refund_pending else None,
         latencyMs=latency_ms,
         stepTrace=step_trace,
         session=updated_session,

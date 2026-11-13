@@ -317,7 +317,11 @@ export const DualChatView: React.FC = () => {
   }, [session?.messages]);
 
   // Customer Send Action
-  const handleCustomerSend = async (customText?: string, actionParam?: string) => {
+  const handleCustomerSend = async (
+    customText?: string,
+    actionParam?: string,
+    refundCtx?: { orderId?: string; requestId?: string }
+  ) => {
     const text = (customText || customerInput).trim();
     if (!text || customerLoading) return;
 
@@ -349,7 +353,9 @@ export const DualChatView: React.FC = () => {
         body: JSON.stringify({
           sessionId: selectedSessionId,
           message: text,
-          refundConfirmationAction: actionParam || null
+          refundConfirmationAction: actionParam || null,
+          refundOrderId: refundCtx?.orderId || null,
+          refundRequestId: refundCtx?.requestId || null,
         }),
       });
       if (res.ok) {
@@ -362,12 +368,14 @@ export const DualChatView: React.FC = () => {
         }
         if (data.session) {
           const rawMessages: ChatMessage[] = data.session.messages || [];
-          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending) && rawMessages.length > 0) {
+          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending || data.refundRequestId) && rawMessages.length > 0) {
             const lastMsg = rawMessages[rawMessages.length - 1];
             if (lastMsg.role === "assistant") {
               if (data.queriedOrder) lastMsg.queriedOrder = data.queriedOrder;
               if (data.pendingRefundOrder) lastMsg.pendingRefundOrder = data.pendingRefundOrder;
               if (data.refundConfirmationPending !== undefined) lastMsg.refundConfirmationPending = data.refundConfirmationPending;
+              if (data.refundOrderId) lastMsg.refundOrderId = data.refundOrderId;
+              if (data.refundRequestId) lastMsg.refundRequestId = data.refundRequestId;
             }
           }
           setSession((prev) => {
@@ -924,7 +932,10 @@ export const DualChatView: React.FC = () => {
                           {/* Action Buttons */}
                           <div className="pt-0.5 flex items-center gap-2">
                             <button
-                              onClick={() => handleCustomerSend("我确认提交退款申请", "confirm")}
+                              onClick={() => handleCustomerSend("我确认提交退款申请", "confirm", {
+                                orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
+                                requestId: msg.refundRequestId,
+                              })}
                               disabled={customerLoading}
                               className="flex-1 py-2 px-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
                             >
@@ -933,7 +944,10 @@ export const DualChatView: React.FC = () => {
                             </button>
 
                             <button
-                              onClick={() => handleCustomerSend("取消退款申请", "cancel")}
+                              onClick={() => handleCustomerSend("取消退款申请", "cancel", {
+                                orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
+                                requestId: msg.refundRequestId,
+                              })}
                               disabled={customerLoading}
                               className="flex-1 py-2 px-2.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-300 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
                             >

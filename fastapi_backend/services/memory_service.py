@@ -124,6 +124,8 @@ class MemoryService:
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
         pending_refund_order: Optional[Dict[str, Any]] = None,
+        refund_order_id: Optional[str] = None,
+        refund_request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """在已加载的 session 对象上原地追加消息与摘要更新（不单独落盘）"""
         msg_id = f"m_{int(time.time() * 1000)}_{len(session.get('messages', []))}"
@@ -147,6 +149,10 @@ class MemoryService:
             msg["pendingRefundOrder"] = pending_refund_order
             if "queriedOrder" not in msg:
                 msg["queriedOrder"] = pending_refund_order
+        if refund_order_id:
+            msg["refundOrderId"] = refund_order_id
+        if refund_request_id:
+            msg["refundRequestId"] = refund_request_id
 
         session.setdefault("messages", []).append(msg)
         self._ensure_session_defaults(session)
@@ -225,12 +231,20 @@ class MemoryService:
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
         pending_refund_order: Optional[Dict[str, Any]] = None,
+        refund_order_id: Optional[str] = None,
+        refund_request_id: Optional[str] = None,
+        clear_pending_refund: bool = False,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 真实延迟/置信度指标 + AI消息落盘"""
+        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 挂起退款上下文 + 真实指标 + AI消息落盘"""
         session = self.get_or_create_session(session_id)
         profile = session["customerProfile"]
         profile["intent"] = intent
         profile["sentiment"] = sentiment
+
+        if refund_confirmation_pending and refund_order_id and refund_request_id:
+            session["pendingRefund"] = {"orderId": refund_order_id, "requestId": refund_request_id}
+        elif clear_pending_refund:
+            session["pendingRefund"] = None
 
         metrics = session["metrics"]
         ai_count = sum(1 for m in session.get("messages", []) if m.get("role") == "assistant")
@@ -258,6 +272,8 @@ class MemoryService:
             queried_order=queried_order,
             refund_confirmation_pending=refund_confirmation_pending,
             pending_refund_order=pending_refund_order,
+            refund_order_id=refund_order_id if refund_confirmation_pending else None,
+            refund_request_id=refund_request_id if refund_confirmation_pending else None,
         )
         storage_service.save_session(session)
         return assistant_msg, session
