@@ -2,6 +2,7 @@
 FastAPI 核心业务路由分发器 (API Routes)
 """
 
+import re
 import time
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -17,27 +18,83 @@ from models.schemas import (
     GenerateSuggestionRequest,
     TestRequest
 )
-from workflow.state import AgentState
 from core.qdrant_store import qdrant_store
 from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
 from services.memory_service import memory_service
 from services.order_service import order_service
 from services.websocket_manager import ws_manager
-from workflow.graph import customer_service_graph
-from workflow.nodes import (
-    order_query_node,
-    qdrant_retrieve_node,
-    deepseek_generate_node
-)
-try:
-    from langgraph.types import Command
-except ImportError:
-    Command = None
+from workflow.runner import run_customer_service_graph
 from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
 
 router = APIRouter(prefix="/api")
+
+_DURATION_RE = re.compile(r"\((\d+)ms\)")
+
+
+async def _emit_message_event(session_id: str, message: Dict[str, Any], session: Optional[Dict[str, Any]]) -> None:
+    """统一推送单会话新消息与全局会话列表更新事件"""
+    await ws_manager.broadcast_to_session(session_id, {
+        "type": "message:new",
+        "sessionId": session_id,
+        "message": message,
+        "session": session,
+    })
+    await ws_manager.broadcast_all({
+        "type": "session:update",
+        "sessionId": session_id,
+        "session": session,
+    })
+
+
+def _build_human_takeover_response(session_id: str, session: Dict[str, Any], t_start: float) -> ChatResponse:
+    """会话处于人工接管状态时的早退响应"""
+    return ChatResponse(
+        sessionId=session_id,
+        reply="您的消息已送达人工专员，坐席正在与您实时沟通中...",
+        confidenceScore=1.0,
+        sentiment="neutral",
+        intent="人工客服协同对话",
+        escalatedToHuman=True,
+        escalationReason="会话处于人工坐席服务中",
+        references=[],
+        queriedOrder=None,
+        latencyMs=int((time.time() - t_start) * 1000),
+        stepTrace=[
+            {"node": "websocket_broadcast", "description": "[WebSocket] 客户消息已广播至坐席工作台", "durationMs": 1, "status": "success"},
+            {"node": "human_mode_guard", "description": "[Session] 处于人工接管锁定状态，AI 暂停自动介入", "durationMs": 1, "status": "active"},
+        ],
+        session=session,
+    )
+
+
+def _format_references(hits: List[Dict[str, Any]], fallback_score: float) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": h.get("id", ""),
+            "title": h.get("title", ""),
+            "score": round(float(h.get("score", fallback_score)), 4),
+            "snippet": h.get("snippet", ""),
+        }
+        for h in hits
+    ]
+
+
+def _format_step_trace(trace_list: List[str]) -> List[Dict[str, Any]]:
+    steps = []
+    for item in trace_list:
+        node = item.split(":", 1)[0].strip() if ":" in item else "step"
+        match = _DURATION_RE.search(item)
+        duration_ms = int(match.group(1)) if match else 1
+        status = "interrupted" if "interrupt 挂起" in item else ("error" if "异常" in item else "success")
+        steps.append({
+            "node": node,
+            "description": item,
+            "durationMs": duration_ms,
+            "status": status,
+        })
+    return steps
 
 @router.get("/storage/status")
 async def get_storage_status_endpoint():
@@ -81,153 +138,55 @@ async def chat_endpoint(req: ChatRequest):
     """
     t_start = time.time()
     session = memory_service.get_or_create_session(req.sessionId, req.userProfile)
-    
-    tier = session.get("customerProfile", {}).get("tier", "NORMAL")
-    user_name = session.get("customerProfile", {}).get("userName", "访客")
+    profile = session.get("customerProfile") or {}
+    tier = profile.get("vipLevel") or profile.get("tier") or "NORMAL"
+    user_name = profile.get("name") or profile.get("userName") or "访客"
+
     print(f"\n{LogColor.BOLD}{LogColor.BRIGHT_CYAN}💬 [收到客户问答请求]{LogColor.RESET} 会话: {req.sessionId} | 客户: {user_name} ({tier})")
     print(f"   {LogColor.WHITE}❓ 消息内容: \"{req.message}\"{LogColor.RESET}")
 
-    # 记录客户输入消息并向 WebSocket 广播
+    # 记录客户输入并实时推送
     user_msg = memory_service.add_message(req.sessionId, "user", req.message)
     session = memory_service.get_session(req.sessionId) or session
-    await ws_manager.broadcast_to_session(req.sessionId, {
-        "type": "message:new",
-        "sessionId": req.sessionId,
-        "message": user_msg,
-        "session": session
-    })
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": req.sessionId,
-        "session": session
-    })
+    await _emit_message_event(req.sessionId, user_msg, session)
 
-    # 若当前会话已被人工接管，则 AI 暂停自主作答，仅将消息推给人工客服坐席
+    # 若当前会话已被人工接管，直接走人工坐席协同通道
     if session.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED"):
         cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
-        return ChatResponse(
-            sessionId=req.sessionId,
-            reply="您的消息已送达人工专员，坐席正在与您实时沟通中...",
-            confidenceScore=1.0,
-            sentiment="neutral",
-            intent="人工客服协同对话",
-            escalatedToHuman=True,
-            escalationReason="会话处于人工坐席服务中",
-            references=[],
-            queriedOrder=None,
-            latencyMs=int((time.time() - t_start) * 1000),
-            stepTrace=[
-                {"node": "websocket_broadcast", "description": "[WebSocket] 客户消息已广播至坐席工作台", "durationMs": 1, "status": "success"},
-                {"node": "human_mode_guard", "description": "[Session] 处于人工接管锁定状态，AI 暂停自动介入", "durationMs": 1, "status": "active"}
-            ],
-            session=session
-        )
+        return _build_human_takeover_response(req.sessionId, session, t_start)
 
-    # 组装初始 LangGraph 状态 (严格基于精简版 AgentState 契约)
-    confirm_action = req.refundConfirmationAction if req.refundConfirmationAction in ("confirm", "cancel") else None
-    user_id = session.get("customerProfile", {}).get("userId") or "user_001"
-    initial_state: AgentState = {
-        "session_id": req.sessionId,
-        "user_id": user_id,
-        "user_message": req.message,
-        "confirm_action": confirm_action,
-        "user_profile": session["customerProfile"],
-        "memory_summary": session["summaryMemory"],
-        "intent": "常规售后咨询",
-        "sentiment": "neutral",
-        "order_id": None,
-        "hits": [],
-        "refund": None,
-        "cards": [],
-        "trace": []
-    }
-
-    # 执行 LangGraph 状态图管线
-    graph_config = {"configurable": {"thread_id": req.sessionId}}
-    try:
-        invoke_input: Any = initial_state
-        if confirm_action in ("confirm", "cancel") and Command is not None:
-            try:
-                snapshot = await customer_service_graph.aget_state(graph_config)
-                if snapshot and getattr(snapshot, "next", None):
-                    invoke_input = Command(resume={"action": confirm_action})
-            except Exception:
-                pass
-
-        final_state = dict(await customer_service_graph.ainvoke(
-            invoke_input,
-            config=graph_config
-        ))
-
-        # 若图因 LangGraph interrupt 挂起（如退款前客户交互确认门槛），从 __interrupt__ 提取确认提示与状态
-        interrupts = final_state.get("__interrupt__") or []
-        if interrupts:
-            first_intr = interrupts[0]
-            intr_val = first_intr.value if hasattr(first_intr, "value") else first_intr
-            if isinstance(intr_val, dict):
-                if intr_val.get("reply"):
-                    final_state["reply"] = intr_val["reply"]
-                intr_order_id = intr_val.get("order_id")
-                if intr_order_id and not final_state.get("order_id"):
-                    final_state["order_id"] = intr_order_id
-                if not final_state.get("intent") or final_state.get("intent") == "常规售后咨询":
-                    final_state["intent"] = "退款申请与审批"
-                final_state["refund"] = {
-                    "order_id": intr_order_id or final_state.get("order_id") or "",
-                    "amount_cents": intr_val.get("amount_cents", 0),
-                    "request_id": intr_val.get("request_id", ""),
-                    "status": "PENDING_CONFIRM"
-                }
-                if intr_val.get("card"):
-                    existing_cards = [c for c in (final_state.get("cards") or []) if c.get("type") != "refund_gate"]
-                    existing_cards.append(intr_val["card"])
-                    final_state["cards"] = existing_cards
-                trace_list_intr = list(final_state.get("trace") or [])
-                trace_list_intr.append(f"order_refund: [LangGraph interrupt 挂起] 订单 {intr_order_id or ''} 等待客户交互确认")
-                final_state["trace"] = trace_list_intr
-    except Exception as e:
-        cprint.error(f"[Graph Fallback 降级]: {e}")
-        # 极简方案 B：直接复用图节点纯函数，无需重复编写检索与组装逻辑
-        final_state = dict(initial_state)
-        final_state.update(order_query_node(final_state))
-        final_state.update(qdrant_retrieve_node(final_state))
-        if not final_state.get("reply"):
-            final_state.update(await deepseek_generate_node(final_state))
+    # 执行 LangGraph 状态机（包含 interrupt 挂起提取、Command 恢复与异常降级）
+    final_state = await run_customer_service_graph(
+        session_id=req.sessionId,
+        message=req.message,
+        confirm_action=req.refundConfirmationAction,
+        session=session,
+    )
 
     latency_ms = int((time.time() - t_start) * 1000)
     reply = final_state.get("reply") or "非常抱歉，暂时未能查询到对应政策，请联系人工服务。"
     hits = final_state.get("hits", [])
-    top_score = hits[0]["score"] if hits else 0.90
-    conf_score = round(float(top_score), 4)
     order_id = final_state.get("order_id")
     current_order = order_service.get_order_by_id(order_id) if order_id else None
     refund_draft = final_state.get("refund")
     refund_pending = refund_draft is not None and refund_draft.get("status") == "PENDING_CONFIRM"
+    handoff = bool(final_state.get("handoff", False))
 
-    # 包装参考文档来源 (使用规范 Hit 切片)
-    references = [
-        {
-            "id": h.get("id", ""),
-            "title": h.get("title", ""),
-            "score": round(float(h.get("score", conf_score)), 4),
-            "snippet": h.get("snippet", "")
-        }
-        for h in hits
-    ]
+    # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给 0.95；其余无命中给 0.0
+    if hits:
+        conf_score = round(float(hits[0]["score"]), 4)
+    elif refund_pending or refund_draft or handoff:
+        conf_score = 0.95
+    else:
+        conf_score = 0.0
 
-    # 全链路追踪格式化给前端渲染
-    trace_list = final_state.get("trace", [])
-    step_trace = [
-        {
-            "node": item.split(":")[0].strip() if ":" in item else "step",
-            "description": item,
-            "durationMs": 1,
-            "status": "success"
-        }
-        for item in trace_list
-    ]
+    references = _format_references(hits, conf_score)
+    step_trace = _format_step_trace(final_state.get("trace", []))
 
-    # 将 AI 答复存入会话记忆并推送 WebSocket
+    # 先同步人工介入状态并落盘，再写入助手消息并广播最新会话状态
+    if handoff and session.get("status") == "AI_HANDLING":
+        memory_service.update_session_status(req.sessionId, "NEEDS_INTERVENTION")
+
     assistant_msg = memory_service.add_message(
         req.sessionId,
         "assistant",
@@ -237,28 +196,14 @@ async def chat_endpoint(req: ChatRequest):
         step_trace=step_trace,
         queried_order=current_order,
         refund_confirmation_pending=refund_pending,
-        pending_refund_order=current_order if refund_pending else None
+        pending_refund_order=current_order if refund_pending else None,
     )
-    
-    updated_session = memory_service.get_session(req.sessionId)
-    await ws_manager.broadcast_to_session(req.sessionId, {
-        "type": "message:new",
-        "sessionId": req.sessionId,
-        "message": assistant_msg,
-        "session": updated_session
-    })
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": req.sessionId,
-        "session": updated_session
-    })
+    updated_session = memory_service.get_session(req.sessionId) or session
+    await _emit_message_event(req.sessionId, assistant_msg, updated_session)
 
-    # 若状态机判定需要人工接入
-    handoff = bool(final_state.get("handoff", False))
-    if handoff and session["status"] == "AI_HANDLING":
-        session["status"] = "NEEDS_INTERVENTION"
-
-    cprint.success(f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})")
+    cprint.success(
+        f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})"
+    )
 
     return ChatResponse(
         sessionId=req.sessionId,
@@ -267,14 +212,14 @@ async def chat_endpoint(req: ChatRequest):
         sentiment=final_state.get("sentiment", "neutral"),
         intent=final_state.get("intent", "常规售后咨询"),
         escalatedToHuman=handoff,
-        escalationReason=final_state.get("escalation_reason", None),
+        escalationReason=final_state.get("escalation_reason"),
         references=references,
         queriedOrder=current_order,
         refundConfirmationPending=refund_pending,
         pendingRefundOrder=current_order if refund_pending else None,
         latencyMs=latency_ms,
         stepTrace=step_trace,
-        session=updated_session or session
+        session=updated_session,
     )
 
 @router.get("/sessions")
@@ -349,18 +294,7 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
     msg = memory_service.add_message(session_id, "human_agent", text)
     session = memory_service.get_session(session_id)
     cprint.websocket("坐席回复", session_id, f"人工客服发言: \"{text}\" -> WebSocket 全局广播")
-    # 实时 WebSocket 推送给客户与工作台
-    await ws_manager.broadcast_to_session(session_id, {
-        "type": "message:new",
-        "sessionId": session_id,
-        "message": msg,
-        "session": session
-    })
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": session_id,
-        "session": session
-    })
+    await _emit_message_event(session_id, msg, session)
     return {"success": True, "message": msg, "session": session}
 
 @router.post("/sessions/{session_id}/clear")

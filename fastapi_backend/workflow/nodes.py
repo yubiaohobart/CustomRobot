@@ -152,7 +152,8 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
             if persisted_order:
                 user_profile = state.get("user_profile", {})
                 profile_name = user_profile.get("name", "")
-                if not profile_name or profile_name in ("客户", "访客") or profile_name in persisted_order.get("userName", ""):
+                is_placeholder = not profile_name or "客户" in profile_name or "访客" in profile_name
+                if is_placeholder or profile_name in persisted_order.get("userName", ""):
                     order = persisted_order
 
         if not order:

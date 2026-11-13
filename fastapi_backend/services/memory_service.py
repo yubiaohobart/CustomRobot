@@ -235,6 +235,13 @@ class MemoryService:
         storage_service.save_session(session)
         return session
 
+    def update_session_status(self, session_id: str, new_status: str) -> Dict[str, Any]:
+        """更新并持久化会话状态（如 AI_HANDLING -> NEEDS_INTERVENTION）"""
+        session = self.get_or_create_session(session_id)
+        session["status"] = new_status
+        session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return storage_service.save_session(session)
+
     def list_sessions(self) -> List[Dict[str, Any]]:
         sessions_map = storage_service.list_sessions()
         for s in sessions_map.values():
