@@ -35,25 +35,31 @@ _HUMAN_TAKEOVER_STATUSES = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_H
 
 
 async def _emit_message_event(session_id: str, message: Dict[str, Any], session: Optional[Dict[str, Any]]) -> None:
-    """统一推送单会话新消息与全局会话列表更新事件（隔离 WS 异常以免影响 HTTP 主响应）"""
+    """统一推送单会话新消息与全局轻量会话元信息更新事件（不携带全量历史消息，隔离 WS 异常以免影响 HTTP 主响应）"""
     try:
+        session_meta = memory_service.build_session_meta(session) if session else None
         await ws_manager.broadcast_to_session(session_id, {
             "type": "message:new",
             "sessionId": session_id,
             "message": message,
-            "session": session,
+            "sessionMeta": session_meta,
         })
         await ws_manager.broadcast_all({
             "type": "session:update",
             "sessionId": session_id,
-            "session": session,
+            "sessionMeta": session_meta,
         })
     except Exception as e:
         cprint.warning(f"WebSocket 广播失败 (已忽略，不影响主请求): {e}")
 
 
-def _build_human_takeover_response(session_id: str, session: Dict[str, Any], t_start: float) -> ChatResponse:
-    """会话处于人工接管状态时的早退响应"""
+def _build_human_takeover_response(
+    session_id: str,
+    session: Dict[str, Any],
+    user_msg: Dict[str, Any],
+    t_start: float,
+) -> ChatResponse:
+    """会话处于人工接管状态时的早退增量响应"""
     return ChatResponse(
         sessionId=session_id,
         reply="您的消息已送达人工专员，坐席正在与您实时沟通中...",
@@ -62,14 +68,10 @@ def _build_human_takeover_response(session_id: str, session: Dict[str, Any], t_s
         intent="人工客服协同对话",
         escalatedToHuman=True,
         escalationReason="会话处于人工坐席服务中",
-        references=[],
-        queriedOrder=None,
         latencyMs=int((time.time() - t_start) * 1000),
-        stepTrace=[
-            {"node": "websocket_broadcast", "description": "[WebSocket] 客户消息已广播至坐席工作台", "durationMs": 1, "status": "success"},
-            {"node": "human_mode_guard", "description": "[Session] 处于人工接管锁定状态，AI 暂停自动介入", "durationMs": 1, "status": "active"},
-        ],
-        session=session,
+        userMessage=user_msg,
+        assistantMessage=None,
+        sessionMeta=memory_service.build_session_meta(session),
     )
 
 
@@ -137,8 +139,8 @@ async def chat_get_info():
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
     """
-    智能客服问答主入口：
-    按会话加锁 -> 记录用户消息 -> 人工接管检查 -> LangGraph 状态机 -> 回写画像/指标/回复 -> WS 广播
+    智能客服问答主入口（增量 O(1) 返回模式）：
+    按会话加锁 -> 记录用户消息 -> 人工接管检查 -> LangGraph 状态机 -> 回写画像/指标/回复 -> WS 广播 -> 返回本轮增量消息与轻量元信息
     """
     t_start = time.time()
     message_text = req.message.strip()
@@ -163,7 +165,7 @@ async def chat_endpoint(req: ChatRequest):
         # 2. 若当前会话已被人工接管，AI 暂停自主介入，直接返回坐席协同提示
         if session.get("status") in _HUMAN_TAKEOVER_STATUSES:
             cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
-            return _build_human_takeover_response(req.sessionId, session, t_start)
+            return _build_human_takeover_response(req.sessionId, session, user_msg, t_start)
 
         # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
         pending_refund = session.get("pendingRefund") or {}
@@ -217,7 +219,6 @@ async def chat_endpoint(req: ChatRequest):
             step_trace=step_trace,
             queried_order=current_order,
             refund_confirmation_pending=refund_pending,
-            pending_refund_order=current_order if refund_pending else None,
             refund_order_id=refund_order_id,
             refund_request_id=refund_request_id,
             clear_pending_refund=not refund_pending,
@@ -236,15 +237,13 @@ async def chat_endpoint(req: ChatRequest):
         intent=intent,
         escalatedToHuman=handoff,
         escalationReason=final_state.get("escalation_reason"),
-        references=references,
-        queriedOrder=current_order,
         refundConfirmationPending=refund_pending,
-        pendingRefundOrder=current_order if refund_pending else None,
         refundOrderId=refund_order_id if refund_pending else None,
         refundRequestId=refund_request_id if refund_pending else None,
         latencyMs=latency_ms,
-        stepTrace=step_trace,
-        session=updated_session,
+        userMessage=user_msg,
+        assistantMessage=assistant_msg,
+        sessionMeta=memory_service.build_session_meta(updated_session),
     )
 
 @router.get("/sessions")

@@ -239,19 +239,25 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
           if (payload.type === "message:new") {
             if (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId) {
               setActiveSession((prev) => {
-                if (!prev) return payload.session;
-                if (prev.messages.some((m) => m.id === payload.message.id)) return prev;
+                if (!prev) return payload.session || null;
+                const meta = payload.sessionMeta || {};
+                const hasMsg = prev.messages.some((m) => m.id === payload.message.id);
                 return {
                   ...prev,
-                  messages: [...prev.messages, payload.message],
-                  status: payload.session?.status || prev.status
+                  ...meta,
+                  messages: hasMsg ? prev.messages : [...prev.messages, payload.message],
+                  status: meta.status || payload.session?.status || prev.status,
                 };
               });
             }
             fetchSessions();
           } else if (payload.type === "session:update") {
             if (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId) {
-              setActiveSession(payload.session);
+              if (payload.session) {
+                setActiveSession(payload.session);
+              } else if (payload.sessionMeta) {
+                setActiveSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+              }
             }
             fetchSessions();
           } else if (payload.type === "typing") {

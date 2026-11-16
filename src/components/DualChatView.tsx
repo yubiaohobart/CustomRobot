@@ -44,7 +44,11 @@ export const DualChatView: React.FC = () => {
   };
 
   // 核心消息保护器：当收到服务端全量/增量消息时，平滑替换 temp 乐观气泡，未落库的 temp 永不丢弃
-  const mergeServerMessages = (prevMsgs: ChatMessage[] = [], incomingMsgs: ChatMessage[] = []): ChatMessage[] => {
+  const mergeServerMessages = (
+    prevMsgs: ChatMessage[] = [],
+    incomingMsgs: ChatMessage[] = [],
+    isFullSync: boolean = false
+  ): ChatMessage[] => {
     if (!incomingMsgs || incomingMsgs.length === 0) return prevMsgs;
 
     const pendingTemps = prevMsgs.filter(m => m && m.id && m.id.startsWith("temp-"));
@@ -53,10 +57,9 @@ export const DualChatView: React.FC = () => {
     const result: ChatMessage[] = [];
     const seenIds = new Set<string>();
 
-    // 区分是全量消息列表还是单条增量消息
-    const isFullList = incomingMsgs.length > 1 || (incomingMsgs.length === 1 && confirmedPrev.some(p => p.id === incomingMsgs[0].id));
-    const baseServerList = isFullList 
-      ? incomingMsgs 
+    // 区分全量同步与增量追加
+    const baseServerList = isFullSync
+      ? incomingMsgs
       : [...confirmedPrev, ...incomingMsgs.filter(m => !confirmedPrev.some(p => p.id === m.id))];
 
     for (const sm of baseServerList) {
@@ -171,7 +174,7 @@ export const DualChatView: React.FC = () => {
             const prevMsgs = prev?.messages || [];
             return {
               ...s,
-              messages: mergeServerMessages(prevMsgs, s.messages || []),
+              messages: mergeServerMessages(prevMsgs, s.messages || [], true),
             };
           });
           const oid = s.customerProfile?.orderId || "ORD-2026-88992";
@@ -243,15 +246,19 @@ export const DualChatView: React.FC = () => {
         try {
           const payload = JSON.parse(evt.data);
           if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
+            const meta = payload.sessionMeta || {};
             setSession((prev) => {
-              if (!prev) return payload.session;
+              if (!prev) {
+                return payload.session || (payload.sessionMeta ? { ...payload.sessionMeta, messages: [payload.message] } : null);
+              }
               const prevMsgs = prev.messages || [];
-              const merged = mergeServerMessages(prevMsgs, [payload.message]);
+              const merged = mergeServerMessages(prevMsgs, [payload.message], false);
               return {
                 ...prev,
+                ...meta,
                 messages: merged,
-                status: payload.session?.status || prev.status,
-                assignedAgent: payload.session?.assignedAgent || prev.assignedAgent
+                status: meta.status || payload.session?.status || prev.status,
+                assignedAgent: meta.assignedAgent ?? payload.session?.assignedAgent ?? prev.assignedAgent,
               };
             });
             if (payload.message.role === "human_agent") {
@@ -275,12 +282,18 @@ export const DualChatView: React.FC = () => {
             }
           } else if (payload.type === "session:update" && (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId)) {
             setSession((prev) => {
-              if (!prev) return payload.session;
-              const prevMsgs = prev.messages || [];
-              return {
-                ...payload.session,
-                messages: mergeServerMessages(prevMsgs, payload.session.messages || []),
-              };
+              if (payload.session) {
+                if (!prev) return payload.session;
+                const prevMsgs = prev.messages || [];
+                return {
+                  ...payload.session,
+                  messages: mergeServerMessages(prevMsgs, payload.session.messages || [], true),
+                };
+              }
+              if (payload.sessionMeta && prev) {
+                return { ...prev, ...payload.sessionMeta };
+              }
+              return prev;
             });
           } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
             if (payload.sender === "agent") {
@@ -395,29 +408,27 @@ export const DualChatView: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.queriedOrder) {
-          setCurrentOrder(data.queriedOrder);
+        const orderFromMsg = data.assistantMessage?.queriedOrder;
+        if (orderFromMsg) {
+          setCurrentOrder(orderFromMsg);
         }
-        if (data.pendingRefundOrder) {
-          setCurrentOrder(data.pendingRefundOrder);
-        }
-        if (data.session) {
-          const rawMessages: ChatMessage[] = data.session.messages || [];
-          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending || data.refundRequestId) && rawMessages.length > 0) {
-            const lastMsg = rawMessages[rawMessages.length - 1];
-            if (lastMsg.role === "assistant") {
-              if (data.queriedOrder) lastMsg.queriedOrder = data.queriedOrder;
-              if (data.pendingRefundOrder) lastMsg.pendingRefundOrder = data.pendingRefundOrder;
-              if (data.refundConfirmationPending !== undefined) lastMsg.refundConfirmationPending = data.refundConfirmationPending;
-              if (data.refundOrderId) lastMsg.refundOrderId = data.refundOrderId;
-              if (data.refundRequestId) lastMsg.refundRequestId = data.refundRequestId;
-            }
-          }
+        const deltaMessages: ChatMessage[] = [
+          ...(data.userMessage ? [data.userMessage] : []),
+          ...(data.assistantMessage ? [data.assistantMessage] : []),
+        ];
+        if (data.sessionMeta || deltaMessages.length > 0) {
           setSession((prev) => {
             const currentMsgs = prev?.messages || [];
+            const merged = deltaMessages.length > 0
+              ? mergeServerMessages(currentMsgs, deltaMessages, false)
+              : currentMsgs;
+            if (!prev) {
+              return data.sessionMeta ? { ...data.sessionMeta, messages: merged } : null;
+            }
             return {
-              ...data.session,
-              messages: mergeServerMessages(currentMsgs, rawMessages),
+              ...prev,
+              ...(data.sessionMeta || {}),
+              messages: merged,
             };
           });
         } else {

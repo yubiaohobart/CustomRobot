@@ -10,14 +10,11 @@ from fastapi.testclient import TestClient
 
 def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dict):
     """
-    测试场景：客户发起常规售后政策咨询 POST /api/chat
+    测试场景：客户发起常规售后政策咨询 POST /api/chat（增量返回模式）
     期望结果：
-    1. 返回 HTTP 200 与结构化 ChatResponse
-    2. reply 不为空，包含有价值的售后答复
-    3. confidenceScore 在合理区间 (0.0 ~ 1.0)
-    4. references 引用列表包含关联 FAQ 来源
-    5. stepTrace 追踪链路记录了 LangGraph 节点的执行足迹
-    6. latencyMs 记录了全流程执行耗时
+    1. 返回 HTTP 200 与增量 ChatResponse（不含全量历史 session.messages）
+    2. userMessage 与 assistantMessage 均完整返回，且 references / stepTrace 仅挂在 assistantMessage 上不重复
+    3. sessionMeta 包含轻量会话元信息与最新摘要
     """
     response = client.post("/api/chat", json=sample_chat_request)
     assert response.status_code == 200, f"Expected 200, got: {response.text}"
@@ -30,30 +27,32 @@ def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dic
     assert "sentiment" in data
     assert "intent" in data
     assert data["escalatedToHuman"] is False
-    assert "references" in data
-    assert isinstance(data["references"], list)
-    assert "stepTrace" in data
-    assert isinstance(data["stepTrace"], list)
-    assert "latencyMs" in data
-    assert data["latencyMs"] >= 0
+    assert "latencyMs" in data and data["latencyMs"] >= 0
 
-    # 验证会话对象同步更新
-    assert "session" in data
-    session = data["session"]
-    assert session["id"] == sample_chat_request["sessionId"]
-    # 至少应有 2 条消息（1 条用户提问，1 条 AI 回复）
-    assert len(session["messages"]) >= 2
-    assert session["messages"][0]["role"] == "user"
-    assert session["messages"][1]["role"] == "assistant"
+    # 验证增量消息结构（无全量 session 冗余）
+    assert "session" not in data
+    assert "pendingRefundOrder" not in data
+    assert data["userMessage"]["role"] == "user"
+    assert data["userMessage"]["content"] == sample_chat_request["message"]
+
+    assistant_msg = data["assistantMessage"]
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] == data["reply"]
+    assert isinstance(assistant_msg.get("references"), list)
+    assert isinstance(assistant_msg.get("stepTrace"), list)
+
+    meta = data["sessionMeta"]
+    assert meta["id"] == sample_chat_request["sessionId"]
+    assert "messages" not in meta
+    assert meta["metrics"]["totalTurns"] >= 2
 
 
 def test_chat_explicit_human_request(client: TestClient):
     """
     测试场景：客户明确要求转人工 ("请立刻帮我转人工客服")
     期望结果：
-    1. 意图/情绪分析节点或状态图识别人工诉求
-    2. escalatedToHuman 为 True
-    3. 会话状态标记为待人工接入 (NEEDS_INTERVENTION 或 status 变更)
+    1. escalatedToHuman 为 True
+    2. sessionMeta.status 标记为待人工接入 (NEEDS_INTERVENTION 或 TRANSFERRED_TO_HUMAN)
     """
     payload = {
         "sessionId": "test_human_escalate_001",
@@ -66,14 +65,15 @@ def test_chat_explicit_human_request(client: TestClient):
     assert data["sessionId"] == payload["sessionId"]
     assert data["escalatedToHuman"] is True
     assert data["escalationReason"] is not None
-    assert "session" in data
-    assert data["session"]["status"] in ["NEEDS_INTERVENTION", "TRANSFERRED_TO_HUMAN"]
+    assert data["sessionMeta"]["status"] in ["NEEDS_INTERVENTION", "TRANSFERRED_TO_HUMAN"]
 
 
 def test_chat_multi_turn_continuity(client: TestClient):
     """
     测试场景：同一会话多轮对话交互
-    期望结果：第二轮对话中会话历史累积，包含两轮用户提问与两轮助手回复 (共计4条)
+    期望结果：
+    1. 每轮 /api/chat 仅增量返回当轮 userMessage + assistantMessage（O(1) 体积）
+    2. 服务端实际已持久化累加 4 条消息（通过 GET /api/sessions/{session_id} 核验）
     """
     session_id = "test_multiturn_001"
 
@@ -84,7 +84,7 @@ def test_chat_multi_turn_continuity(client: TestClient):
     })
     assert resp1.status_code == 200
     data1 = resp1.json()
-    assert len(data1["session"]["messages"]) == 2
+    assert data1["sessionMeta"]["metrics"]["totalTurns"] == 2
 
     # 第二轮
     resp2 = client.post("/api/chat", json={
@@ -93,10 +93,16 @@ def test_chat_multi_turn_continuity(client: TestClient):
     })
     assert resp2.status_code == 200
     data2 = resp2.json()
-    # 消息记录应该累加到 4 条
-    assert len(data2["session"]["messages"]) == 4
-    assert data2["session"]["messages"][2]["content"] == "如果是拆封了未使用的电子产品可以退吗？"
-    assert data2["session"]["messages"][3]["role"] == "assistant"
+    assert data2["userMessage"]["content"] == "如果是拆封了未使用的电子产品可以退吗？"
+    assert data2["assistantMessage"]["role"] == "assistant"
+    assert data2["sessionMeta"]["metrics"]["totalTurns"] == 4
+
+    # 核验持久化的完整会话包含 4 条消息
+    detail = client.get(f"/api/sessions/{session_id}")
+    assert detail.status_code == 200
+    msgs = detail.json()["session"]["messages"]
+    assert len(msgs) == 4
+    assert msgs[2]["content"] == "如果是拆封了未使用的电子产品可以退吗？"
 
 
 def test_chat_empty_message_validation(client: TestClient):
@@ -115,7 +121,7 @@ def test_chat_empty_message_validation(client: TestClient):
 def test_chat_with_order_context_in_profile(client: TestClient):
     """
     测试场景：附带订单上下文信息的 VIP 用户咨询
-    期望结果：成功响应，用户画像正确保留在会话中
+    期望结果：成功响应，用户画像正确保留在 sessionMeta.customerProfile 中
     """
     payload = {
         "sessionId": "test_order_context_001",
@@ -132,5 +138,5 @@ def test_chat_with_order_context_in_profile(client: TestClient):
     response = client.post("/api/chat", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["session"]["customerProfile"]["tier"] == "GOLD"
-    assert "recentOrder" in data["session"]["customerProfile"]
+    assert data["sessionMeta"]["customerProfile"]["tier"] == "GOLD"
+    assert "recentOrder" in data["sessionMeta"]["customerProfile"]

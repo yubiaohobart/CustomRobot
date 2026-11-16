@@ -30,15 +30,13 @@ class ChatResponse(BaseModel):
     intent: str = "售后服务咨询"
     escalatedToHuman: bool = False
     escalationReason: Optional[str] = None
-    references: List[Dict[str, Any]] = Field(default_factory=list)
-    queriedOrder: Optional[Dict[str, Any]] = None
     refundConfirmationPending: bool = False
-    pendingRefundOrder: Optional[Dict[str, Any]] = None
     refundOrderId: Optional[str] = None
     refundRequestId: Optional[str] = None
     latencyMs: int = 35
-    stepTrace: List[Union[Dict[str, Any], str]] = Field(default_factory=list)
-    session: Optional[Dict[str, Any]] = None
+    userMessage: Optional[Dict[str, Any]] = None
+    assistantMessage: Optional[Dict[str, Any]] = None
+    sessionMeta: Optional[Dict[str, Any]] = None
 
 class TransferRequest(BaseModel):
     targetAgentId: str = Field(default="agent_101", description="指派目标坐席工号")

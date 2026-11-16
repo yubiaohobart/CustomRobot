@@ -65,7 +65,11 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   };
 
   // 核心消息保护器：当收到服务端全量/增量消息时，平滑替换 temp 乐观气泡，未落库的 temp 永不丢弃
-  const mergeServerMessages = (prevMsgs: ChatMessage[] = [], incomingMsgs: ChatMessage[] = []): ChatMessage[] => {
+  const mergeServerMessages = (
+    prevMsgs: ChatMessage[] = [],
+    incomingMsgs: ChatMessage[] = [],
+    isFullSync: boolean = false
+  ): ChatMessage[] => {
     if (!incomingMsgs || incomingMsgs.length === 0) return prevMsgs;
 
     const pendingTemps = prevMsgs.filter(m => m && m.id && m.id.startsWith("temp-"));
@@ -74,9 +78,8 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     const result: ChatMessage[] = [];
     const seenIds = new Set<string>();
 
-    const isFullList = incomingMsgs.length > 1 || (incomingMsgs.length === 1 && confirmedPrev.some(p => p.id === incomingMsgs[0].id));
-    const baseServerList = isFullList 
-      ? incomingMsgs 
+    const baseServerList = isFullSync
+      ? incomingMsgs
       : [...confirmedPrev, ...incomingMsgs.filter(m => !confirmedPrev.some(p => p.id === m.id))];
 
     for (const sm of baseServerList) {
@@ -151,7 +154,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSession(data.session);
-        setMessages(prev => mergeServerMessages(prev, data.session.messages || []));
+        setMessages(prev => mergeServerMessages(prev, data.session.messages || [], true));
       }
     } catch (err) {
       console.error("Failed to load session:", err);
@@ -200,15 +203,24 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         try {
           const payload = JSON.parse(evt.data);
           if (payload.type === "message:new" && payload.message) {
-            setMessages((prev) => uniqueMessages([...prev, payload.message]));
-            if (payload.session) {
-              setSession(payload.session);
+            if (!payload.sessionId || payload.sessionId === currentSessionId) {
+              setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
+              if (payload.session) {
+                setSession(payload.session);
+              } else if (payload.sessionMeta) {
+                setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+              }
             }
-          } else if (payload.type === "session:update" && payload.session) {
-            if (payload.sessionId === currentSessionId || payload.session.id === currentSessionId) {
-              setSession(payload.session);
-              if (payload.session.messages) {
-                setMessages((prev) => mergeServerMessages(prev, payload.session.messages));
+          } else if (payload.type === "session:update" && (payload.session || payload.sessionMeta)) {
+            const targetId = payload.sessionId || payload.session?.id || payload.sessionMeta?.id;
+            if (targetId === currentSessionId) {
+              if (payload.session) {
+                setSession(payload.session);
+                if (payload.session.messages) {
+                  setMessages((prev) => mergeServerMessages(prev, payload.session.messages, true));
+                }
+              } else if (payload.sessionMeta) {
+                setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
               }
             }
           } else if (payload.type === "typing") {
@@ -338,21 +350,21 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
       if (res.ok) {
         const data = await res.json();
-        if (data.session) {
-          const rawMessages: ChatMessage[] = data.session.messages || [];
-          if ((data.queriedOrder || data.pendingRefundOrder || data.refundConfirmationPending || data.refundRequestId) && rawMessages.length > 0) {
-            const lastMsg = rawMessages[rawMessages.length - 1];
-            if (lastMsg.role === "assistant") {
-              if (data.queriedOrder) lastMsg.queriedOrder = data.queriedOrder;
-              if (data.pendingRefundOrder) lastMsg.pendingRefundOrder = data.pendingRefundOrder;
-              if (data.refundConfirmationPending !== undefined) lastMsg.refundConfirmationPending = data.refundConfirmationPending;
-              if (data.refundOrderId) lastMsg.refundOrderId = data.refundOrderId;
-              if (data.refundRequestId) lastMsg.refundRequestId = data.refundRequestId;
-            }
-          }
+        const deltaMessages: ChatMessage[] = [
+          ...(data.userMessage ? [data.userMessage] : []),
+          ...(data.assistantMessage ? [data.assistantMessage] : []),
+        ];
+        if (deltaMessages.length > 0) {
+          setMessages((prev) => mergeServerMessages(prev, deltaMessages, false));
+        }
+        if (data.sessionMeta) {
+          setSession((prev) => (prev ? { ...prev, ...data.sessionMeta } : { ...data.sessionMeta, messages: deltaMessages }));
+        } else if (data.session) {
           setSession(data.session);
-          setMessages((prev) => mergeServerMessages(prev, rawMessages));
-        } else {
+          if (data.session.messages) {
+            setMessages((prev) => mergeServerMessages(prev, data.session.messages, true));
+          }
+        } else if (deltaMessages.length === 0) {
           await fetchSession();
         }
         if (data.escalatedToHuman && onInterventionAlert) {

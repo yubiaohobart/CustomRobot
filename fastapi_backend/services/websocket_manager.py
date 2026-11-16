@@ -92,7 +92,8 @@ class WebSocketConnectionManager:
             msg = payload.get("message", {})
             summary = f"[{msg.get('role')}]: {msg.get('content', '')[:25]}..."
         elif m_type == "session:update":
-            summary = f"状态变更 -> {payload.get('session', {}).get('status', 'UPDATE')}"
+            meta = payload.get("session") or payload.get("sessionMeta") or {}
+            summary = f"状态变更 -> {meta.get('status', 'UPDATE')}"
         elif m_type == "typing":
             summary = f"[{payload.get('sender')}] 正在输入: {payload.get('isTyping')}"
         else:

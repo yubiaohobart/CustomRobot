@@ -215,10 +215,8 @@ class MemoryService:
             msg["queriedOrder"] = queried_order
         if refund_confirmation_pending:
             msg["refundConfirmationPending"] = True
-        if pending_refund_order:
-            msg["pendingRefundOrder"] = pending_refund_order
-            if "queriedOrder" not in msg:
-                msg["queriedOrder"] = pending_refund_order
+        if pending_refund_order and "queriedOrder" not in msg:
+            msg["queriedOrder"] = pending_refund_order
         if refund_order_id:
             msg["refundOrderId"] = refund_order_id
         if refund_request_id:
@@ -336,12 +334,29 @@ class MemoryService:
             step_trace=step_trace,
             queried_order=queried_order,
             refund_confirmation_pending=refund_confirmation_pending,
-            pending_refund_order=pending_refund_order,
             refund_order_id=refund_order_id if refund_confirmation_pending else None,
             refund_request_id=refund_request_id if refund_confirmation_pending else None,
         )
         storage_service.save_session(session)
         return assistant_msg, session
+
+    @staticmethod
+    def build_session_meta(session: Dict[str, Any]) -> Dict[str, Any]:
+        """提取轻量会话元信息（不含全量 messages 与 contextSnapshot），用于增量响应与 WS 广播"""
+        return {
+            "id": session.get("id"),
+            "userName": session.get("userName"),
+            "status": session.get("status"),
+            "assignedAgent": session.get("assignedAgent"),
+            "assignedAgentId": session.get("assignedAgentId"),
+            "customerProfile": session.get("customerProfile"),
+            "summaryMemory": session.get("summaryMemory", ""),
+            "metrics": session.get("metrics"),
+            "pendingRefund": session.get("pendingRefund"),
+            "unreadForAgent": session.get("unreadForAgent", False),
+            "createdAt": session.get("createdAt"),
+            "updatedAt": session.get("updatedAt"),
+        }
 
     def transfer_session(
         self,
