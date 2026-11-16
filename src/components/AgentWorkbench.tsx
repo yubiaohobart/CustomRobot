@@ -152,6 +152,10 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const prevMsgCountRef = useRef(0);
+  const prevSessionIdRef = useRef<string | undefined>(undefined);
   const [customerTyping, setCustomerTyping] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -296,9 +300,26 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     return () => clearInterval(interval);
   }, [currentSessionId]);
 
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeSession?.messages]);
+    const activeId = activeSession?.id;
+    const sessionChanged = prevSessionIdRef.current !== activeId;
+    if (sessionChanged) {
+      prevSessionIdRef.current = activeId;
+      prevMsgCountRef.current = 0;
+      shouldAutoScrollRef.current = true;
+    }
+    const count = activeSession?.messages?.length || 0;
+    if (count > prevMsgCountRef.current && shouldAutoScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: sessionChanged ? "auto" : "smooth" });
+    }
+    prevMsgCountRef.current = count;
+  }, [activeSession?.messages, activeSession?.id]);
 
   // When active session changes, automatically switch to dossier tab if it was transferred
   useEffect(() => {
@@ -386,6 +407,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     if (!text || !activeSession || sending) return;
 
     setSending(true);
+    shouldAutoScrollRef.current = true;
 
     try {
       const res = await fetch(`/api/sessions/${activeSession.id}/human-message`, {
@@ -787,7 +809,11 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
             )}
 
             {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/60">
+            <div
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
+              className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/60"
+            >
               {activeSession.messages.map((msg) => {
                 const isUser = msg.role === "user";
                 const isHumanAgent = msg.role === "human_agent";

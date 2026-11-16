@@ -132,6 +132,12 @@ export const DualChatView: React.FC = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const customerMessagesEndRef = useRef<HTMLDivElement>(null);
   const agentMessagesEndRef = useRef<HTMLDivElement>(null);
+  const customerScrollRef = useRef<HTMLDivElement>(null);
+  const agentScrollRef = useRef<HTMLDivElement>(null);
+  const customerAutoScrollRef = useRef(true);
+  const agentAutoScrollRef = useRef(true);
+  const prevMsgCountRef = useRef(0);
+  const prevSessionIdRef = useRef(selectedSessionId);
 
   const showToast = (text: string) => {
     setToast(text);
@@ -311,10 +317,38 @@ export const DualChatView: React.FC = () => {
     };
   }, [selectedSessionId]);
 
+  const handleCustomerScroll = () => {
+    const el = customerScrollRef.current;
+    if (!el) return;
+    customerAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
+  };
+
+  const handleAgentScroll = () => {
+    const el = agentScrollRef.current;
+    if (!el) return;
+    agentAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
+  };
+
   useEffect(() => {
-    customerMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    agentMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [session?.messages]);
+    const sessionChanged = prevSessionIdRef.current !== selectedSessionId;
+    if (sessionChanged) {
+      prevSessionIdRef.current = selectedSessionId;
+      prevMsgCountRef.current = 0;
+      customerAutoScrollRef.current = true;
+      agentAutoScrollRef.current = true;
+    }
+    const count = session?.messages?.length || 0;
+    if (count > prevMsgCountRef.current) {
+      const behavior: ScrollBehavior = sessionChanged ? "auto" : "smooth";
+      if (customerAutoScrollRef.current) {
+        customerMessagesEndRef.current?.scrollIntoView({ behavior });
+      }
+      if (agentAutoScrollRef.current) {
+        agentMessagesEndRef.current?.scrollIntoView({ behavior });
+      }
+    }
+    prevMsgCountRef.current = count;
+  }, [session?.messages, selectedSessionId]);
 
   // Customer Send Action
   const handleCustomerSend = async (
@@ -327,6 +361,7 @@ export const DualChatView: React.FC = () => {
 
     setCustomerInput("");
     setCustomerLoading(true);
+    customerAutoScrollRef.current = true;
 
     // Optimistic user message insertion
     const tempUserMsg: ChatMessage = {
@@ -402,6 +437,7 @@ export const DualChatView: React.FC = () => {
     if (!text || agentSending) return;
 
     setAgentSending(true);
+    agentAutoScrollRef.current = true;
 
     try {
       const res = await fetch(`/api/sessions/${selectedSessionId}/human-message`, {
@@ -738,7 +774,11 @@ export const DualChatView: React.FC = () => {
           )}
 
           {/* Customer Messages Flow */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50/70">
+          <div
+            ref={customerScrollRef}
+            onScroll={handleCustomerScroll}
+            className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50/70"
+          >
             {session?.messages?.map((msg: ChatMessage, msgIdx: number) => {
               const isUser = msg.role === "user";
               const isHumanAgent = msg.role === "human_agent";
@@ -1271,7 +1311,11 @@ export const DualChatView: React.FC = () => {
           )}
 
           {/* Agent View Messages Stream */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-100/60">
+          <div
+            ref={agentScrollRef}
+            onScroll={handleAgentScroll}
+            className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-100/60"
+          >
             {session?.messages?.map((msg: ChatMessage) => {
               const isUser = msg.role === "user";
               const isHumanAgent = msg.role === "human_agent";

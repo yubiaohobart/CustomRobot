@@ -137,6 +137,10 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const [transferSuccessToast, setTransferSuccessToast] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const prevMsgCountRef = useRef(0);
+  const prevSessionIdRef = useRef(currentSessionId);
 
   const [agentTyping, setAgentTyping] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -275,9 +279,25 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     }
   };
 
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    const sessionChanged = prevSessionIdRef.current !== currentSessionId;
+    if (sessionChanged) {
+      prevSessionIdRef.current = currentSessionId;
+      prevMsgCountRef.current = 0;
+      shouldAutoScrollRef.current = true;
+    }
+    const count = messages.length;
+    if (count > prevMsgCountRef.current && shouldAutoScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: sessionChanged ? "auto" : "smooth" });
+    }
+    prevMsgCountRef.current = count;
+  }, [messages, currentSessionId]);
 
   const handleSendMessage = async (
     textToSend?: string,
@@ -289,6 +309,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
     setInputMessage("");
     setLoading(true);
+    shouldAutoScrollRef.current = true;
 
     // Optimistic user message
     const tempUserMsg: ChatMessage = {
@@ -625,7 +646,11 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         )}
 
         {/* Message Stream */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50"
+        >
           {/* Welcome Banner */}
           <div className="mx-auto max-w-2xl p-4 bg-white rounded-xl border border-slate-200/80 shadow-xs">
             <div className="flex items-start gap-3">
