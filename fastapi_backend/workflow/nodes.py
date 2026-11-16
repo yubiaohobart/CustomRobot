@@ -226,7 +226,7 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
         "escalation_reason": None,
         "hits": [],
         "cards": [],
-        "trace": [f"analyze_query: 意图={intent}, 情绪={sentiment} ({duration}ms)"],
+        "trace": ["__RESET__", f"analyze_query: 意图={intent}, 情绪={sentiment} ({duration}ms)"],
     }
 
 
@@ -242,7 +242,7 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
             state.get("user_profile", {}),
         )
     order_id = order["orderId"] if order else None
-    cards = [{"type": "order_card", "order_id": order_id, "order": order}] if order else []
+    cards = [{"type": "order_card", "order_id": order_id}] if order else []
     duration = int((time.time() - t0) * 1000)
 
     return {
@@ -277,26 +277,18 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         oid = order["orderId"]
         amount = round(float(order.get("paidAmount", 0.0)), 2)
         amount_cents = int(round(amount * 100))
-        request_id = (
-            state.get("refund_request_id")
-            or (state.get("refund") or {}).get("request_id")
-            or f"ref_{oid}_{int(time.time() * 1000)}"
-        )
+        state_refund = state.get("refund") or {}
+        if state.get("refund_request_id") and state.get("refund_order_id") == oid:
+            request_id = state["refund_request_id"]
+        elif state_refund.get("request_id") and state_refund.get("order_id") == oid:
+            request_id = state_refund["request_id"]
+        else:
+            request_id = f"ref_{oid}_{int(time.time() * 1000)}"
 
         # 首次发起退款申请（尚未选择确认/取消）：触发 LangGraph interrupt 挂起，向前端下发确认卡片
         if not action and state.get("intent") == "退款申请与审批":
             rule_text = "金额 < 3.00 元，确认后将由智能客服直接秒退" if amount_cents < 300 else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
             override_response = _build_refund_gate_reply(oid, amount, rule_text, order.get("status", ""))
-            gate_card = {
-                "type": "refund_gate",
-                "order_id": oid,
-                "amount_cents": amount_cents,
-                "amount": amount,
-                "rule_text": rule_text,
-                "request_id": request_id,
-                "status": "PENDING_CONFIRM",
-            }
-            cards.append(gate_card)
 
             cprint.node("order_refund", f"[触发 LangGraph interrupt 挂起] 订单 {oid} (req={request_id})", "等待用户确认")
             resume_data = interrupt({
@@ -307,7 +299,6 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 "rule_text": rule_text,
                 "request_id": request_id,
                 "reply": override_response,
-                "card": gate_card,
             })
 
             # 通过 Command(resume=...) 恢复时，提取前端回传的 confirm/cancel 动作与幂等流水号

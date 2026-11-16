@@ -739,10 +739,11 @@ export const DualChatView: React.FC = () => {
 
           {/* Customer Messages Flow */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50/70">
-            {session?.messages?.map((msg: ChatMessage) => {
+            {session?.messages?.map((msg: ChatMessage, msgIdx: number) => {
               const isUser = msg.role === "user";
               const isHumanAgent = msg.role === "human_agent";
               const isSystem = msg.role === "system";
+              const isRefundCardActive = !(session?.messages || []).slice(msgIdx + 1).some((m) => m.role === "assistant" || m.role === "human_agent");
 
               if (isSystem) {
                 return (
@@ -883,8 +884,12 @@ export const DualChatView: React.FC = () => {
                                 <p className="text-[9px] text-amber-700 font-mono">Pre-Refund Customer Confirmation Gate</p>
                               </div>
                             </div>
-                            <span className="px-2 py-0.5 bg-amber-200/80 text-amber-900 text-[10px] font-bold rounded-full border border-amber-300 animate-pulse">
-                              待客户交互确认
+                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                              isRefundCardActive
+                                ? "bg-amber-200/80 text-amber-900 border-amber-300 animate-pulse"
+                                : "bg-slate-200 text-slate-600 border-slate-300"
+                            }`}>
+                              {isRefundCardActive ? "待客户交互确认" : "已失效 / 已处理"}
                             </span>
                           </div>
 
@@ -930,31 +935,37 @@ export const DualChatView: React.FC = () => {
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="pt-0.5 flex items-center gap-2">
-                            <button
-                              onClick={() => handleCustomerSend("我确认提交退款申请", "confirm", {
-                                orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
-                                requestId: msg.refundRequestId,
-                              })}
-                              disabled={customerLoading}
-                              className="flex-1 py-2 px-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>【确认提交退款】</span>
-                            </button>
+                          {isRefundCardActive ? (
+                            <div className="pt-0.5 flex items-center gap-2">
+                              <button
+                                onClick={() => handleCustomerSend("我确认提交退款申请", "confirm", {
+                                  orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
+                                  requestId: msg.refundRequestId,
+                                })}
+                                disabled={customerLoading}
+                                className="flex-1 py-2 px-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>【确认提交退款】</span>
+                              </button>
 
-                            <button
-                              onClick={() => handleCustomerSend("取消退款申请", "cancel", {
-                                orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
-                                requestId: msg.refundRequestId,
-                              })}
-                              disabled={customerLoading}
-                              className="flex-1 py-2 px-2.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-300 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
-                            >
-                              <X className="w-3.5 h-3.5 text-slate-500" />
-                              <span>【取消 / 我再想想】</span>
-                            </button>
-                          </div>
+                              <button
+                                onClick={() => handleCustomerSend("取消退款申请", "cancel", {
+                                  orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
+                                  requestId: msg.refundRequestId,
+                                })}
+                                disabled={customerLoading}
+                                className="flex-1 py-2 px-2.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-300 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
+                              >
+                                <X className="w-3.5 h-3.5 text-slate-500" />
+                                <span>【取消 / 我再想想】</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="pt-0.5 text-[10px] text-slate-500 bg-slate-100/90 border border-slate-200 rounded-lg px-2.5 py-1.5 text-center">
+                              该确认卡片已由后续对话替代或已处理完毕，请操作最新确认卡片。
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

@@ -63,6 +63,8 @@ class DeepSeekLLMClient:
 
         business_facts_block = facts_text if facts_text else "当前客户尚未触发或关联特定业务中台实体数据。"
 
+        effective_summary = (summary_memory or memory_summary or "").strip()
+
         # 3. 构建高标准客服 Prompt
         system_prompt = f"""你是一名【XX商城】的官方资深金牌智能客服主管。
 你的职责是严谨、专业、礼貌、温和地解答客户咨询，并结合业务中台事实协助办理售后、订单、物流及相关权益。
@@ -83,7 +85,7 @@ class DeepSeekLLMClient:
 {context_str}
 
 【历史会话记忆摘要】
-{summary_memory if summary_memory else "新用户接入，初次提问。"}
+{effective_summary if effective_summary else "新用户接入，初次提问。"}
 
 【回答纪律】：
 1. 涉及具体业务实体（如订单、物流、商品、发票、权益、退款状态等）时，必须严格基于【动态业务实体事实】作答；

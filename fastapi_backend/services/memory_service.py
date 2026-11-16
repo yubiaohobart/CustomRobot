@@ -113,6 +113,76 @@ class MemoryService:
         storage_service.save_session(new_session)
         return new_session
 
+    @staticmethod
+    def _update_summary_memory(current_summary: str, role: str, content: str) -> str:
+        """
+        按完整语义片段维护去重后的滑动窗口摘要：
+        - 过滤旧版 [-1000:] 字符硬截断留下的半句残片
+        - 对连续重复的提问或固定话术合并计数 (×N)，避免测试/重试刷爆上下文
+        - 按完整片段与最大字符上限（500 字）从头部淘汰，不再截断半句话
+        """
+        text = " ".join((content or "").split())
+        if not text:
+            return current_summary
+
+        if role == "user":
+            snippet = f"{text[:60]}..." if len(text) > 60 else text
+            entry = f"客户提问：'{snippet}'"
+        elif role in ("assistant", "human_agent"):
+            prefix = "AI答复" if role == "assistant" else "人工坐席答复"
+            snippet = f"{text[:48]}..." if len(text) > 48 else text
+            entry = f"{prefix}：'{snippet}'"
+        else:
+            return current_summary
+
+        valid_prefixes = ("客户提问：", "AI答复：", "人工坐席答复：")
+        segments = []
+        for raw_seg in (current_summary or "").split("；"):
+            seg = raw_seg.strip()
+            if not seg:
+                continue
+            if not segments and "建立咨询连接" not in seg and not seg.startswith(valid_prefixes):
+                # 清理历史 [-1000:] 截断导致的开头残片
+                continue
+            segments.append(seg)
+
+        def _base_text(seg: str) -> str:
+            idx = seg.rfind(" (×")
+            if idx != -1 and seg.endswith(")"):
+                return seg[:idx]
+            return seg
+
+        def _repeat_count(seg: str) -> int:
+            idx = seg.rfind(" (×")
+            if idx != -1 and seg.endswith(")"):
+                num_str = seg[idx + 3:-1]
+                if num_str.isdigit():
+                    return int(num_str)
+            return 1
+
+        # 若相邻最近同角色片段完全一致，直接原地合并计数 (×N)
+        merged = False
+        entry_prefix = entry.split("：", 1)[0] + "："
+        for check_idx in range(len(segments) - 1, max(-1, len(segments) - 3), -1):
+            seg = segments[check_idx]
+            if not seg.startswith(entry_prefix):
+                continue
+            if _base_text(seg) == entry:
+                segments[check_idx] = f"{entry} (×{_repeat_count(seg) + 1})"
+                merged = True
+            break
+
+        if not merged:
+            segments.append(entry)
+
+        # 最多保留最近 8 条片段，且总长度控制在 500 字以内（按整条片段淘汰）
+        if len(segments) > 8:
+            segments = segments[-8:]
+        while len(segments) > 1 and len("；".join(segments) + "；") > 500:
+            segments.pop(0)
+
+        return "；".join(segments) + "；"
+
     def _append_message_in_place(
         self,
         session: Dict[str, Any],
@@ -158,12 +228,7 @@ class MemoryService:
         self._ensure_session_defaults(session)
         session["metrics"]["totalTurns"] = len(session["messages"])
 
-        summary = session.get("summaryMemory", "")
-        if role == "user":
-            session["summaryMemory"] = (summary + f" 客户提问：'{content}'；")[-1000:]
-        elif role in ("assistant", "human_agent"):
-            prefix = "AI答复" if role == "assistant" else "人工坐席答复"
-            session["summaryMemory"] = (summary + f" {prefix}：'{content[:60]}...'；")[-1000:]
+        session["summaryMemory"] = self._update_summary_memory(session.get("summaryMemory", ""), role, content)
 
         session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return msg

@@ -7,7 +7,7 @@ import asyncio
 from typing import Dict, Any, Optional
 from langgraph.types import Command
 from core.logger import cprint
-from workflow.state import InputState
+from workflow.state import InputState, trace_reducer
 from workflow.graph import customer_service_graph
 from workflow.nodes import (
     _ORDER_QUERY_INTENTS,
@@ -36,9 +36,14 @@ def build_input_state(
     refund_order_id: Optional[str] = None,
     refund_request_id: Optional[str] = None,
 ) -> InputState:
-    """将 API 请求与持久化会话上下文组装为状态图 InputState"""
+    """将 API 请求与持久化会话上下文组装为状态图 InputState（裁剪冗余字段以减小 Checkpoint 体积）"""
     profile = session.get("customerProfile") or {}
     pending = session.get("pendingRefund") or {}
+    compact_profile = {
+        k: profile[k]
+        for k in ("userId", "name", "userName", "vipLevel", "tier", "orderId")
+        if profile.get(k) not in (None, "")
+    }
     return {
         "session_id": session_id,
         "user_id": profile.get("userId") or "user_001",
@@ -46,17 +51,25 @@ def build_input_state(
         "confirm_action": confirm_action if confirm_action in ("confirm", "cancel") else None,
         "refund_order_id": refund_order_id or pending.get("orderId"),
         "refund_request_id": refund_request_id or pending.get("requestId"),
-        "user_profile": profile,
+        "user_profile": compact_profile,
         "memory_summary": session.get("summaryMemory", ""),
     }
 
 
-def _has_pending_interrupt(snapshot: Any) -> bool:
-    """仅当 checkpoint tasks 中确实存在挂起的 interrupts 时才返回 True，避免因 snapshot.next 非空误触发 Command(resume)"""
+def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = None) -> bool:
+    """仅当 checkpoint tasks 中存在挂起的 interrupts（且若传入目标订单号则与挂起订单一致）时才返回 True"""
     if not snapshot:
         return False
     tasks = getattr(snapshot, "tasks", None) or ()
-    return any(getattr(t, "interrupts", None) for t in tasks)
+    for task in tasks:
+        for intr in getattr(task, "interrupts", None) or ():
+            val = getattr(intr, "value", intr)
+            if expected_order_id and isinstance(val, dict):
+                intr_oid = val.get("order_id")
+                if intr_oid and intr_oid != expected_order_id:
+                    continue
+            return True
+    return False
 
 
 async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,9 +89,20 @@ async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Di
 
     intr_order_id = intr_val.get("order_id") or final_state.get("order_id") or ""
     intr_request_id = intr_val.get("request_id", "")
+    amount_cents = intr_val.get("amount_cents", 0)
     refund_draft = {
         "order_id": intr_order_id,
-        "amount_cents": intr_val.get("amount_cents", 0),
+        "amount_cents": amount_cents,
+        "request_id": intr_request_id,
+        "status": "PENDING_CONFIRM",
+    }
+
+    gate_card = intr_val.get("card") or {
+        "type": "refund_gate",
+        "order_id": intr_order_id,
+        "amount_cents": amount_cents,
+        "amount": intr_val.get("amount", round(amount_cents / 100.0, 2)),
+        "rule_text": intr_val.get("rule_text", ""),
         "request_id": intr_request_id,
         "status": "PENDING_CONFIRM",
     }
@@ -87,10 +111,9 @@ async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Di
     final_state["order_id"] = intr_order_id or final_state.get("order_id")
     final_state["intent"] = "退款申请与审批"
     final_state["refund"] = refund_draft
-    if intr_val.get("card"):
-        cards = [c for c in (final_state.get("cards") or []) if c.get("type") != "refund_gate"]
-        cards.append(intr_val["card"])
-        final_state["cards"] = cards
+    cards = [c for c in (final_state.get("cards") or []) if c.get("type") != "refund_gate"]
+    cards.append(gate_card)
+    final_state["cards"] = cards
 
     # 将挂起阶段的 order_id / refund(含 request_id) 回写至 checkpoint，供 Command(resume) 恢复使用
     await customer_service_graph.aupdate_state(
@@ -105,11 +128,11 @@ async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Di
 
 
 def _merge_fallback_step(state: Dict[str, Any], update: Dict[str, Any]) -> None:
-    """降级路径辅助：合并节点输出并累加 trace"""
-    existing_trace = list(state.get("trace") or [])
-    new_trace = list(update.get("trace") or [])
+    """降级路径辅助：合并节点输出并按 trace_reducer 累加/复位 trace"""
+    prev_trace = state.get("trace")
+    new_trace = update.get("trace")
     state.update(update)
-    state["trace"] = existing_trace + new_trace
+    state["trace"] = trace_reducer(prev_trace, new_trace)
 
 
 async def _execute_graph(
@@ -119,10 +142,10 @@ async def _execute_graph(
     graph_config = {"configurable": {"thread_id": session_id}}
     try:
         invoke_payload: Any = input_state
-        # 仅当存在真实挂起 interrupt 且携带 confirm/cancel 动作时，才通过 Command(resume=...) 从断点恢复
+        # 仅当存在真实挂起 interrupt（且与回调目标订单匹配）时，才通过 Command(resume=...) 从断点恢复
         if input_state.get("confirm_action") in ("confirm", "cancel"):
             snapshot = await customer_service_graph.aget_state(graph_config)
-            if _has_pending_interrupt(snapshot):
+            if _has_pending_interrupt(snapshot, expected_order_id=input_state.get("refund_order_id")):
                 invoke_payload = Command(resume={
                     "action": input_state["confirm_action"],
                     "order_id": input_state.get("refund_order_id"),

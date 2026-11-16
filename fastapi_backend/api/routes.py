@@ -220,7 +220,7 @@ async def chat_endpoint(req: ChatRequest):
             pending_refund_order=current_order if refund_pending else None,
             refund_order_id=refund_order_id,
             refund_request_id=refund_request_id,
-            clear_pending_refund=bool(req.refundConfirmationAction in ("confirm", "cancel") and not refund_pending),
+            clear_pending_refund=not refund_pending,
         )
 
     await _emit_message_event(req.sessionId, assistant_msg, updated_session)

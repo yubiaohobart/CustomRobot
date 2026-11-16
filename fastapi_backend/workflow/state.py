@@ -3,7 +3,6 @@ LangGraph 状态图契约定义 (InputState / OutputState / AgentState)
 明确划分图输入契约、图输出契约与内部共享总线，保证节点间状态流转清晰可控。
 """
 
-import operator
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
 # 客户咨询意图枚举，用于路由分发与客服工作台展示
@@ -67,11 +66,21 @@ class OutputState(TypedDict, total=False):
     escalation_reason: Optional[str]                    # 触发人工转接或资金安全审核的具体原因说明
 
 
+def trace_reducer(existing: Optional[List[str]], update: Any) -> List[str]:
+    """
+    自定义 trace Reducer：
+    - 当新一轮从 analyze_query_node 启动并传入 "__RESET__" 标记时，清空上一轮/历史挂起残留的旧轨迹；
+    - 同一轮后续节点或 Command(resume=...) 唤醒节点返回增量 trace 时，按顺序追加拼接。
+    """
+    if isinstance(update, list) and update and update[0] == "__RESET__":
+        return list(update[1:])
+    return list(existing or []) + list(update or [])
+
+
 class AgentState(InputState, OutputState, total=False):
     """
     图内部共享状态总线：
     继承 InputState 与 OutputState 全部字段；
     由于 MemorySaver 会持久化同一 thread_id 的历史状态，analyze_query_node 会在每轮开始时主动复位瞬态输出字段。
     """
-    # 使用 operator.add 作为 Reducer：各节点仅需返回本节点新增的 trace 列表，LangGraph 会自动按顺序累加而非覆盖
-    trace: Annotated[List[str], operator.add]
+    trace: Annotated[List[str], trace_reducer]
