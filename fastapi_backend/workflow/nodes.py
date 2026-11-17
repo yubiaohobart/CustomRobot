@@ -206,7 +206,7 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     duration = int((time.time() - t0) * 1000)
     cprint.node("analyze_query", f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}", f"耗时 {duration}ms")
 
-    # 关键：MemorySaver 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染；
+    # 关键：PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染；
     # 若为退款二次确认重入回调且显式传入了目标订单号，则保留它以防误匹配其他订单
     is_confirm_reentry = state.get("confirm_action") in ("confirm", "cancel")
     preserved_oid = state.get("refund_order_id") if is_confirm_reentry else None

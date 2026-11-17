@@ -1,6 +1,6 @@
 """
 SQLAlchemy 数据库连接与会话管理引擎 (SQLAlchemy Database Engine)
-专门面向 PostgreSQL 关系型数据库 (驱动 psycopg2 / asyncpg)。
+统一基于 PostgreSQL + Psycopg 3 (postgresql+psycopg://) 驱动，与 LangGraph Checkpointer 共用一套底层驱动。
 管理数据库连接池 (Connection Pool)、Session 会话生命周期与元数据建表。
 """
 
@@ -16,11 +16,25 @@ from config import settings
 # 声明式 ORM 基类
 Base = declarative_base()
 
-# PostgreSQL 目标数据库连接串
-POSTGRES_URL = getattr(settings, "DATABASE_URL", os.getenv(
-    "DATABASE_URL", 
-    os.getenv("POSTGRES_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/intelliserve")
-))
+
+def _normalize_sqlalchemy_pg_url(url: str) -> str:
+    """统一将 postgresql+psycopg2://、postgres://、postgresql:// 等连接串规范化为 postgresql+psycopg://"""
+    cleaned = url.strip()
+    if cleaned.startswith("postgresql+psycopg://"):
+        return cleaned
+    if cleaned.startswith("postgresql+") or cleaned.startswith("postgresql://") or cleaned.startswith("postgres://"):
+        return "postgresql+psycopg://" + cleaned.split("://", 1)[1]
+    return cleaned
+
+
+# PostgreSQL 目标数据库连接串（自动兼容旧 .env 中的 psycopg2 前缀，统一走 Psycopg 3）
+POSTGRES_URL = _normalize_sqlalchemy_pg_url(
+    getattr(
+        settings,
+        "DATABASE_URL",
+        os.getenv("DATABASE_URL", os.getenv("POSTGRES_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/intelliserve")),
+    )
+)
 
 _engine = None
 _SessionLocal = None

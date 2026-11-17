@@ -1,4 +1,10 @@
-from .graph import customer_service_graph, memory_saver
+from .graph import (
+    customer_service_graph,
+    postgres_saver,
+    init_postgres_checkpointer,
+    close_postgres_checkpointer,
+    get_customer_service_graph,
+)
 from .runner import run_customer_service_graph
 from .nodes import (
     analyze_query_node,
@@ -11,7 +17,10 @@ from .nodes import (
 
 __all__ = [
     "customer_service_graph",
-    "memory_saver",
+    "postgres_saver",
+    "init_postgres_checkpointer",
+    "close_postgres_checkpointer",
+    "get_customer_service_graph",
     "run_customer_service_graph",
     "analyze_query_node",
     "order_query_node",

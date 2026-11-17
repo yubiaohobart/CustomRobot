@@ -12,8 +12,9 @@ qdrant-client>=1.9.0
 # 大语言模型 SDK (DeepSeek / OpenAI 兼容接口)
 openai>=1.20.0
 
-# LangGraph 状态图工作流编排
+# LangGraph 状态图工作流编排与 PostgreSQL 持久化 Checkpointer
 langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0
 langchain-core>=0.2.0
 
 # BGE-M3 向量模型支持 (可选本地推理加速)
@@ -21,8 +22,7 @@ langchain-core>=0.2.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 
-# 关系型数据库与 SQLAlchemy ORM (PostgreSQL 驱动)
+# 关系型数据库与 SQLAlchemy ORM / LangGraph Checkpointer 统一 PostgreSQL 驱动 (Psycopg 3)
 sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.0
-asyncpg>=0.29.0
+psycopg[binary,pool]>=3.2.0
 

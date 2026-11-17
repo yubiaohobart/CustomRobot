@@ -49,10 +49,10 @@ class Settings(BaseModel):
     QDRANT_PORT: int = int(os.getenv("QDRANT_PORT", "6333"))
     QDRANT_API_KEY: Optional[str] = os.getenv("QDRANT_API_KEY", None)
 
-    # PostgreSQL 关系型数据库与 SQLAlchemy ORM 配置
+    # PostgreSQL 关系型数据库与 SQLAlchemy ORM 配置 (统一使用 Psycopg 3 驱动)
     DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", 
-        os.getenv("POSTGRES_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/intelliserve")
+        "DATABASE_URL",
+        os.getenv("POSTGRES_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/intelliserve")
     )
     DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))

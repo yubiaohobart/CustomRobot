@@ -76,6 +76,6 @@ class AgentState(InputState, OutputState, total=False):
     """
     图内部共享状态总线：
     继承 InputState 与 OutputState 全部字段；
-    由于 MemorySaver 会持久化同一 thread_id 的历史状态，analyze_query_node 会在每轮开始时主动复位瞬态输出字段。
+    由于 PostgreSQL Checkpointer 会持久化同一 thread_id 的历史状态，analyze_query_node 会在每轮开始时主动复位瞬态输出字段。
     """
     trace: Annotated[List[str], trace_reducer]

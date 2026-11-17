@@ -20,6 +20,7 @@ from api.routes import router as api_router
 from api.websocket_routes import ws_router
 from core.qdrant_store import qdrant_store
 from core.logger import log, cprint, LogColor
+from workflow.graph import init_postgres_checkpointer, close_postgres_checkpointer
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,11 +41,19 @@ async def lifespan(app: FastAPI):
     # 确保 Qdrant 集合就绪
     qdrant_store.init_collection_with_faq()
     cprint.success("Qdrant 向量知识库初始化完成，FAQ 语义切片已注入！")
+
+    # 初始化 LangGraph PostgreSQL Checkpointer（自动建表并绑定连接池）
+    await init_postgres_checkpointer()
+    cprint.success("LangGraph PostgreSQL Checkpointer 已就绪（状态与中断断点固化存储）！")
+
     print(f"🌐 服务监听地址: {LogColor.BRIGHT_CYAN}http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}{LogColor.RESET}")
     print(f"📖 Swagger 交互文档: {LogColor.BRIGHT_CYAN}http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/docs{LogColor.RESET}\n")
     
-    yield
-    cprint.warning("服务正常关闭中，释放内存资源...")
+    try:
+        yield
+    finally:
+        cprint.warning("服务正常关闭中，释放内存与 PostgreSQL Checkpointer 连接池...")
+        await close_postgres_checkpointer()
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -76,6 +85,7 @@ async def root_index():
         "tech_stack": {
             "web_framework": "FastAPI",
             "workflow_orchestrator": "LangGraph",
+            "checkpointer": "PostgreSQL (AsyncPostgresSaver)",
             "vector_database": "Qdrant",
             "embedding_engine": f"Local Ollama ({settings.OLLAMA_EMBED_MODEL})",
             "ollama_endpoint": settings.OLLAMA_BASE_URL,

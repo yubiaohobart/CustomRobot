@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 from langgraph.types import Command
 from core.logger import cprint
 from workflow.state import InputState, trace_reducer
-from workflow.graph import customer_service_graph
+from workflow.graph import get_customer_service_graph
 from workflow.nodes import (
     _ORDER_QUERY_INTENTS,
     analyze_query_node,
@@ -70,7 +70,11 @@ def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = Non
     return False
 
 
-async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Dict[str, Any]) -> Dict[str, Any]:
+async def _apply_interrupt_payload(
+    final_state: Dict[str, Any],
+    graph_config: Dict[str, Any],
+    graph: Any = None,
+) -> Dict[str, Any]:
     """
     当图因 interrupt() 挂起返回时：
     1. 从 __interrupt__ 提取退款确认卡片、提示文案与 request_id；
@@ -97,8 +101,9 @@ async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Di
     final_state["intent"] = "退款申请与审批"
     final_state["refund"] = refund_draft
 
-    # 将挂起阶段的 order_id / refund(含 request_id) 回写至 checkpoint，供 Command(resume) 恢复使用
-    await customer_service_graph.aupdate_state(
+    # 将挂起阶段的 order_id / refund(含 request_id) 回写至 PostgreSQL checkpoint，供 Command(resume) 恢复使用
+    target_graph = graph or await get_customer_service_graph()
+    await target_graph.aupdate_state(
         graph_config,
         {"order_id": final_state["order_id"], "refund": refund_draft},
     )
@@ -123,10 +128,11 @@ async def _execute_graph(
 ) -> Dict[str, Any]:
     graph_config = {"configurable": {"thread_id": session_id}}
     try:
+        graph = await get_customer_service_graph()
         invoke_payload: Any = input_state
         # 仅当存在真实挂起 interrupt（且与回调目标订单匹配）时，才通过 Command(resume=...) 从断点恢复
         if input_state.get("confirm_action") in ("confirm", "cancel"):
-            snapshot = await customer_service_graph.aget_state(graph_config)
+            snapshot = await graph.aget_state(graph_config)
             if _has_pending_interrupt(snapshot, expected_order_id=input_state.get("refund_order_id")):
                 invoke_payload = Command(resume={
                     "action": input_state["confirm_action"],
@@ -134,8 +140,8 @@ async def _execute_graph(
                     "request_id": input_state.get("refund_request_id"),
                 })
 
-        final_state = dict(await customer_service_graph.ainvoke(invoke_payload, config=graph_config))
-        return await _apply_interrupt_payload(final_state, graph_config)
+        final_state = dict(await graph.ainvoke(invoke_payload, config=graph_config))
+        return await _apply_interrupt_payload(final_state, graph_config, graph)
     except Exception as e:
         # 图编排执行异常时的全链路降级：保留意图分析、转人工判定、订单检索、知识检索与低置信度兜底
         cprint.error(f"[Graph Fallback 降级]: {e}")

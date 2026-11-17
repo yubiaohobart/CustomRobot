@@ -11,7 +11,7 @@
 | 组件 | 选型 | 说明 |
 | :--- | :--- | :--- |
 | **Web 框架** | **FastAPI** (Python 3.10+) | 原生异步非阻塞 I/O、Pydantic v2 强类型校验、自动 OpenAPI (Swagger) 交互式文档 |
-| **工作流编排** | **LangGraph** | 状态图有向无环工作流、分支条件路由、MemorySaver 检查点与会话记忆合成 |
+| **工作流编排** | **LangGraph** | 状态图有向无环工作流、分支条件路由与 PostgreSQL (AsyncPostgresSaver) 检查点持久化 |
 | **向量嵌入模型** | **本地 Ollama (BGE-M3)** | 本地搭建与运行 Ollama `bge-m3` 模型，1024 维 Dense 稠密向量，直连本地 `http://localhost:11434`，具备高精度语义对齐与低延迟 |
 | **向量数据库** | **Qdrant (In-Memory)** (`:memory:`) | **纯内存模式**、1024 维余弦相似度匹配、随应用直接常驻内存，**无需安装或使用 Docker 部署独立容器**，零运维依赖 |
 | **大语言模型** | **DeepSeek** (`deepseek-chat`) | 支持 DeepSeek-V3 / DeepSeek-R1，遵循严格的商城售后政策 Prompt 约束，防幻觉无缝作答 |
@@ -41,7 +41,7 @@ fastapi_backend/
 ├── workflow/
 │   ├── __init__.py
 │   ├── nodes.py              # 🔀 LangGraph 状态图执行节点 (意图分析、Qdrant召回、记忆合成、DeepSeek生成、人工升级)
-│   └── graph.py              # 🌐 LangGraph 状态图流转编排与编译 (StateGraph + MemorySaver)
+│   └── graph.py              # 🌐 LangGraph 状态图流转编排与编译 (StateGraph + AsyncPostgresSaver)
 ├── services/
 │   ├── __init__.py
 │   └── memory_service.py     # 💾 会话历史、长期记忆、客户画像与人工转接快照审计服务

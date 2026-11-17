@@ -1,11 +1,17 @@
 """
-LangGraph 状态图组装与编译 (Graph Pipeline Assembly - 精简拓扑版)
-去除了空转的 memory_synthesis 节点，优化了状态流转与执行时延。
+LangGraph 状态图组装与编译 (Graph Pipeline Assembly - PostgreSQL 持久化 Checkpointer 版)
+采用 AsyncPostgresSaver + psycopg_pool.AsyncConnectionPool 将断点现场与历史状态固化到 PostgreSQL。
 """
 
+import asyncio
+from typing import Optional
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
+from config import settings
+from core.logger import cprint, LogColor
 from .state import AgentState, InputState, OutputState
 from .nodes import (
     analyze_query_node,
@@ -18,9 +24,6 @@ from .nodes import (
     router_after_order_query,
     router_after_retrieval
 )
-
-# 内存检查点状态管理器
-memory_saver = MemorySaver()
 
 # 构建客服问答状态机（采用输入输出模式分离的 AgentState）
 builder = StateGraph(AgentState, input_schema=InputState, output_schema=OutputState)
@@ -74,5 +77,84 @@ builder.add_conditional_edges(
 builder.add_edge("deepseek_generate", END)
 builder.add_edge("human_escalation", END)
 
-# 编译为可调用的 Graph 应用
-customer_service_graph = builder.compile(checkpointer=memory_saver)
+# PostgreSQL 持久化 Checkpointer 与编译后状态图（在 FastAPI lifespan 或首次调用时异步初始化）
+_pg_pool: Optional[AsyncConnectionPool] = None
+postgres_saver: Optional[AsyncPostgresSaver] = None
+customer_service_graph = None
+_init_lock: Optional[asyncio.Lock] = None
+
+
+def get_checkpoint_db_uri() -> str:
+    """将 SQLAlchemy 连接串规范化为 psycopg3/libpq 标准 postgresql:// URI"""
+    uri = settings.DATABASE_URL.strip()
+    if uri.startswith("postgresql+"):
+        return "postgresql://" + uri.split("://", 1)[1]
+    if uri.startswith("postgres://"):
+        return "postgresql://" + uri.split("://", 1)[1]
+    return uri
+
+
+async def init_postgres_checkpointer():
+    """初始化 AsyncConnectionPool、建表 (setup) 并绑定 AsyncPostgresSaver 编译状态图"""
+    global _pg_pool, postgres_saver, customer_service_graph, _init_lock
+
+    if customer_service_graph is not None:
+        return customer_service_graph
+
+    if _init_lock is None:
+        _init_lock = asyncio.Lock()
+
+    async with _init_lock:
+        if customer_service_graph is not None:
+            return customer_service_graph
+
+        db_uri = get_checkpoint_db_uri()
+        target_label = db_uri.split("@")[-1] if "@" in db_uri else db_uri
+        pool = AsyncConnectionPool(
+            conninfo=db_uri,
+            min_size=1,
+            max_size=max(2, getattr(settings, "DB_POOL_SIZE", 10)),
+            open=False,
+            kwargs={
+                "autocommit": True,
+                "prepare_threshold": 0,
+                "row_factory": dict_row,
+            },
+        )
+        try:
+            await pool.open(wait=True, timeout=15.0)
+            saver = AsyncPostgresSaver(pool)
+            await saver.setup()
+
+            _pg_pool = pool
+            postgres_saver = saver
+            customer_service_graph = builder.compile(checkpointer=saver)
+            cprint(
+                f"[LangGraph] AsyncPostgresSaver 初始化成功，Checkpointer 已持久化至 PostgreSQL ({target_label})",
+                LogColor.GREEN,
+            )
+            return customer_service_graph
+        except Exception as e:
+            await pool.close()
+            _pg_pool = None
+            postgres_saver = None
+            customer_service_graph = None
+            cprint.error(f"[LangGraph] PostgreSQL Checkpointer 初始化失败 ({target_label}): {e}")
+            raise
+
+
+async def get_customer_service_graph():
+    """获取已绑定 PostgreSQL Checkpointer 的编译态状态图（未初始化时按需初始化）"""
+    if customer_service_graph is not None:
+        return customer_service_graph
+    return await init_postgres_checkpointer()
+
+
+async def close_postgres_checkpointer() -> None:
+    """应用关闭时释放 PostgreSQL Checkpointer 异步连接池"""
+    global _pg_pool, postgres_saver, customer_service_graph
+    if _pg_pool is not None:
+        await _pg_pool.close()
+    _pg_pool = None
+    postgres_saver = None
+    customer_service_graph = None
