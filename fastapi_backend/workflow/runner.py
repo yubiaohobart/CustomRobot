@@ -41,18 +41,16 @@ def build_input_state(
     pending = session.get("pendingRefund") or {}
     compact_profile = {
         k: profile[k]
-        for k in ("userId", "name", "userName", "vipLevel", "tier", "orderId")
+        for k in ("name", "userName", "vipLevel", "tier", "orderId")
         if profile.get(k) not in (None, "")
     }
     return {
         "session_id": session_id,
-        "user_id": profile.get("userId") or "user_001",
         "user_message": message,
         "confirm_action": confirm_action if confirm_action in ("confirm", "cancel") else None,
         "refund_order_id": refund_order_id or pending.get("orderId"),
         "refund_request_id": refund_request_id or pending.get("requestId"),
         "user_profile": compact_profile,
-        "memory_summary": session.get("summaryMemory", ""),
     }
 
 
@@ -89,20 +87,7 @@ async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Di
 
     intr_order_id = intr_val.get("order_id") or final_state.get("order_id") or ""
     intr_request_id = intr_val.get("request_id", "")
-    amount_cents = intr_val.get("amount_cents", 0)
     refund_draft = {
-        "order_id": intr_order_id,
-        "amount_cents": amount_cents,
-        "request_id": intr_request_id,
-        "status": "PENDING_CONFIRM",
-    }
-
-    gate_card = intr_val.get("card") or {
-        "type": "refund_gate",
-        "order_id": intr_order_id,
-        "amount_cents": amount_cents,
-        "amount": intr_val.get("amount", round(amount_cents / 100.0, 2)),
-        "rule_text": intr_val.get("rule_text", ""),
         "request_id": intr_request_id,
         "status": "PENDING_CONFIRM",
     }
@@ -111,9 +96,6 @@ async def _apply_interrupt_payload(final_state: Dict[str, Any], graph_config: Di
     final_state["order_id"] = intr_order_id or final_state.get("order_id")
     final_state["intent"] = "退款申请与审批"
     final_state["refund"] = refund_draft
-    cards = [c for c in (final_state.get("cards") or []) if c.get("type") != "refund_gate"]
-    cards.append(gate_card)
-    final_state["cards"] = cards
 
     # 将挂起阶段的 order_id / refund(含 request_id) 回写至 checkpoint，供 Command(resume) 恢复使用
     await customer_service_graph.aupdate_state(

@@ -191,7 +191,7 @@ async def chat_endpoint(req: ChatRequest):
         current_order = order_service.get_order_by_id(order_id) if order_id else None
         refund_draft = final_state.get("refund") or {}
         refund_pending = refund_draft.get("status") == "PENDING_CONFIRM"
-        refund_order_id = refund_draft.get("order_id") or (order_id if refund_pending else None)
+        refund_order_id = order_id if refund_pending else None
         refund_request_id = refund_draft.get("request_id")
         handoff = bool(final_state.get("handoff", False))
 

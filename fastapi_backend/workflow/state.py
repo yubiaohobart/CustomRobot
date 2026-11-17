@@ -28,9 +28,7 @@ class Hit(TypedDict):
 
 
 class RefundDraft(TypedDict):
-    """订单退款草稿与幂等控制结构"""
-    order_id: str      # 目标退款订单编号
-    amount_cents: int  # 退款金额（单位：分，避免浮点误差；用于 < 300 分秒退 / >= 300 分转人工审核阈值判断）
+    """订单退款状态与幂等控制结构（所属订单号复用 OutputState.order_id）"""
     request_id: str    # 单次退款申请的幂等唯一流水号，防止重复提交或并发重入
     status: Literal[
         "PENDING_CONFIRM",  # 已触发 interrupt 挂起，等待客户在确认卡片点击确认/取消
@@ -43,19 +41,16 @@ class RefundDraft(TypedDict):
 class InputState(TypedDict, total=False):
     """每轮 API 请求传入状态图的最小输入契约（Graph 入口会自动过滤非此契约的字段）"""
     session_id: str                                     # 当前会话唯一 ID，对应 Checkpointer 的 thread_id
-    user_id: str                                        # 客户唯一标识，用于日志追踪与归属校验
     user_message: str                                   # 本轮客户发送的原始消息文本
     confirm_action: Optional[Literal["confirm", "cancel"]]  # 退款确认卡片回调动作："confirm"=确认提交 / "cancel"=取消 / None=常规对话
     refund_order_id: Optional[str]                      # 退款确认回调携带的目标订单号（Checkpointer 丢失时的防串单兜底）
     refund_request_id: Optional[str]                    # 退款确认回调携带的幂等流水号（确保挂起->恢复使用同一 request_id）
-    user_profile: Optional[Dict[str, Any]]              # 客户画像（姓名、会员等级 vipLevel/tier 等，用于订单校验与个性化回答）
-    memory_summary: str                                 # 会话长期记忆摘要（跨轮次上下文沉淀，供 DeepSeek 生成连贯回复）
+    user_profile: Optional[Dict[str, Any]]              # 精简客户画像（name/vipLevel/orderId，用于订单校验与个性化回答）
 
 
 class OutputState(TypedDict, total=False):
     """状态图执行完毕后返回给 FastAPI 路由层的输出契约"""
     reply: Optional[str]                                # 最终返回给客户的文本回复内容
-    cards: List[Dict[str, Any]]                         # 随回复下发给前端的结构化卡片列表（如 order_card 订单卡、refund_gate 退款确认卡）
     handoff: bool                                       # 是否需要转接人工客服（True 时路由层需同步更新会话状态为 NEEDS_INTERVENTION）
     intent: Intent                                      # 本轮分析得到的最终业务意图
     sentiment: Literal["calm", "neutral", "frustrated", "angry"]  # 客户实时情绪识别结果（用于低分召回时触发情绪升级兜底）

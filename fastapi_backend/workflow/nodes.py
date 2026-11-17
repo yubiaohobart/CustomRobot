@@ -11,6 +11,7 @@ from .state import AgentState, Hit, RefundDraft, Intent
 from core.qdrant_store import qdrant_store
 from core.llm import deepseek_client
 from services.order_service import order_service
+from services.storage_service import storage_service
 from config import settings
 from core.logger import cprint, LogColor
 
@@ -117,7 +118,7 @@ def _execute_refund_action(
         return (
             order,
             f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
-            {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "CANCELED"},
+            {"request_id": request_id, "status": "CANCELED"},
             False,
             "",
         )
@@ -128,7 +129,7 @@ def _execute_refund_action(
         return (
             order,
             f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
-            {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": draft_status},
+            {"request_id": request_id, "status": draft_status},
             False,
             "",
         )
@@ -137,7 +138,7 @@ def _execute_refund_action(
         return (
             order,
             f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
-            {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "SUBMITTED"},
+            {"request_id": request_id, "status": "SUBMITTED"},
             False,
             "",
         )
@@ -146,7 +147,7 @@ def _execute_refund_action(
         return (
             order,
             f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
-            {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "PENDING_AUDIT"},
+            {"request_id": request_id, "status": "PENDING_AUDIT"},
             False,
             "",
         )
@@ -159,7 +160,7 @@ def _execute_refund_action(
         return (
             updated,
             f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< 3.00 元)，智能客服已为您直接原路退回解冻，请查收！",
-            {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "SUBMITTED"},
+            {"request_id": request_id, "status": "SUBMITTED"},
             False,
             "",
         )
@@ -173,7 +174,7 @@ def _execute_refund_action(
     return (
         updated,
         reply,
-        {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "PENDING_AUDIT"},
+        {"request_id": request_id, "status": "PENDING_AUDIT"},
         True,
         reason,
     )
@@ -206,26 +207,19 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     cprint.node("analyze_query", f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}", f"耗时 {duration}ms")
 
     # 关键：MemorySaver 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染；
-    # 若为退款二次确认重入回调且显式传入了目标订单/流水号，则保留它们以防误匹配其他订单
+    # 若为退款二次确认重入回调且显式传入了目标订单号，则保留它以防误匹配其他订单
     is_confirm_reentry = state.get("confirm_action") in ("confirm", "cancel")
     preserved_oid = state.get("refund_order_id") if is_confirm_reentry else None
-    preserved_req_id = state.get("refund_request_id") if is_confirm_reentry else None
-    preserved_refund = (
-        {"order_id": preserved_oid or "", "amount_cents": 0, "request_id": preserved_req_id, "status": "PENDING_CONFIRM"}
-        if is_confirm_reentry and preserved_req_id
-        else None
-    )
 
     return {
         "intent": intent,
         "sentiment": sentiment,
         "order_id": preserved_oid,
-        "refund": preserved_refund,
+        "refund": None,
         "reply": None,
         "handoff": False,
         "escalation_reason": None,
         "hits": [],
-        "cards": [],
         "trace": ["__RESET__", f"analyze_query: 意图={intent}, 情绪={sentiment} ({duration}ms)"],
     }
 
@@ -242,12 +236,10 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
             state.get("user_profile", {}),
         )
     order_id = order["orderId"] if order else None
-    cards = [{"type": "order_card", "order_id": order_id}] if order else []
     duration = int((time.time() - t0) * 1000)
 
     return {
         "order_id": order_id,
-        "cards": cards,
         "trace": [f"order_query: 命中订单 [{order_id or '无'}] ({duration}ms)"],
     }
 
@@ -256,7 +248,6 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
     """3. 订单退款门控 (LangGraph interrupt) 与二次确认执行"""
     t0 = time.time()
     action = state.get("confirm_action")
-    cards = [c for c in (state.get("cards") or []) if c.get("type") != "refund_gate"]
     order = None
     refund_draft: Optional[RefundDraft] = None
     override_response: Optional[str] = None
@@ -270,7 +261,6 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 "order_id": None,
                 "refund": None,
                 "reply": "未检测到您关联的有效订单信息，请提供正确的订单编号，我来为您核验办理。",
-                "cards": cards,
                 "trace": ["order_refund: 未命中有效归属订单，流程终止 (1ms)"],
             }
 
@@ -278,9 +268,11 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         amount = round(float(order.get("paidAmount", 0.0)), 2)
         amount_cents = int(round(amount * 100))
         state_refund = state.get("refund") or {}
-        if state.get("refund_request_id") and state.get("refund_order_id") == oid:
+        if state.get("refund_request_id") and (
+            not state.get("refund_order_id") or state.get("refund_order_id") == oid
+        ):
             request_id = state["refund_request_id"]
-        elif state_refund.get("request_id") and state_refund.get("order_id") == oid:
+        elif state_refund.get("request_id") and state.get("order_id") == oid:
             request_id = state_refund["request_id"]
         else:
             request_id = f"ref_{oid}_{int(time.time() * 1000)}"
@@ -309,7 +301,7 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
                 action = resume_data
 
             if not action:
-                refund_draft = {"order_id": oid, "amount_cents": amount_cents, "request_id": request_id, "status": "PENDING_CONFIRM"}
+                refund_draft = {"request_id": request_id, "status": "PENDING_CONFIRM"}
 
         # 已获得客户确认或取消动作（包括通过 Command(resume=...) 恢复或显式 confirm_action 重入）：执行退款/取消分流
         if action in ("confirm", "cancel"):
@@ -331,7 +323,6 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
     res: Dict[str, Any] = {
         "order_id": order.get("orderId") if order else None,
         "refund": refund_draft,
-        "cards": cards,
         "trace": [f"order_refund: action={action}, status={status_str} ({duration}ms)"],
     }
     if override_response:
@@ -370,12 +361,16 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
 
 
 async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
-    """5. 调用 DeepSeek 大模型生成严谨回答"""
+    """5. 调用 DeepSeek 大模型生成严谨回答（按需加载会话记忆摘要，不随每步 Checkpoint 冗余序列化）"""
     t0 = time.time()
+    session_id = state.get("session_id")
+    session_data = storage_service.get_session(session_id) if session_id else None
+    memory_summary = (session_data or {}).get("summaryMemory", "")
+
     reply = await deepseek_client.generate_response(
         user_message=state.get("user_message", ""),
         hits=state.get("hits", []),
-        memory_summary=state.get("memory_summary", ""),
+        memory_summary=memory_summary,
         user_profile=state.get("user_profile", {}),
         order_id=state.get("order_id"),
     )
@@ -409,7 +404,6 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
         "reply": "【智能管家温馨提示】收到您的需求，正在为您无缝转接 XX商城 官方售后值班专员。我们将保留您的完整对话快照与政策咨询记录，请稍候片刻...",
         "handoff": True,
         "escalation_reason": reason,
-        "cards": list(state.get("cards") or []),
         "trace": [f"human_escalation: 触发转人工 (原因: {reason}) ({duration}ms)"],
     }
 
