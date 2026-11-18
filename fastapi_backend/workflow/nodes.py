@@ -5,7 +5,6 @@ LangGraph 状态图执行节点与路由定义 (Workflow Nodes)
 from typing import Dict, Any, List, Optional, Tuple
 import time
 from langgraph.types import interrupt
-from langgraph.errors import GraphInterrupt
 
 from .state import AgentState, Hit, RefundDraft, Intent
 from core.qdrant_store import qdrant_store
@@ -81,8 +80,13 @@ def _resolve_owned_order(state: AgentState) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _build_refund_gate_reply(order_id: str, amount: float, rule_text: str, current_status: str) -> str:
-    header = f"收到您针对订单【{order_id}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+def _build_refund_gate_reply(order: Dict[str, Any]) -> str:
+    oid = order["orderId"]
+    amount = round(float(order.get("paidAmount", 0.0)), 2)
+    amount_cents = int(round(amount * 100))
+    current_status = order.get("status", "")
+    header = f"收到您针对订单【{oid}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+
     if current_status == "REFUND_PENDING_AUDIT":
         return (
             f"{header}该订单当前正处于【退款待人工审核】状态（因金额 >= 3.00 元触发资金安全人工干涉）。\n"
@@ -93,6 +97,11 @@ def _build_refund_gate_reply(order_id: str, amount: float, rule_text: str, curre
             f"{header}系统显示该订单此前已完成退款解冻。\n"
             f"您可在下方卡片中点击【确认提交退款】复核退款状态，或点击【取消 / 我再想想】退出："
         )
+    rule_text = (
+        "金额 < 3.00 元，确认后将由智能客服直接秒退"
+        if amount_cents < 300
+        else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
+    )
     return (
         f"{header}根据商城退款规则（{rule_text}），在正式提交前，请您确认以下权益调整：\n"
         f"• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n"
@@ -101,83 +110,115 @@ def _build_refund_gate_reply(order_id: str, amount: float, rule_text: str, curre
     )
 
 
+def _resolve_refund_request_id(state: AgentState, oid: str) -> str:
+    """提取或生成本次退款流程的幂等流水号（优先复用回调/挂起态已有流水号）"""
+    state_refund = state.get("refund") or {}
+    if state.get("refund_request_id") and (
+        not state.get("refund_order_id") or state.get("refund_order_id") == oid
+    ):
+        return state["refund_request_id"]
+    if state_refund.get("request_id") and state.get("order_id") == oid:
+        return state_refund["request_id"]
+    return f"ref_{oid}_{int(time.time() * 1000)}"
+
+
+def _parse_resume_payload(resume_data: Any, fallback_request_id: str) -> Tuple[Optional[str], str]:
+    """从 Command(resume=...) 载荷中提取确认动作与幂等流水号"""
+    if isinstance(resume_data, dict):
+        action = resume_data.get("action") or resume_data.get("confirm_action")
+        request_id = resume_data.get("request_id") or fallback_request_id
+        return action, request_id
+    if isinstance(resume_data, str) and resume_data in ("confirm", "cancel"):
+        return resume_data, fallback_request_id
+    return None, fallback_request_id
+
+
+def _refund_result(
+    oid: str,
+    reply: str,
+    request_id: str,
+    status: str,
+    action: str,
+    t0: float,
+    escalation_reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """构造统一的 order_refund 节点返回结构"""
+    duration = int((time.time() - t0) * 1000)
+    draft: RefundDraft = {"request_id": request_id, "status": status}  # type: ignore[assignment]
+    res: Dict[str, Any] = {
+        "order_id": oid,
+        "refund": draft,
+        "reply": reply,
+        "trace": [f"order_refund: action={action}, status={status} ({duration}ms)"],
+    }
+    if escalation_reason:
+        res["handoff"] = True
+        res["escalation_reason"] = escalation_reason
+    return res
+
+
 def _execute_refund_action(
     order: Dict[str, Any],
     action: str,
-    amount: float,
-    amount_cents: int,
     request_id: str,
-) -> Tuple[Dict[str, Any], str, RefundDraft, bool, str]:
+    t0: float,
+) -> Dict[str, Any]:
     """执行退款确认/取消动作：优先按 request_id 做请求级幂等去重，再按 300 分(3.00元)阈值分流"""
     oid = order["orderId"]
+    amount = round(float(order.get("paidAmount", 0.0)), 2)
+    amount_cents = int(round(amount * 100))
     current_status = order.get("status", "")
     processed_ids = (order.get("afterSales") or {}).get("processedRequestIds") or []
 
     if action == "cancel":
         cprint.node("order_refund", "用户点击取消退款申请", "恢复正常状态")
-        return (
-            order,
+        return _refund_result(
+            oid,
             f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
-            {"request_id": request_id, "status": "CANCELED"},
-            False,
-            "",
+            request_id, "CANCELED", action, t0,
         )
 
     if request_id and request_id in processed_ids:
         draft_status = "PENDING_AUDIT" if current_status == "REFUND_PENDING_AUDIT" else "SUBMITTED"
         cprint.node("order_refund", f"[request_id 幂等拦截] {request_id}", "返回已受理结果")
-        return (
-            order,
+        return _refund_result(
+            oid,
             f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
-            {"request_id": request_id, "status": draft_status},
-            False,
-            "",
+            request_id, draft_status, action, t0,
         )
 
     if current_status == "REFUNDED":
-        return (
-            order,
+        return _refund_result(
+            oid,
             f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
-            {"request_id": request_id, "status": "SUBMITTED"},
-            False,
-            "",
+            request_id, "SUBMITTED", action, t0,
         )
 
     if current_status == "REFUND_PENDING_AUDIT":
-        return (
-            order,
+        return _refund_result(
+            oid,
             f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
-            {"request_id": request_id, "status": "PENDING_AUDIT"},
-            False,
-            "",
+            request_id, "PENDING_AUDIT", action, t0,
         )
 
     if amount_cents < 300:
-        updated = order_service.process_refund_request(
+        order_service.process_refund_request(
             oid, reason="用户二次确认提交退款(自动秒退)", refund_amount=amount, request_id=request_id
         )
         cprint.node("order_refund", f"[幂等秒退成功] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "秒退完成")
-        return (
-            updated,
+        return _refund_result(
+            oid,
             f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< 3.00 元)，智能客服已为您直接原路退回解冻，请查收！",
-            {"request_id": request_id, "status": "SUBMITTED"},
-            False,
-            "",
+            request_id, "SUBMITTED", action, t0,
         )
 
-    updated = order_service.process_refund_request(
+    order_service.process_refund_request(
         oid, reason="用户二次确认提交退款(人工审核)", refund_amount=amount, request_id=request_id
     )
     cprint.node("order_refund", f"[转人工干涉队列] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "转人工核验")
     reason = f"订单 {oid} 申请退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列"
     reply = f"【退款审核工单已提交】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (>= 3.00 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！"
-    return (
-        updated,
-        reply,
-        {"request_id": request_id, "status": "PENDING_AUDIT"},
-        True,
-        reason,
-    )
+    return _refund_result(oid, reply, request_id, "PENDING_AUDIT", action, t0, escalation_reason=reason)
 
 
 def analyze_query_node(state: AgentState) -> Dict[str, Any]:
@@ -247,90 +288,52 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
 def order_refund_node(state: AgentState) -> Dict[str, Any]:
     """3. 订单退款门控 (LangGraph interrupt) 与二次确认执行"""
     t0 = time.time()
+    order = _resolve_owned_order(state)
+    if not order:
+        return {
+            "order_id": None,
+            "refund": None,
+            "reply": "未检测到您关联的有效订单信息，请提供正确的订单编号，我来为您核验办理。",
+            "trace": ["order_refund: 未命中有效归属订单，流程终止 (1ms)"],
+        }
+
+    oid = order["orderId"]
     action = state.get("confirm_action")
-    order = None
-    refund_draft: Optional[RefundDraft] = None
-    override_response: Optional[str] = None
-    escalate_human = False
-    escalation_reason = ""
+    request_id = _resolve_refund_request_id(state, oid)
+
+    # 首次发起退款申请：在 try 块外触发 LangGraph interrupt 挂起，等待 Command(resume=...) 唤醒
+    if not action and state.get("intent") == "退款申请与审批":
+        gate_reply = _build_refund_gate_reply(order)
+        cprint.node("order_refund", f"[触发 LangGraph interrupt 挂起] 订单 {oid} (req={request_id})", "等待用户确认")
+        resume_data = interrupt({
+            "order_id": oid,
+            "request_id": request_id,
+            "reply": gate_reply,
+        })
+        action, request_id = _parse_resume_payload(resume_data, request_id)
+
+    if action not in ("confirm", "cancel"):
+        duration = int((time.time() - t0) * 1000)
+        return {
+            "order_id": oid,
+            "refund": None,
+            "reply": "未收到有效的确认操作，请在退款确认卡片中点击【确认提交退款】或【取消 / 我再想想】。",
+            "trace": [f"order_refund: 无效确认动作 action={action} ({duration}ms)"],
+        }
 
     try:
-        order = _resolve_owned_order(state)
-        if not order:
-            return {
-                "order_id": None,
-                "refund": None,
-                "reply": "未检测到您关联的有效订单信息，请提供正确的订单编号，我来为您核验办理。",
-                "trace": ["order_refund: 未命中有效归属订单，流程终止 (1ms)"],
-            }
-
-        oid = order["orderId"]
-        amount = round(float(order.get("paidAmount", 0.0)), 2)
-        amount_cents = int(round(amount * 100))
-        state_refund = state.get("refund") or {}
-        if state.get("refund_request_id") and (
-            not state.get("refund_order_id") or state.get("refund_order_id") == oid
-        ):
-            request_id = state["refund_request_id"]
-        elif state_refund.get("request_id") and state.get("order_id") == oid:
-            request_id = state_refund["request_id"]
-        else:
-            request_id = f"ref_{oid}_{int(time.time() * 1000)}"
-
-        # 首次发起退款申请（尚未选择确认/取消）：触发 LangGraph interrupt 挂起，向前端下发确认卡片
-        if not action and state.get("intent") == "退款申请与审批":
-            rule_text = "金额 < 3.00 元，确认后将由智能客服直接秒退" if amount_cents < 300 else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
-            override_response = _build_refund_gate_reply(oid, amount, rule_text, order.get("status", ""))
-
-            cprint.node("order_refund", f"[触发 LangGraph interrupt 挂起] 订单 {oid} (req={request_id})", "等待用户确认")
-            resume_data = interrupt({
-                "type": "refund_confirmation_gate",
-                "order_id": oid,
-                "amount_cents": amount_cents,
-                "amount": amount,
-                "rule_text": rule_text,
-                "request_id": request_id,
-                "reply": override_response,
-            })
-
-            # 通过 Command(resume=...) 恢复时，提取前端回传的 confirm/cancel 动作与幂等流水号
-            if isinstance(resume_data, dict):
-                action = resume_data.get("action") or resume_data.get("confirm_action") or action
-                request_id = resume_data.get("request_id") or request_id
-            elif isinstance(resume_data, str) and resume_data in ("confirm", "cancel"):
-                action = resume_data
-
-            if not action:
-                refund_draft = {"request_id": request_id, "status": "PENDING_CONFIRM"}
-
-        # 已获得客户确认或取消动作（包括通过 Command(resume=...) 恢复或显式 confirm_action 重入）：执行退款/取消分流
-        if action in ("confirm", "cancel"):
-            order, override_response, refund_draft, escalate_human, escalation_reason = _execute_refund_action(
-                order, action, amount, amount_cents, request_id
-            )
-
-    except GraphInterrupt:
-        # 必须原样向上抛出 LangGraph 中断信号，交由 Checkpointer 保存现场并中断图执行（绝不能被通用异常捕获）
-        raise
+        return _execute_refund_action(order, action, request_id, t0)
     except Exception as e:
+        duration = int((time.time() - t0) * 1000)
         cprint.error(f"[order_refund_node 异常兜底]: {e}")
-        override_response = "系统在处理您的退款申请时遇到临时校验异常，已为您转接人工客服专员为您紧急处理，请稍候..."
-        escalate_human = True
-        escalation_reason = f"退款处理节点异常兜底: {e}"
-
-    duration = int((time.time() - t0) * 1000)
-    status_str = refund_draft["status"] if refund_draft else "none"
-    res: Dict[str, Any] = {
-        "order_id": order.get("orderId") if order else None,
-        "refund": refund_draft,
-        "trace": [f"order_refund: action={action}, status={status_str} ({duration}ms)"],
-    }
-    if override_response:
-        res["reply"] = override_response
-    if escalate_human:
-        res["handoff"] = True
-        res["escalation_reason"] = escalation_reason
-    return res
+        return {
+            "order_id": oid,
+            "refund": None,
+            "reply": "系统在处理您的退款申请时遇到临时校验异常，已为您转接人工客服专员为您紧急处理，请稍候...",
+            "handoff": True,
+            "escalation_reason": f"退款处理节点异常兜底: {e}",
+            "trace": [f"order_refund: action={action}, status=error ({duration}ms)"],
+        }
 
 
 def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
