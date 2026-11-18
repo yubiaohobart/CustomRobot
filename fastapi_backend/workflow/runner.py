@@ -33,12 +33,9 @@ def build_input_state(
     message: str,
     confirm_action: Optional[str],
     session: Dict[str, Any],
-    refund_order_id: Optional[str] = None,
-    refund_request_id: Optional[str] = None,
 ) -> InputState:
     """将 API 请求与持久化会话上下文组装为状态图 InputState（裁剪冗余字段以减小 Checkpoint 体积）"""
     profile = session.get("customerProfile") or {}
-    pending = session.get("pendingRefund") or {}
     compact_profile = {
         k: profile[k]
         for k in ("name", "userName", "vipLevel", "tier", "orderId")
@@ -48,8 +45,6 @@ def build_input_state(
         "session_id": session_id,
         "user_message": message,
         "confirm_action": confirm_action if confirm_action in ("confirm", "cancel") else None,
-        "refund_order_id": refund_order_id or pending.get("orderId"),
-        "refund_request_id": refund_request_id or pending.get("requestId"),
         "user_profile": compact_profile,
     }
 
@@ -125,6 +120,8 @@ def _merge_fallback_step(state: Dict[str, Any], update: Dict[str, Any]) -> None:
 async def _execute_graph(
     session_id: str,
     input_state: InputState,
+    refund_order_id: Optional[str] = None,
+    refund_request_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     graph_config = {"configurable": {"thread_id": session_id}}
     try:
@@ -133,11 +130,11 @@ async def _execute_graph(
         # 仅当存在真实挂起 interrupt（且与回调目标订单匹配）时，才通过 Command(resume=...) 从断点恢复
         if input_state.get("confirm_action") in ("confirm", "cancel"):
             snapshot = await graph.aget_state(graph_config)
-            if _has_pending_interrupt(snapshot, expected_order_id=input_state.get("refund_order_id")):
+            if _has_pending_interrupt(snapshot, expected_order_id=refund_order_id):
                 invoke_payload = Command(resume={
                     "action": input_state["confirm_action"],
-                    "order_id": input_state.get("refund_order_id"),
-                    "request_id": input_state.get("refund_request_id"),
+                    "order_id": refund_order_id,
+                    "request_id": refund_request_id,
                 })
 
         final_state = dict(await graph.ainvoke(invoke_payload, config=graph_config))
@@ -174,15 +171,26 @@ async def run_customer_service_graph(
     acquire_lock: bool = True,
 ) -> Dict[str, Any]:
     """执行指定会话的 LangGraph 状态图，统一处理中断挂起与 Command 唤醒"""
+    pending = session.get("pendingRefund") or {}
+    target_order_id = refund_order_id or pending.get("orderId")
+    target_request_id = refund_request_id or pending.get("requestId")
     input_state = build_input_state(
         session_id,
         message,
         confirm_action,
         session,
-        refund_order_id=refund_order_id,
-        refund_request_id=refund_request_id,
     )
     if acquire_lock:
         async with get_session_lock(session_id):
-            return await _execute_graph(session_id, input_state)
-    return await _execute_graph(session_id, input_state)
+            return await _execute_graph(
+                session_id,
+                input_state,
+                refund_order_id=target_order_id,
+                refund_request_id=target_request_id,
+            )
+    return await _execute_graph(
+        session_id,
+        input_state,
+        refund_order_id=target_order_id,
+        refund_request_id=target_request_id,
+    )

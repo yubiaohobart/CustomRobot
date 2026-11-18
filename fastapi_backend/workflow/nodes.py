@@ -111,12 +111,8 @@ def _build_refund_gate_reply(order: Dict[str, Any]) -> str:
 
 
 def _resolve_refund_request_id(state: AgentState, oid: str) -> str:
-    """提取或生成本次退款流程的幂等流水号（优先复用回调/挂起态已有流水号）"""
+    """提取断点中已保存的流水号，若为全新申请则生成新流水号"""
     state_refund = state.get("refund") or {}
-    if state.get("refund_request_id") and (
-        not state.get("refund_order_id") or state.get("refund_order_id") == oid
-    ):
-        return state["refund_request_id"]
     if state_refund.get("request_id") and state.get("order_id") == oid:
         return state_refund["request_id"]
     return f"ref_{oid}_{int(time.time() * 1000)}"
@@ -247,15 +243,11 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     duration = int((time.time() - t0) * 1000)
     cprint.node("analyze_query", f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}", f"耗时 {duration}ms")
 
-    # 关键：PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染；
-    # 若为退款二次确认重入回调且显式传入了目标订单号，则保留它以防误匹配其他订单
-    is_confirm_reentry = state.get("confirm_action") in ("confirm", "cancel")
-    preserved_oid = state.get("refund_order_id") if is_confirm_reentry else None
-
+    # 关键：PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染
     return {
         "intent": intent,
         "sentiment": sentiment,
-        "order_id": preserved_oid,
+        "order_id": None,
         "refund": None,
         "reply": None,
         "handoff": False,
@@ -266,16 +258,12 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
 
 
 def order_query_node(state: AgentState) -> Dict[str, Any]:
-    """2. 订单与物流中台检索（退款确认回调优先精确加载已绑定的 order_id，避免按按钮文案误匹配）"""
+    """2. 订单与物流中台检索"""
     t0 = time.time()
-    explicit_oid = state.get("order_id") or state.get("refund_order_id")
-    if state.get("confirm_action") in ("confirm", "cancel") and explicit_oid:
-        order = order_service.get_order_by_id(explicit_oid)
-    else:
-        order = order_service.detect_and_query_order(
-            state.get("user_message", ""),
-            state.get("user_profile", {}),
-        )
+    order = order_service.detect_and_query_order(
+        state.get("user_message", ""),
+        state.get("user_profile", {}),
+    )
     order_id = order["orderId"] if order else None
     duration = int((time.time() - t0) * 1000)
 

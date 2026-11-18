@@ -40,12 +40,10 @@ class RefundDraft(TypedDict):
 
 class InputState(TypedDict, total=False):
     """每轮 API 请求传入状态图的最小输入契约（Graph 入口会自动过滤非此契约的字段）"""
-    session_id: str                                     # 当前会话唯一 ID，对应 Checkpointer 的 thread_id
-    user_message: str                                   # 本轮客户发送的原始消息文本
+    session_id: str                                         # 当前会话唯一 ID，对应 Checkpointer 的 thread_id
+    user_message: str                                       # 本轮客户发送的原始消息文本
     confirm_action: Optional[Literal["confirm", "cancel"]]  # 退款确认卡片回调动作："confirm"=确认提交 / "cancel"=取消 / None=常规对话
-    refund_order_id: Optional[str]                      # 退款确认回调携带的目标订单号（Checkpointer 丢失时的防串单兜底）
-    refund_request_id: Optional[str]                    # 退款确认回调携带的幂等流水号（确保挂起->恢复使用同一 request_id）
-    user_profile: Optional[Dict[str, Any]]              # 精简客户画像（name/vipLevel/orderId，用于订单校验与个性化回答）
+    user_profile: Optional[Dict[str, Any]]                  # 精简客户画像（name/vipLevel/orderId，用于订单校验与个性化回答）
 
 
 class OutputState(TypedDict, total=False):
