@@ -58,8 +58,32 @@ class Settings(BaseModel):
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))
     DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "20"))
 
-    # 业务决策阈值
+    # 业务决策阈值与模型超时配置
     SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))  # 低于此分流转人工或提示低置信度
     TOP_K_RETRIEVAL: int = int(os.getenv("TOP_K_RETRIEVAL", "3"))
+    AUTO_REFUND_LIMIT_YUAN: float = float(os.getenv("AUTO_REFUND_LIMIT_YUAN", "3.00"))  # 退款自动秒退与人工审核分界阈值(元)
+    LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45.0"))
+
+    @property
+    def auto_refund_limit_cents(self) -> int:
+        """退款自动秒退阈值（单位：分，避免浮点精度误差）"""
+        return int(round(self.AUTO_REFUND_LIMIT_YUAN * 100))
+
+    @property
+    def auto_refund_limit_text(self) -> str:
+        """统一格式化后的退款阈值金额文本（如 '3.00'）"""
+        return f"{self.AUTO_REFUND_LIMIT_YUAN:.2f}"
+
+
+# 跨模块共享业务常量
+HUMAN_TAKEOVER_STATUSES = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN")
+DETERMINISTIC_FLOW_CONFIDENCE = 0.95  # 确定性业务流（挂起确认/退款分流/转人工）默认置信度
+PROCESSED_REQUEST_IDS_LIMIT = 20      # 单订单保留的幂等流水号历史上限
+
+# 会话滑动窗口摘要裁剪常量
+SUMMARY_USER_SNIPPET_LEN = 60
+SUMMARY_REPLY_SNIPPET_LEN = 48
+SUMMARY_MAX_SEGMENTS = 8
+SUMMARY_MAX_CHARS = 500
 
 settings = Settings()

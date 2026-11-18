@@ -9,6 +9,13 @@ import uuid
 import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from core.logger import log, cprint, LogColor
+from config import (
+    HUMAN_TAKEOVER_STATUSES,
+    SUMMARY_USER_SNIPPET_LEN,
+    SUMMARY_REPLY_SNIPPET_LEN,
+    SUMMARY_MAX_SEGMENTS,
+    SUMMARY_MAX_CHARS,
+)
 from services.storage_service import storage_service
 from models.entities import (
     SessionModel,
@@ -126,11 +133,11 @@ class MemoryService:
             return current_summary
 
         if role == "user":
-            snippet = f"{text[:60]}..." if len(text) > 60 else text
+            snippet = f"{text[:SUMMARY_USER_SNIPPET_LEN]}..." if len(text) > SUMMARY_USER_SNIPPET_LEN else text
             entry = f"客户提问：'{snippet}'"
         elif role in ("assistant", "human_agent"):
             prefix = "AI答复" if role == "assistant" else "人工坐席答复"
-            snippet = f"{text[:48]}..." if len(text) > 48 else text
+            snippet = f"{text[:SUMMARY_REPLY_SNIPPET_LEN]}..." if len(text) > SUMMARY_REPLY_SNIPPET_LEN else text
             entry = f"{prefix}：'{snippet}'"
         else:
             return current_summary
@@ -175,10 +182,10 @@ class MemoryService:
         if not merged:
             segments.append(entry)
 
-        # 最多保留最近 8 条片段，且总长度控制在 500 字以内（按整条片段淘汰）
-        if len(segments) > 8:
-            segments = segments[-8:]
-        while len(segments) > 1 and len("；".join(segments) + "；") > 500:
+        # 最多保留最近 SUMMARY_MAX_SEGMENTS 条片段，且总长度控制在 SUMMARY_MAX_CHARS 字以内（按整条片段淘汰）
+        if len(segments) > SUMMARY_MAX_SEGMENTS:
+            segments = segments[-SUMMARY_MAX_SEGMENTS:]
+        while len(segments) > 1 and len("；".join(segments) + "；") > SUMMARY_MAX_CHARS:
             segments.pop(0)
 
         return "；".join(segments) + "；"
@@ -263,7 +270,7 @@ class MemoryService:
         session_id: str,
         content: str,
         user_profile: Optional[Dict[str, Any]] = None,
-        human_takeover_statuses: Tuple[str, ...] = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN"),
+        human_takeover_statuses: Tuple[str, ...] = HUMAN_TAKEOVER_STATUSES,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """单次读写完成：获取/创建会话 + 合并最新画像 + 写入用户消息 + 人工模式未读标记 + 落盘"""
         session = storage_service.get_session(session_id)

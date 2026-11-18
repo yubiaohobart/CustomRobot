@@ -1,113 +1,20 @@
 """
-LangGraph 状态图执行节点与路由定义 (Workflow Nodes)
+LangGraph 状态图执行节点与路由定义 (Workflow Nodes - 轻量化编排适配层)
+具体业务规则与决策收口至 services/ 目录，节点仅负责状态流转、interrupt 断点控制与 trace 记账。
 """
 
 from typing import Dict, Any, List, Optional, Tuple
 import time
 from langgraph.types import interrupt
 
-from .state import AgentState, Hit, RefundDraft, Intent
+from .state import AgentState, Hit, RefundDraft
 from core.qdrant_store import qdrant_store
 from core.llm import deepseek_client
+from services.intent_service import intent_service
 from services.order_service import order_service
 from services.storage_service import storage_service
 from config import settings
 from core.logger import cprint, LogColor
-
-# 政策/规则/时效咨询保护词：命中此类词时优先走知识库问答，避免“退货运费谁出”等纯咨询误触发退款确认卡片
-_POLICY_GUARD_KEYWORDS = (
-    "运费", "谁出", "谁付", "包邮", "免运费",
-    "到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效", "几天",
-    "7天", "七天", "无理由", "政策", "规定", "条件", "流程是什么",
-    "可以退吗", "能不能退", "怎么退", "如何退",
-    "进度", "状态", "审核到哪", "特殊商品", "不能退", "不给退", "定制", "生鲜", "拆封",
-)
-
-# 显式退款/退货申请触发词（仅在未命中政策咨询保护词时生效）
-_REFUND_APPLY_KEYWORDS = (
-    "申请退款", "我要退款", "办理退款", "退钱给我", "我要退货退款",
-    "提交退款", "申请退货", "我要退货", "退款", "退货", "退钱", "要退", "退掉",
-)
-
-# 强转人工客服关键词（优先级最高，命中后直接路由到 human_escalation）
-_HANDOFF_PURE_KEYWORDS = (
-    "转人工", "找人工", "人工客服", "投诉", "消协", "找领导", "不要机器人", "马上帮我转接人工",
-)
-
-# 按业务优先级排序的意图规则表
-_INTENT_RULES: Tuple[Tuple[Intent, Tuple[str, ...]], ...] = (
-    ("退款到账时效查询", ("到账", "几天能收到", "几天到", "多久到账", "打款时间", "退款多久", "时效", "几天")),
-    ("退换货运费承担与会员权益", ("运费", "谁出", "谁付", "包邮", "免运费")),
-    ("特殊不可退换商品范围", ("特殊商品", "不能退", "不给退", "定制", "生鲜", "内裤", "母婴", "拆封")),
-    ("7天无理由退货政策", ("7天", "七天", "无理由", "退货", "退换", "规定", "政策", "条件", "怎么退", "如何退")),
-    ("订单查询与物流追踪", ("订单", "查订单", "物流", "快递", "运单", "发货", "到哪了", "什么时候到", "送达", "签收", "收件地址", "进度", "状态", "ord-", "88992", "90412", "77310")),
-    ("1年联保与硬件保修条款", ("保修", "维修", "坏了", "换新", "质保", "联保", "进水", "摔坏")),
-)
-
-# 需要先经过 order_query 节点查询关联订单中台数据的意图集合
-_ORDER_QUERY_INTENTS = frozenset({
-    "订单查询与物流追踪",
-    "退款申请与审批",
-    "退款到账时效查询",
-    "退换货运费承担与会员权益",
-    "7天无理由退货政策",
-})
-
-
-def _detect_sentiment(msg: str, explicit_handoff: bool) -> str:
-    if any(k in msg for k in ("骗子", "投诉", "消协", "火大", "气死", "态度差", "打死")):
-        return "angry"
-    if explicit_handoff or any(k in msg for k in ("差评", "太慢", "生气", "催", "急", "不要机器人")):
-        return "frustrated"
-    if any(k in msg for k in ("谢谢", "感谢", "好的", "明白了", "点赞", "挺快")):
-        return "calm"
-    return "neutral"
-
-
-def _resolve_owned_order(state: AgentState) -> Optional[Dict[str, Any]]:
-    """校验并加载归属当前客户的持久化订单，防止跨客户越权查询或退款"""
-    order_id = state.get("order_id")
-    if not order_id:
-        return None
-    persisted = order_service.get_order_by_id(order_id)
-    if not persisted:
-        return None
-    profile = state.get("user_profile") or {}
-    profile_name = profile.get("name") or profile.get("userName", "")
-    is_placeholder = not profile_name or "客户" in profile_name or "访客" in profile_name
-    if is_placeholder or profile_name in persisted.get("userName", ""):
-        return persisted
-    return None
-
-
-def _build_refund_gate_reply(order: Dict[str, Any]) -> str:
-    oid = order["orderId"]
-    amount = round(float(order.get("paidAmount", 0.0)), 2)
-    amount_cents = int(round(amount * 100))
-    current_status = order.get("status", "")
-    header = f"收到您针对订单【{oid}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
-
-    if current_status == "REFUND_PENDING_AUDIT":
-        return (
-            f"{header}该订单当前正处于【退款待人工审核】状态（因金额 >= 3.00 元触发资金安全人工干涉）。\n"
-            f"如需确认或变更诉求，请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
-        )
-    if current_status == "REFUNDED":
-        return (
-            f"{header}系统显示该订单此前已完成退款解冻。\n"
-            f"您可在下方卡片中点击【确认提交退款】复核退款状态，或点击【取消 / 我再想想】退出："
-        )
-    rule_text = (
-        "金额 < 3.00 元，确认后将由智能客服直接秒退"
-        if amount_cents < 300
-        else "金额 >= 3.00 元，确认后将提交人工干涉与资金安全审核"
-    )
-    return (
-        f"{header}根据商城退款规则（{rule_text}），在正式提交前，请您确认以下权益调整：\n"
-        f"• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n"
-        f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
-        f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
-    )
 
 
 def _resolve_refund_request_id(state: AgentState, oid: str) -> str:
@@ -129,121 +36,14 @@ def _parse_resume_payload(resume_data: Any, fallback_request_id: str) -> Tuple[O
     return None, fallback_request_id
 
 
-def _refund_result(
-    oid: str,
-    reply: str,
-    request_id: str,
-    status: str,
-    action: str,
-    t0: float,
-    escalation_reason: Optional[str] = None,
-) -> Dict[str, Any]:
-    """构造统一的 order_refund 节点返回结构"""
-    duration = int((time.time() - t0) * 1000)
-    draft: RefundDraft = {"request_id": request_id, "status": status}  # type: ignore[assignment]
-    res: Dict[str, Any] = {
-        "order_id": oid,
-        "refund": draft,
-        "reply": reply,
-        "trace": [f"order_refund: action={action}, status={status} ({duration}ms)"],
-    }
-    if escalation_reason:
-        res["handoff"] = True
-        res["escalation_reason"] = escalation_reason
-    return res
-
-
-def _execute_refund_action(
-    order: Dict[str, Any],
-    action: str,
-    request_id: str,
-    t0: float,
-) -> Dict[str, Any]:
-    """执行退款确认/取消动作：优先按 request_id 做请求级幂等去重，再按 300 分(3.00元)阈值分流"""
-    oid = order["orderId"]
-    amount = round(float(order.get("paidAmount", 0.0)), 2)
-    amount_cents = int(round(amount * 100))
-    current_status = order.get("status", "")
-    processed_ids = (order.get("afterSales") or {}).get("processedRequestIds") or []
-
-    if action == "cancel":
-        cprint.node("order_refund", "用户点击取消退款申请", "恢复正常状态")
-        return _refund_result(
-            oid,
-            f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
-            request_id, "CANCELED", action, t0,
-        )
-
-    if request_id and request_id in processed_ids:
-        draft_status = "PENDING_AUDIT" if current_status == "REFUND_PENDING_AUDIT" else "SUBMITTED"
-        cprint.node("order_refund", f"[request_id 幂等拦截] {request_id}", "返回已受理结果")
-        return _refund_result(
-            oid,
-            f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
-            request_id, draft_status, action, t0,
-        )
-
-    if current_status == "REFUNDED":
-        return _refund_result(
-            oid,
-            f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
-            request_id, "SUBMITTED", action, t0,
-        )
-
-    if current_status == "REFUND_PENDING_AUDIT":
-        return _refund_result(
-            oid,
-            f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
-            request_id, "PENDING_AUDIT", action, t0,
-        )
-
-    if amount_cents < 300:
-        order_service.process_refund_request(
-            oid, reason="用户二次确认提交退款(自动秒退)", refund_amount=amount, request_id=request_id
-        )
-        cprint.node("order_refund", f"[幂等秒退成功] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "秒退完成")
-        return _refund_result(
-            oid,
-            f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< 3.00 元)，智能客服已为您直接原路退回解冻，请查收！",
-            request_id, "SUBMITTED", action, t0,
-        )
-
-    order_service.process_refund_request(
-        oid, reason="用户二次确认提交退款(人工审核)", refund_amount=amount, request_id=request_id
-    )
-    cprint.node("order_refund", f"[转人工干涉队列] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "转人工核验")
-    reason = f"订单 {oid} 申请退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列"
-    reply = f"【退款审核工单已提交】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (>= 3.00 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！"
-    return _refund_result(oid, reply, request_id, "PENDING_AUDIT", action, t0, escalation_reason=reason)
-
-
 def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     """1. 意图分类、情绪识别与单轮瞬态字段复位"""
     t0 = time.time()
-    msg = state.get("user_message", "").lower()
-
-    is_policy_q = any(k in msg for k in _POLICY_GUARD_KEYWORDS)
-    is_refund_apply = (not is_policy_q) and any(k in msg for k in _REFUND_APPLY_KEYWORDS)
-    explicit_handoff = any(k in msg for k in _HANDOFF_PURE_KEYWORDS) or (
-        ("人工" in msg or "主管" in msg) and not is_refund_apply
-    )
-    sentiment = _detect_sentiment(msg, explicit_handoff)
-
-    intent: Intent = "常规售后咨询"
-    if explicit_handoff:
-        intent = "handoff"
-    elif is_refund_apply:
-        intent = "退款申请与审批"
-    else:
-        for candidate_intent, keywords in _INTENT_RULES:
-            if any(k in msg for k in keywords):
-                intent = candidate_intent
-                break
-
+    intent, sentiment = intent_service.classify_query(state.get("user_message", ""))
     duration = int((time.time() - t0) * 1000)
     cprint.node("analyze_query", f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}", f"耗时 {duration}ms")
 
-    # 关键：PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口必须复位上一轮的瞬态输出字段，防止跨轮脏状态污染
+    # PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口复位瞬态输出字段以防跨轮污染
     return {
         "intent": intent,
         "sentiment": sentiment,
@@ -276,7 +76,7 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
 def order_refund_node(state: AgentState) -> Dict[str, Any]:
     """3. 订单退款门控 (LangGraph interrupt) 与二次确认执行"""
     t0 = time.time()
-    order = _resolve_owned_order(state)
+    order = order_service.get_owned_order(state.get("order_id"), state.get("user_profile"))
     if not order:
         return {
             "order_id": None,
@@ -289,9 +89,9 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
     action = state.get("confirm_action")
     request_id = _resolve_refund_request_id(state, oid)
 
-    # 首次发起退款申请：在 try 块外触发 LangGraph interrupt 挂起，等待 Command(resume=...) 唤醒
+    # 首次发起退款申请：触发 LangGraph interrupt 挂起，等待 Command(resume=...) 唤醒
     if not action and state.get("intent") == "退款申请与审批":
-        gate_reply = _build_refund_gate_reply(order)
+        gate_reply = order_service.build_refund_gate_reply(order)
         cprint.node("order_refund", f"[触发 LangGraph interrupt 挂起] 订单 {oid} (req={request_id})", "等待用户确认")
         resume_data = interrupt({
             "order_id": oid,
@@ -310,7 +110,19 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         }
 
     try:
-        return _execute_refund_action(order, action, request_id, t0)
+        outcome = order_service.execute_refund_decision(order, action, request_id)
+        duration = int((time.time() - t0) * 1000)
+        draft: RefundDraft = {"request_id": outcome["request_id"], "status": outcome["status"]}
+        res: Dict[str, Any] = {
+            "order_id": outcome["order_id"],
+            "refund": draft,
+            "reply": outcome["reply"],
+            "trace": [f"order_refund: action={action}, status={outcome['status']} ({duration}ms)"],
+        }
+        if outcome.get("handoff"):
+            res["handoff"] = True
+            res["escalation_reason"] = outcome.get("escalation_reason")
+        return res
     except Exception as e:
         duration = int((time.time() - t0) * 1000)
         cprint.error(f"[order_refund_node 异常兜底]: {e}")
@@ -352,7 +164,7 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
 
 
 async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
-    """5. 调用 DeepSeek 大模型生成严谨回答（按需加载会话记忆摘要，不随每步 Checkpoint 冗余序列化）"""
+    """5. 调用 DeepSeek 大模型生成严谨回答（按需加载会话记忆摘要）"""
     t0 = time.time()
     session_id = state.get("session_id")
     session_data = storage_service.get_session(session_id) if session_id else None
@@ -377,22 +189,16 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
 def human_escalation_node(state: AgentState) -> Dict[str, Any]:
     """6. 人工接入触发节点"""
     t0 = time.time()
-    hits = state.get("hits", [])
-    top_score = hits[0]["score"] if hits else 0.0
-
-    if state.get("intent") == "handoff":
-        reason = "客户主动要求转人工客服服务"
-    elif not hits or top_score < settings.SIMILARITY_THRESHOLD:
-        reason = f"Qdrant 向量匹配得分较低 (< {settings.SIMILARITY_THRESHOLD})，转人工以防误答"
-    elif state.get("sentiment") in ("frustrated", "angry"):
-        reason = "客户情绪预警，启动人工跟进"
-    else:
-        reason = "知识库无可用依据，转人工兜底处理"
-
+    reason, reply = intent_service.build_escalation_info(
+        intent=state.get("intent", ""),
+        sentiment=state.get("sentiment", "neutral"),
+        hits=state.get("hits", []),
+        similarity_threshold=settings.SIMILARITY_THRESHOLD,
+    )
     cprint.transfer(state.get("session_id", "当前会话"), "值班客服专员", reason)
     duration = int((time.time() - t0) * 1000)
     return {
-        "reply": "【智能管家温馨提示】收到您的需求，正在为您无缝转接 XX商城 官方售后值班专员。我们将保留您的完整对话快照与政策咨询记录，请稍候片刻...",
+        "reply": reply,
         "handoff": True,
         "escalation_reason": reason,
         "trace": [f"human_escalation: 触发转人工 (原因: {reason}) ({duration}ms)"],
@@ -407,7 +213,7 @@ def router_after_analysis(state: AgentState) -> str:
         return "order_query"
     if state.get("intent") == "handoff":
         return "human_escalation"
-    if state.get("intent", "") in _ORDER_QUERY_INTENTS:
+    if intent_service.requires_order_query(state.get("intent", "")):
         return "order_query"
     return "qdrant_retrieve"
 
@@ -419,21 +225,17 @@ def router_after_order_query(state: AgentState) -> str:
     return "qdrant_retrieve"
 
 
-_CHITCHAT_KEYWORDS = ("你好", "您好", "在吗", "在不在", "谢谢", "感谢", "再见", "拜拜", "好的", "明白了", "收到", "嗯")
-
-
-def _is_chitchat(msg: str) -> bool:
-    """判断是否为纯礼貌问候/寒暄短句，避免知识库无命中时把打招呼误转人工"""
-    text = msg.strip().lower()
-    return len(text) <= 12 and any(k in text for k in _CHITCHAT_KEYWORDS)
-
-
 def router_after_retrieval(state: AgentState) -> str:
     """向量检索后的路由：低分情绪预警转人工；常规未知咨询且无任何知识/订单依据时也转人工防大模型幻觉"""
     hits = state.get("hits", [])
     top_score = hits[0]["score"] if hits else 0.0
     if top_score < settings.SIMILARITY_THRESHOLD and state.get("sentiment") in ("frustrated", "angry"):
         return "human_escalation"
-    if state.get("intent") == "常规售后咨询" and not hits and not state.get("order_id") and not _is_chitchat(state.get("user_message", "")):
+    if (
+        state.get("intent") == "常规售后咨询"
+        and not hits
+        and not state.get("order_id")
+        and not intent_service.is_chitchat(state.get("user_message", ""))
+    ):
         return "human_escalation"
     return "deepseek_generate"

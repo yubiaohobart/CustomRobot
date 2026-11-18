@@ -4,20 +4,12 @@ LangGraph 状态图执行器 (Workflow Runner)
 """
 
 import asyncio
+from contextlib import nullcontext
 from typing import Dict, Any, Optional
 from langgraph.types import Command
 from core.logger import cprint
-from workflow.state import InputState, trace_reducer
+from workflow.state import InputState
 from workflow.graph import get_customer_service_graph
-from workflow.nodes import (
-    _ORDER_QUERY_INTENTS,
-    analyze_query_node,
-    order_query_node,
-    qdrant_retrieve_node,
-    deepseek_generate_node,
-    human_escalation_node,
-    router_after_retrieval,
-)
 
 # 按 session_id 维护的异步互斥锁，确保同一会话的 Checkpointer 读写串行化，防止并发消息产生状态竞争
 _session_locks: Dict[str, asyncio.Lock] = {}
@@ -53,8 +45,7 @@ def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = Non
     """仅当 checkpoint tasks 中存在挂起的 interrupts（且若传入目标订单号则与挂起订单一致）时才返回 True"""
     if not snapshot:
         return False
-    tasks = getattr(snapshot, "tasks", None) or ()
-    for task in tasks:
+    for task in getattr(snapshot, "tasks", None) or ():
         for intr in getattr(task, "interrupts", None) or ():
             val = getattr(intr, "value", intr)
             if expected_order_id and isinstance(val, dict):
@@ -68,7 +59,7 @@ def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = Non
 async def _apply_interrupt_payload(
     final_state: Dict[str, Any],
     graph_config: Dict[str, Any],
-    graph: Any = None,
+    graph: Any,
 ) -> Dict[str, Any]:
     """
     当图因 interrupt() 挂起返回时：
@@ -97,8 +88,7 @@ async def _apply_interrupt_payload(
     final_state["refund"] = refund_draft
 
     # 将挂起阶段的 order_id / refund(含 request_id) 回写至 PostgreSQL checkpoint，供 Command(resume) 恢复使用
-    target_graph = graph or await get_customer_service_graph()
-    await target_graph.aupdate_state(
+    await graph.aupdate_state(
         graph_config,
         {"order_id": final_state["order_id"], "refund": refund_draft},
     )
@@ -107,14 +97,6 @@ async def _apply_interrupt_payload(
         f"order_refund: [LangGraph interrupt 挂起] 订单 {intr_order_id} (req={intr_request_id}) 等待客户交互确认"
     ]
     return final_state
-
-
-def _merge_fallback_step(state: Dict[str, Any], update: Dict[str, Any]) -> None:
-    """降级路径辅助：合并节点输出并按 trace_reducer 累加/复位 trace"""
-    prev_trace = state.get("trace")
-    new_trace = update.get("trace")
-    state.update(update)
-    state["trace"] = trace_reducer(prev_trace, new_trace)
 
 
 async def _execute_graph(
@@ -127,38 +109,31 @@ async def _execute_graph(
     try:
         graph = await get_customer_service_graph()
         invoke_payload: Any = input_state
+
         # 仅当存在真实挂起 interrupt（且与回调目标订单匹配）时，才通过 Command(resume=...) 从断点恢复
         if input_state.get("confirm_action") in ("confirm", "cancel"):
             snapshot = await graph.aget_state(graph_config)
             if _has_pending_interrupt(snapshot, expected_order_id=refund_order_id):
                 invoke_payload = Command(resume={
                     "action": input_state["confirm_action"],
-                    "order_id": refund_order_id,
                     "request_id": refund_request_id,
                 })
 
         final_state = dict(await graph.ainvoke(invoke_payload, config=graph_config))
         return await _apply_interrupt_payload(final_state, graph_config, graph)
     except Exception as e:
-        # 图编排执行异常时的全链路降级：保留意图分析、转人工判定、订单检索、知识检索与低置信度兜底
-        cprint.error(f"[Graph Fallback 降级]: {e}")
-        fallback_state: Dict[str, Any] = dict(input_state)
-        _merge_fallback_step(fallback_state, analyze_query_node(fallback_state))
-
-        if fallback_state.get("intent") == "handoff":
-            _merge_fallback_step(fallback_state, human_escalation_node(fallback_state))
-            return fallback_state
-
-        if fallback_state.get("intent") in _ORDER_QUERY_INTENTS or fallback_state.get("confirm_action") in ("confirm", "cancel"):
-            _merge_fallback_step(fallback_state, order_query_node(fallback_state))
-
-        _merge_fallback_step(fallback_state, qdrant_retrieve_node(fallback_state))
-        if router_after_retrieval(fallback_state) == "human_escalation":
-            _merge_fallback_step(fallback_state, human_escalation_node(fallback_state))
-            return fallback_state
-
-        _merge_fallback_step(fallback_state, await deepseek_generate_node(fallback_state))
-        return fallback_state
+        cprint.error(f"[Graph 执行异常兜底]: {e}")
+        return {
+            "reply": "系统处理请求时遇到临时异常，已为您转接人工客服专员跟进处理，请稍候片刻...",
+            "handoff": True,
+            "intent": "handoff",
+            "sentiment": "neutral",
+            "order_id": None,
+            "refund": None,
+            "hits": [],
+            "escalation_reason": f"状态图执行异常兜底: {e}",
+            "trace": [f"graph_runner: 执行异常兜底转人工 ({e})"],
+        }
 
 
 async def run_customer_service_graph(
@@ -174,23 +149,13 @@ async def run_customer_service_graph(
     pending = session.get("pendingRefund") or {}
     target_order_id = refund_order_id or pending.get("orderId")
     target_request_id = refund_request_id or pending.get("requestId")
-    input_state = build_input_state(
-        session_id,
-        message,
-        confirm_action,
-        session,
-    )
-    if acquire_lock:
-        async with get_session_lock(session_id):
-            return await _execute_graph(
-                session_id,
-                input_state,
-                refund_order_id=target_order_id,
-                refund_request_id=target_request_id,
-            )
-    return await _execute_graph(
-        session_id,
-        input_state,
-        refund_order_id=target_order_id,
-        refund_request_id=target_request_id,
-    )
+    input_state = build_input_state(session_id, message, confirm_action, session)
+
+    lock_ctx = get_session_lock(session_id) if acquire_lock else nullcontext()
+    async with lock_ctx:
+        return await _execute_graph(
+            session_id,
+            input_state,
+            refund_order_id=target_order_id,
+            refund_request_id=target_request_id,
+        )

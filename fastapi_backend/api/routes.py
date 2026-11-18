@@ -7,7 +7,7 @@ import time
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from config import settings
+from config import settings, HUMAN_TAKEOVER_STATUSES, DETERMINISTIC_FLOW_CONFIDENCE
 from models.schemas import (
     ChatRequest,
     ChatResponse,
@@ -31,7 +31,6 @@ from core.logger import log, cprint, LogColor
 router = APIRouter(prefix="/api")
 
 _DURATION_RE = re.compile(r"\((\d+)ms\)")
-_HUMAN_TAKEOVER_STATUSES = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN")
 
 
 async def _emit_message_event(session_id: str, message: Dict[str, Any], session: Optional[Dict[str, Any]]) -> None:
@@ -153,7 +152,7 @@ async def chat_endpoint(req: ChatRequest):
             req.sessionId,
             message_text,
             user_profile=req.userProfile,
-            human_takeover_statuses=_HUMAN_TAKEOVER_STATUSES,
+            human_takeover_statuses=HUMAN_TAKEOVER_STATUSES,
         )
         profile = session.get("customerProfile") or {}
         tier = profile.get("vipLevel") or profile.get("tier") or "NORMAL"
@@ -163,7 +162,7 @@ async def chat_endpoint(req: ChatRequest):
         await _emit_message_event(req.sessionId, user_msg, session)
 
         # 2. 若当前会话已被人工接管，AI 暂停自主介入，直接返回坐席协同提示
-        if session.get("status") in _HUMAN_TAKEOVER_STATUSES:
+        if session.get("status") in HUMAN_TAKEOVER_STATUSES:
             cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
             return _build_human_takeover_response(req.sessionId, session, user_msg, t_start)
 
@@ -195,11 +194,11 @@ async def chat_endpoint(req: ChatRequest):
         refund_request_id = refund_draft.get("request_id")
         handoff = bool(final_state.get("handoff", False))
 
-        # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给 0.95；其余无命中给 0.0
+        # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给固定高置信度；其余无命中给 0.0
         if hits:
             conf_score = round(float(hits[0]["score"]), 4)
         elif refund_pending or refund_draft or handoff:
-            conf_score = 0.95
+            conf_score = DETERMINISTIC_FLOW_CONFIDENCE
         else:
             conf_score = 0.0
 
@@ -429,8 +428,8 @@ async def update_order_status_endpoint(order_id: str, payload: Dict[str, Any]):
 async def request_order_refund_endpoint(order_id: str, payload: Dict[str, Any] = {}):
     """
     提交订单退款申请：
-    金额 <= 3.00 元直接秒退 (AUTO_REFUNDED)
-    金额 > 3.00 元需人工审核 (PENDING_HUMAN_AUDIT)
+    金额 < AUTO_REFUND_LIMIT_YUAN 直接秒退 (AUTO_REFUNDED)
+    金额 >= AUTO_REFUND_LIMIT_YUAN 需人工审核 (PENDING_HUMAN_AUDIT)
     """
     reason = payload.get("reason", "7天无理由退货")
     amount = payload.get("refundAmount")

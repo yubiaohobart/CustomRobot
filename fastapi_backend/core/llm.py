@@ -21,7 +21,7 @@ class DeepSeekLLMClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.timeout = 45.0
+        self.timeout = settings.LLM_TIMEOUT_SECONDS
 
     async def generate_response(
         self,
@@ -64,6 +64,7 @@ class DeepSeekLLMClient:
         business_facts_block = facts_text if facts_text else "当前客户尚未触发或关联特定业务中台实体数据。"
 
         effective_summary = (summary_memory or memory_summary or "").strip()
+        limit_text = settings.auto_refund_limit_text
 
         # 3. 构建高标准客服 Prompt
         system_prompt = f"""你是一名【XX商城】的官方资深金牌智能客服主管。
@@ -75,8 +76,8 @@ class DeepSeekLLMClient:
 （提示：如果客户是【黄金会员】或以上，请务必主动提醒其享有“退货免运费”专属特权，退货运费由平台全额补贴！）
 
 【XX商城订单退款审核与安全规则】
-1. 当退款金额【< 3.00 元】：可通过智能客服直接秒级退款（无需人工干涉，资金原路秒级退回解冻）。
-2. 当退款金额【>= 3.00 元】：涉及商城资金安全，必须经过人工干涉，系统自动提交工单并无缝接入人工客服加急审核。
+1. 当退款金额【< {limit_text} 元】：可通过智能客服直接秒级退款（无需人工干涉，资金原路秒级退回解冻）。
+2. 当退款金额【>= {limit_text} 元】：涉及商城资金安全，必须经过人工干涉，系统自动提交工单并无缝接入人工客服加急审核。
 
 【动态业务实体事实 (Business Facts)】
 {business_facts_block}
@@ -89,7 +90,7 @@ class DeepSeekLLMClient:
 
 【回答纪律】：
 1. 涉及具体业务实体（如订单、物流、商品、发票、权益、退款状态等）时，必须严格基于【动态业务实体事实】作答；
-2. 若客户表达退款意图，金额 < 3.00 元时告知“已由智能客服为您直接办理极速退款”；金额 >= 3.00 元时告知“涉及资金安全，已为您提交工单并转接人工客服加急审核”；
+2. 若客户表达退款意图，金额 < {limit_text} 元时告知“已由智能客服为您直接办理极速退款”；金额 >= {limit_text} 元时告知“涉及资金安全，已为您提交工单并转接人工客服加急审核”；
 3. 商城政策、时效规定（7天退换、运费承担、特殊商品范围、48小时质检及到账、1年联保）严格遵循【XX商城官方售后与退换货政策参考】；
 4. 事实与政策中未提及的信息如实告知，严禁凭空编造不存在的事实或服务；
 5. 口吻温暖热情、换位思考，条理清晰；

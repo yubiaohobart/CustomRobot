@@ -8,6 +8,8 @@ import datetime
 import re
 from services.storage_service import storage_service
 from models.entities import OrderModel
+from core.logger import cprint
+from config import settings, PROCESSED_REQUEST_IDS_LIMIT
 
 
 class OrderService:
@@ -41,6 +43,24 @@ class OrderService:
     def get_order_by_id(self, order_id: str) -> Optional[Dict[str, Any]]:
         """从固化存储中按订单号查询完整详情"""
         return storage_service.get_order(order_id)
+
+    def get_owned_order(
+        self,
+        order_id: Optional[str],
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """校验并加载归属当前客户的持久化订单，防止跨客户越权查询或退款"""
+        if not order_id:
+            return None
+        persisted = self.get_order_by_id(order_id)
+        if not persisted:
+            return None
+        profile = user_profile or {}
+        profile_name = profile.get("name") or profile.get("userName", "")
+        is_placeholder = not profile_name or "客户" in profile_name or "访客" in profile_name
+        if is_placeholder or profile_name in persisted.get("userName", ""):
+            return persisted
+        return None
 
     def find_orders_for_user(self, user_name: str, phone: Optional[str] = None) -> List[Dict[str, Any]]:
         """根据客户姓名或手机号拉取该客户的所有订单"""
@@ -153,8 +173,8 @@ class OrderService:
         """
         处理客户订单退款申请（支持基于 request_id 的请求级幂等控制）：
         - 若同一个 request_id 已处理过，直接返回当前订单状态，避免重复提交或覆盖审计记录
-        - 若退款金额 < 3.00 元：智能客服直接秒退（无需人工干涉），状态变更为 REFUNDED / AUTO_REFUNDED
-        - 若退款金额 >= 3.00 元：需人工干涉与资金安全审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
+        - 若退款金额 < AUTO_REFUND_LIMIT_YUAN（默认 3.00 元）：智能客服直接秒退（无需人工干涉），状态变更为 REFUNDED / AUTO_REFUNDED
+        - 若退款金额 >= AUTO_REFUND_LIMIT_YUAN（默认 3.00 元）：需人工干涉与资金安全审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
         """
         order = self.get_order_by_id(order_id)
         if not order:
@@ -166,6 +186,9 @@ class OrderService:
             return order
 
         amount = refund_amount if refund_amount is not None and refund_amount > 0 else float(order.get("paidAmount", 0.0))
+        amount_cents = int(round(amount * 100))
+        limit_cents = settings.auto_refund_limit_cents
+        limit_text = settings.auto_refund_limit_text
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         after_sales["refundAmount"] = amount
@@ -173,24 +196,24 @@ class OrderService:
         if request_id:
             after_sales["lastRequestId"] = request_id
             processed_ids.append(request_id)
-            after_sales["processedRequestIds"] = processed_ids[-20:]
+            after_sales["processedRequestIds"] = processed_ids[-PROCESSED_REQUEST_IDS_LIMIT:]
 
-        # 判断是否需要人工干涉 (金额大于等于3元)
-        requires_audit = amount >= 3.00
+        # 统一按配置阈值判断是否需要人工干涉
+        requires_audit = amount_cents >= limit_cents
 
         if requires_audit:
             order["status"] = "REFUND_PENDING_AUDIT"
             order["statusText"] = "退款待人工审核"
             after_sales["refundStatus"] = "PENDING_HUMAN_AUDIT"
             after_sales["requiresHumanAudit"] = True
-            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (>= 3.00 元)，涉及资金安全，已自动提交至工单中心待人工干涉与审核"
+            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及资金安全，已自动提交至工单中心待人工干涉与审核"
         else:
             order["status"] = "REFUNDED"
             order["statusText"] = "已退款(秒级到账)"
             after_sales["refundStatus"] = "AUTO_REFUNDED"
             after_sales["requiresHumanAudit"] = False
             after_sales["auditTime"] = now_str
-            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (< 3.00 元)，符合智能客服小额直接退款规则，已秒级自动完成原路退款"
+            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (< {limit_text} 元)，符合智能客服小额直接退款规则，已秒级自动完成原路退款"
 
         order["afterSales"] = after_sales
         order["updatedAt"] = now_str
@@ -233,6 +256,123 @@ class OrderService:
         order["updatedAt"] = now_str
         return self.save_order(order)
 
+    def build_refund_gate_reply(self, order: Dict[str, Any]) -> str:
+        """生成退款二次确认门控提示文案"""
+        oid = order["orderId"]
+        amount = round(float(order.get("paidAmount", 0.0)), 2)
+        amount_cents = int(round(amount * 100))
+        limit_cents = settings.auto_refund_limit_cents
+        limit_text = settings.auto_refund_limit_text
+        current_status = order.get("status", "")
+        header = f"收到您针对订单【{oid}】（实付 ¥{amount:.2f} 元）的退款申请。\n"
+
+        if current_status == "REFUND_PENDING_AUDIT":
+            return (
+                f"{header}该订单当前正处于【退款待人工审核】状态（因金额 >= {limit_text} 元触发资金安全人工干涉）。\n"
+                f"如需确认或变更诉求，请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
+            )
+        if current_status == "REFUNDED":
+            return (
+                f"{header}系统显示该订单此前已完成退款解冻。\n"
+                f"您可在下方卡片中点击【确认提交退款】复核退款状态，或点击【取消 / 我再想想】退出："
+            )
+        rule_text = (
+            f"金额 < {limit_text} 元，确认后将由智能客服直接秒退"
+            if amount_cents < limit_cents
+            else f"金额 >= {limit_text} 元，确认后将提交人工干涉与资金安全审核"
+        )
+        return (
+            f"{header}根据商城退款规则（{rule_text}），在正式提交前，请您确认以下权益调整：\n"
+            f"• 订单对应的黄金/钻石会员积分及运费补贴将同步收回；\n"
+            f"• 退款将通过原支付渠道（支付宝/微信/银行卡）解冻退回。\n\n"
+            f"请在下方卡片中点击【确认提交退款】或【取消 / 我再想想】："
+        )
+
+    def execute_refund_decision(
+        self,
+        order: Dict[str, Any],
+        action: str,
+        request_id: str,
+    ) -> Dict[str, Any]:
+        """执行退款确认/取消业务决策（含 request_id 幂等去重与动态审核阈值分流）"""
+        oid = order["orderId"]
+        amount = round(float(order.get("paidAmount", 0.0)), 2)
+        amount_cents = int(round(amount * 100))
+        limit_cents = settings.auto_refund_limit_cents
+        limit_text = settings.auto_refund_limit_text
+        current_status = order.get("status", "")
+        processed_ids = (order.get("afterSales") or {}).get("processedRequestIds") or []
+
+        if action == "cancel":
+            cprint.node("order_refund", "用户点击取消退款申请", "恢复正常状态")
+            return {
+                "order_id": oid,
+                "request_id": request_id,
+                "status": "CANCELED",
+                "reply": f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
+                "handoff": False,
+                "escalation_reason": None,
+            }
+
+        if request_id and request_id in processed_ids:
+            draft_status = "PENDING_AUDIT" if current_status == "REFUND_PENDING_AUDIT" else "SUBMITTED"
+            cprint.node("order_refund", f"[request_id 幂等拦截] {request_id}", "返回已受理结果")
+            return {
+                "order_id": oid,
+                "request_id": request_id,
+                "status": draft_status,
+                "reply": f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
+                "handoff": False,
+                "escalation_reason": None,
+            }
+
+        if current_status == "REFUNDED":
+            return {
+                "order_id": oid,
+                "request_id": request_id,
+                "status": "SUBMITTED",
+                "reply": f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
+                "handoff": False,
+                "escalation_reason": None,
+            }
+
+        if current_status == "REFUND_PENDING_AUDIT":
+            return {
+                "order_id": oid,
+                "request_id": request_id,
+                "status": "PENDING_AUDIT",
+                "reply": f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
+                "handoff": False,
+                "escalation_reason": None,
+            }
+
+        if amount_cents < limit_cents:
+            self.process_refund_request(
+                oid, reason="用户二次确认提交退款(自动秒退)", refund_amount=amount, request_id=request_id
+            )
+            cprint.node("order_refund", f"[幂等秒退成功] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "秒退完成")
+            return {
+                "order_id": oid,
+                "request_id": request_id,
+                "status": "SUBMITTED",
+                "reply": f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< {limit_text} 元)，智能客服已为您直接原路退回解冻，请查收！",
+                "handoff": False,
+                "escalation_reason": None,
+            }
+
+        self.process_refund_request(
+            oid, reason="用户二次确认提交退款(人工审核)", refund_amount=amount, request_id=request_id
+        )
+        cprint.node("order_refund", f"[转人工干涉队列] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "转人工核验")
+        return {
+            "order_id": oid,
+            "request_id": request_id,
+            "status": "PENDING_AUDIT",
+            "reply": f"【退款审核工单已提交】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！",
+            "handoff": True,
+            "escalation_reason": f"订单 {oid} 申请退款金额 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列",
+        }
+
     def format_order_summary_text(self, order: Dict[str, Any]) -> str:
         """为大模型 (DeepSeek) 提示词生成精炼准确的订单详情与物流事实"""
         items_desc = ", ".join([f"{it['title']} (x{it['quantity']})" for it in order.get("items", [])])
@@ -240,13 +380,14 @@ class OrderService:
         latest_track = express.get("timeline", [{}])[0].get("context", "暂无物流更新") if express.get("timeline") else "暂无"
         after_sale = order.get("afterSales", {})
         receiver = order.get("receiver", {})
+        limit_text = settings.auto_refund_limit_text
 
         refund_status_str = after_sale.get("refundStatus", "NONE")
         refund_info = "暂无退款申请"
         if refund_status_str == "AUTO_REFUNDED":
-            refund_info = f"已通过智能客服秒级自动退款 (¥{after_sale.get('refundAmount', 0):.2f} 元 < 3元，无需人工)"
+            refund_info = f"已通过智能客服秒级自动退款 (¥{after_sale.get('refundAmount', 0):.2f} 元 < {limit_text} 元，无需人工)"
         elif refund_status_str == "PENDING_HUMAN_AUDIT":
-            refund_info = f"正在等待人工干涉与审核 (申请金额 ¥{after_sale.get('refundAmount', 0):.2f} 元 >= 3元，需人工核验保证安全)"
+            refund_info = f"正在等待人工干涉与审核 (申请金额 ¥{after_sale.get('refundAmount', 0):.2f} 元 >= {limit_text} 元，需人工核验保证安全)"
         elif refund_status_str == "AUDIT_APPROVED":
             refund_info = f"人工干涉审核通过，已退款 (审核人: {after_sale.get('auditOperator', '人工坐席')})"
         elif refund_status_str == "AUDIT_REJECTED":
@@ -262,7 +403,7 @@ class OrderService:
 - 收件地址：{receiver.get('address', '系统地址')}
 - 退款与售后状态：{refund_info}
 - 售后权益政策：
-  * 退款审核规则：金额 < 3.00 元可由智能客服直接退款；金额 >= 3.00 元需人工干涉审核保障资金安全。
+  * 退款审核规则：金额 < {limit_text} 元可由智能客服直接退款；金额 >= {limit_text} 元需人工干涉审核保障资金安全。
   * 7天无理由退货：{'支持（签收第' + str(after_sale.get('signedDays', 0)) + '天，剩余' + str(after_sale.get('returnDaysRemaining', 0)) + '天）' if after_sale.get('canReturn7Days') else '不支持（' + after_sale.get('returnPolicy', '') + '）'}
   * 运费权益：{after_sale.get('shippingSubsidy', '按商城规则')}
   * 保修政策：{after_sale.get('warrantyPolicy', '1年全国联保')}"""
