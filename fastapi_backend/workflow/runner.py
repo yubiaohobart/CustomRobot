@@ -41,30 +41,45 @@ def build_input_state(
     }
 
 
-def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = None) -> bool:
-    """仅当 checkpoint tasks 中存在挂起的 interrupts（且若传入目标订单号则与挂起订单一致）时才返回 True"""
+def _extract_pending_interrupt(
+    snapshot: Any,
+    expected_order_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    从 checkpoint StateSnapshot 中提取与目标订单匹配的挂起 interrupt 载荷。
+    同时检查 snapshot.tasks[].interrupts 与 snapshot.interrupts，兼容不同版本 LangGraph。
+    """
     if not snapshot:
-        return False
+        return None
+
+    candidates = []
     for task in getattr(snapshot, "tasks", None) or ():
         for intr in getattr(task, "interrupts", None) or ():
-            val = getattr(intr, "value", intr)
-            if expected_order_id and isinstance(val, dict):
-                intr_oid = val.get("order_id")
-                if intr_oid and intr_oid != expected_order_id:
-                    continue
-            return True
-    return False
+            candidates.append(intr)
+    for intr in getattr(snapshot, "interrupts", None) or ():
+        candidates.append(intr)
+
+    for intr in candidates:
+        val = getattr(intr, "value", intr)
+        if isinstance(val, dict):
+            intr_oid = val.get("order_id")
+            if expected_order_id and intr_oid and intr_oid != expected_order_id:
+                continue
+            return val
+        if not expected_order_id:
+            return {"raw": val}
+    return None
 
 
-async def _apply_interrupt_payload(
-    final_state: Dict[str, Any],
-    graph_config: Dict[str, Any],
-    graph: Any,
-) -> Dict[str, Any]:
+def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = None) -> bool:
+    """仅当 checkpoint 中存在与目标订单匹配的挂起 interrupt 时返回 True"""
+    return _extract_pending_interrupt(snapshot, expected_order_id=expected_order_id) is not None
+
+
+def _apply_interrupt_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    当图因 interrupt() 挂起返回时：
-    1. 从 __interrupt__ 提取退款确认卡片、提示文案与 request_id；
-    2. 通过 aupdate_state 将 refund 草稿与 order_id 写入挂起的 checkpoint，确保 resume 幂等闭环。
+    当图因 interrupt() 挂起返回时，从 __interrupt__ 提取退款确认卡片、提示文案与 request_id 写入本次输出状态。
+    注：不再在外部调用 graph.aupdate_state()，避免生成 source='update' 新 checkpoint 覆盖原挂起任务的 interrupts。
     """
     interrupts = final_state.get("__interrupt__") or []
     if not interrupts:
@@ -86,13 +101,6 @@ async def _apply_interrupt_payload(
     final_state["order_id"] = intr_order_id or final_state.get("order_id")
     final_state["intent"] = "退款申请与审批"
     final_state["refund"] = refund_draft
-
-    # 将挂起阶段的 order_id / refund(含 request_id) 回写至 PostgreSQL checkpoint，供 Command(resume) 恢复使用
-    await graph.aupdate_state(
-        graph_config,
-        {"order_id": final_state["order_id"], "refund": refund_draft},
-    )
-
     final_state["trace"] = list(final_state.get("trace") or []) + [
         f"order_refund: [LangGraph interrupt 挂起] 订单 {intr_order_id} (req={intr_request_id}) 等待客户交互确认"
     ]
@@ -113,14 +121,16 @@ async def _execute_graph(
         # 仅当存在真实挂起 interrupt（且与回调目标订单匹配）时，才通过 Command(resume=...) 从断点恢复
         if input_state.get("confirm_action") in ("confirm", "cancel"):
             snapshot = await graph.aget_state(graph_config)
-            if _has_pending_interrupt(snapshot, expected_order_id=refund_order_id):
+            pending_intr = _extract_pending_interrupt(snapshot, expected_order_id=refund_order_id)
+            if pending_intr is not None:
+                resolved_request_id = refund_request_id or pending_intr.get("request_id")
                 invoke_payload = Command(resume={
                     "action": input_state["confirm_action"],
-                    "request_id": refund_request_id,
+                    "request_id": resolved_request_id,
                 })
 
         final_state = dict(await graph.ainvoke(invoke_payload, config=graph_config))
-        return await _apply_interrupt_payload(final_state, graph_config, graph)
+        return _apply_interrupt_payload(final_state)
     except Exception as e:
         cprint.error(f"[Graph 执行异常兜底]: {e}")
         return {
