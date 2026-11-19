@@ -164,18 +164,26 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
 
 
 async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
-    """5. 调用 DeepSeek 大模型生成严谨回答（按需加载会话记忆摘要）"""
+    """5. 调用 DeepSeek 大模型生成严谨回答（按需加载会话记忆摘要与订单事实）"""
     t0 = time.time()
     session_id = state.get("session_id")
     session_data = storage_service.get_session(session_id) if session_id else None
     memory_summary = (session_data or {}).get("summaryMemory", "")
+
+    order_id = state.get("order_id")
+    business_facts = ""
+    if order_id:
+        target_order = order_service.get_owned_order(order_id, state.get("user_profile"))
+        if target_order:
+            business_facts = order_service.format_order_summary_text(target_order)
 
     reply = await deepseek_client.generate_response(
         user_message=state.get("user_message", ""),
         hits=state.get("hits", []),
         memory_summary=memory_summary,
         user_profile=state.get("user_profile", {}),
-        order_id=state.get("order_id"),
+        business_facts=business_facts,
+        order_id=order_id,
     )
     duration = int((time.time() - t0) * 1000)
     cprint.node("deepseek_generate", f"DeepSeek 推理完成，生成回复: {LogColor.BRIGHT_GREEN}{len(reply)} 字{LogColor.RESET}", f"耗时: {duration}ms")

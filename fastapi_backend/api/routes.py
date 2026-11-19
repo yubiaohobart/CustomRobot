@@ -323,20 +323,18 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
     """清空指定会话消息历史"""
-    session = memory_service.get_session(session_id)
-    if session:
-        session["messages"] = []
+    session = memory_service.clear_session_messages(session_id)
     return {"success": True, "session": session}
 
 @router.get("/agents")
 async def get_agents():
     """获取坐席技能与负载矩阵"""
-    return {"agents": memory_service.list_agents()}
+    return {"agents": storage_service.list_agents()}
 
 @router.get("/transfer-logs")
 async def get_transfer_logs():
     """获取历史转接快照审计列表"""
-    return {"logs": memory_service.list_transfer_logs()}
+    return {"logs": storage_service.list_transfer_logs()}
 
 @router.get("/metrics")
 async def get_dashboard_metrics():
@@ -447,8 +445,10 @@ async def request_order_refund_endpoint(order_id: str, payload: Dict[str, Any] =
             "order": updated
         })
         return {"success": True, "order": updated}
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/orders/{order_id}/refund/audit")
 async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
@@ -471,8 +471,10 @@ async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
             "order": updated
         })
         return {"success": True, "order": updated}
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/orders/{order_id}/reset")
 async def reset_order_status_endpoint(order_id: str):
@@ -498,13 +500,13 @@ async def reset_order_status_endpoint(order_id: str):
 @router.get("/customers")
 async def get_customers():
     """获取所有固化的客户档案列表"""
-    customers = memory_service.list_customers()
+    customers = storage_service.list_customers()
     return {"success": True, "total": len(customers), "customers": customers}
 
 @router.get("/customers/{customer_id}")
 async def get_customer_detail(customer_id: str):
     """获取指定客户的详细档案与画像"""
-    customer = memory_service.get_customer(customer_id)
+    customer = storage_service.get_customer(customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail=f"客户 {customer_id} 不存在")
     return {"success": True, "customer": customer}
@@ -512,7 +514,7 @@ async def get_customer_detail(customer_id: str):
 @router.post("/customers")
 async def save_customer_endpoint(customer_data: Dict[str, Any]):
     """新增或修改客户画像并固化到磁盘"""
-    saved = memory_service.save_customer(customer_data)
+    saved = storage_service.save_customer(customer_data)
     return {"success": True, "customer": saved}
 
 @router.get("/knowledge")

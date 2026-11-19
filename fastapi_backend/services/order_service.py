@@ -1,42 +1,116 @@
 """
 XX商城 订单与物流中台服务 (Order & Logistics Service)
-已全面对接 storage_service 磁盘持久化固化存储，支持订单数据查询、状态流转、时效判定与持久化保存
+已全面对接 storage_service PostgreSQL 持久化存储，支持订单检索、归属校验、退款阈值分流与人工审批。
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import datetime
 import re
 from services.storage_service import storage_service
-from models.entities import OrderModel
 from core.logger import cprint
 from config import settings, PROCESSED_REQUEST_IDS_LIMIT
 
 
+class OrderNotFoundError(LookupError, ValueError):
+    """订单不存在异常（同时继承 LookupError 与 ValueError，兼容已有捕获逻辑并支持路由区分 404/400）"""
+
+
+_APPROVE_ACTIONS = frozenset({"approve", "pass", "agree"})
+_REJECT_ACTIONS = frozenset({"reject", "deny", "refuse"})
+
+# 演示商品口语别名 -> 订单商品标题匹配关键词（仅在归属当前客户的订单范围内匹配）
+_PRODUCT_ALIAS_TO_TITLE_KW = {
+    "理线器": "理线器",
+    "湿巾": "湿巾",
+    "小额": "理线器",
+    "2.5": "理线器",
+    "扫地机器人": "扫地机器人",
+    "扫地机": "扫地机器人",
+    "紫砂壶": "紫砂壶",
+    "定制杯": "定制",
+    "刻字": "刻字",
+    "投影仪": "投影仪",
+    "幕布": "幕布",
+    "耳机": "耳机",
+    "降噪耳机": "降噪耳机",
+}
+
+_ORDER_INTENT_KEYWORDS = (
+    "订单", "物流", "发货", "货运", "转运", "运单", "快递",
+    "到哪了", "什么时候到", "送达", "签收", "退款", "退货",
+)
+
+_ORDER_ID_RE = re.compile(r"(?:ORD[-_])?(\d{4}[-_]\d{4,6})\b|\bORD[-_](\d{5,6})\b", re.IGNORECASE)
+
+
+def _now_str() -> str:
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _calc_refund_amount_cents(order: Dict[str, Any], refund_amount: Optional[float] = None) -> Tuple[float, int]:
+    """统一计算退款金额（元 & 分，避免浮点比较精度误差）"""
+    if refund_amount is not None and refund_amount > 0:
+        amount = round(float(refund_amount), 2)
+    else:
+        amount = round(float(order.get("paidAmount", 0.0) or 0.0), 2)
+    return amount, int(round(amount * 100))
+
+
+def _build_refund_outcome(
+    order_id: str,
+    request_id: str,
+    status: str,
+    reply: str,
+    *,
+    handoff: bool = False,
+    escalation_reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    return {
+        "order_id": order_id,
+        "request_id": request_id,
+        "status": status,
+        "reply": reply,
+        "handoff": handoff,
+        "escalation_reason": escalation_reason,
+    }
+
+
 class OrderService:
-    def __init__(self):
-        # 依赖持久化 storage_service，保证跨服务与重启持久化
-        pass
+    @staticmethod
+    def _is_owned_by_profile(
+        order: Dict[str, Any],
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """校验订单是否归属当前客户（占位访客画像放行，具名客户严格隔离）"""
+        profile = user_profile or {}
+        profile_name = (profile.get("name") or profile.get("userName") or "").strip()
+        is_placeholder = not profile_name or "客户" in profile_name or "访客" in profile_name
+        if is_placeholder:
+            return True
+        return profile_name in (order.get("userName") or "")
 
     def list_orders(
         self,
         user_name: Optional[str] = None,
         status: Optional[str] = None,
-        keyword: Optional[str] = None
+        keyword: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """按用户、状态或关键词筛选订单列表，从持久化磁盘库获取"""
-        res = storage_service.list_orders()
+        """按用户、状态或关键词筛选订单列表（状态过滤下推至 SQL）"""
+        db_status = None if not status or status == "ALL" else status
+        res = storage_service.list_orders(status=db_status)
         if user_name:
-            res = [o for o in res if user_name in o["userName"] or o.get("userId") == user_name]
-        if status and status != "ALL":
-            res = [o for o in res if o["status"] == status]
+            res = [
+                o for o in res
+                if user_name in (o.get("userName") or "") or o.get("userId") == user_name
+            ]
         if keyword:
             kw = keyword.lower()
             res = [
                 o for o in res
-                if kw in o["orderId"].lower()
-                or kw in o["userName"].lower()
-                or any(kw in item["title"].lower() for item in o.get("items", []))
-                or kw in o.get("express", {}).get("trackingNumber", "").lower()
+                if kw in (o.get("orderId") or "").lower()
+                or kw in (o.get("userName") or "").lower()
+                or any(kw in (item.get("title") or "").lower() for item in (o.get("items") or []))
+                or kw in ((o.get("express") or {}).get("trackingNumber") or "").lower()
             ]
         return res
 
@@ -55,113 +129,153 @@ class OrderService:
         persisted = self.get_order_by_id(order_id)
         if not persisted:
             return None
-        profile = user_profile or {}
-        profile_name = profile.get("name") or profile.get("userName", "")
-        is_placeholder = not profile_name or "客户" in profile_name or "访客" in profile_name
-        if is_placeholder or profile_name in persisted.get("userName", ""):
-            return persisted
-        return None
+        return persisted if self._is_owned_by_profile(persisted, user_profile) else None
 
     def find_orders_for_user(self, user_name: str, phone: Optional[str] = None) -> List[Dict[str, Any]]:
         """根据客户姓名或手机号拉取该客户的所有订单"""
         orders = storage_service.list_orders()
-        matched = []
-        for o in orders:
-            if user_name and user_name in o["userName"]:
-                matched.append(o)
-            elif phone and phone in o.get("userPhone", ""):
-                matched.append(o)
-        return matched
+        return [
+            o for o in orders
+            if (user_name and user_name in (o.get("userName") or ""))
+            or (phone and phone in (o.get("userPhone") or ""))
+        ]
 
     def save_order(self, order_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """保存并固化订单到磁盘"""
+        """保存并固化订单到数据库"""
         return storage_service.save_order(order_dict)
 
-    def update_order_status(self, order_id: str, new_status: str, status_text: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """更新订单状态并写入磁盘"""
+    def update_order_status(
+        self,
+        order_id: str,
+        new_status: str,
+        status_text: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """更新订单状态并写入数据库"""
         order = self.get_order_by_id(order_id)
         if not order:
             return None
         order["status"] = new_status
         if status_text:
             order["statusText"] = status_text
-        order["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        order["updatedAt"] = _now_str()
         return storage_service.save_order(order)
 
     def detect_and_query_order(
         self,
         message: str,
-        user_profile: Optional[Dict[str, Any]] = None
+        user_profile: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        智能识别：从用户自然语言输入或会话画像中推断并定位目标订单
+        智能识别：从用户自然语言输入或会话画像中推断并定位归属当前客户的订单（单次查库，严格隔离跨客户订单）
         """
-        msg = message.strip()
+        msg = (message or "").strip()
+        if not msg:
+            return None
+
         user_profile = user_profile or {}
         all_orders = storage_service.list_orders()
+        scoped_orders = [o for o in all_orders if self._is_owned_by_profile(o, user_profile)]
+        if not scoped_orders:
+            return None
 
-        # 1. 尝试从文本正则抽取订单号 (如 ORD-2026-88992 或 88992)
-        match = re.search(r"(?:ORD[-_]?)?(\d{4}[-_]?\d{4,6}|\d{5,})", msg, re.IGNORECASE)
+        scoped_by_id = {(o.get("orderId") or "").upper(): o for o in scoped_orders if o.get("orderId")}
+        msg_lower = msg.lower()
+        msg_compact = msg_lower.replace("-", "").replace("_", "")
+
+        # 1. 从文本正则抽取规范化订单号 (如 ORD-2026-88992 / ord_2026_88992 / ORD-00100)
+        match = _ORDER_ID_RE.search(msg)
         if match:
-            extracted = match.group(0).upper()
-            if not extracted.startswith("ORD"):
-                extracted = f"ORD-{extracted}"
-            found = self.get_order_by_id(extracted)
-            if found:
-                return found
+            raw_part = (match.group(1) or match.group(2) or "").replace("_", "-").upper()
+            candidate_id = raw_part if raw_part.startswith("ORD-") else f"ORD-{raw_part}"
+            if candidate_id in scoped_by_id:
+                return scoped_by_id[candidate_id]
+            return None
 
-        # 2. 从消息中匹配已知订单号前缀
-        for o in all_orders:
-            oid = o.get("orderId", "")
-            if oid.lower() in msg.lower() or oid.replace("-", "").lower() in msg.lower():
+        # 2. 在当前客户订单中直接匹配订单号或后段数字编号
+        for o in scoped_orders:
+            oid = o.get("orderId") or ""
+            oid_lower = oid.lower()
+            if oid_lower in msg_lower or oid_lower.replace("-", "") in msg_compact:
+                return o
+            tail_num = oid.rsplit("-", 1)[-1]
+            if len(tail_num) >= 5 and tail_num in msg:
                 return o
 
-        # 3. 按商品关键词匹配
-        product_keyword_map = {
-            "理线器": "ORD-2026-00100",
-            "湿巾": "ORD-2026-00100",
-            "小额": "ORD-2026-00100",
-            "2.5": "ORD-2026-00100",
-            "00100": "ORD-2026-00100",
-            "扫地机器人": "ORD-2026-88992",
-            "扫地机": "ORD-2026-88992",
-            "紫砂壶": "ORD-2026-90412",
-            "定制杯": "ORD-2026-90412",
-            "刻字": "ORD-2026-90412",
-            "投影仪": "ORD-2026-77310",
-            "幕布": "ORD-2026-77310",
-            "耳机": "ORD-2026-66521",
-            "降噪耳机": "ORD-2026-66521",
-        }
-        for kw, mapped_id in product_keyword_map.items():
-            if kw in msg:
-                order = self.get_order_by_id(mapped_id)
-                if order:
-                    return order
+        # 3. 基于当前客户订单商品标题与常见口语别名动态匹配
+        for o in scoped_orders:
+            titles = " ".join((it.get("title") or "") for it in (o.get("items") or []))
+            if not titles:
+                continue
+            for alias, title_kw in _PRODUCT_ALIAS_TO_TITLE_KW.items():
+                if alias in msg and title_kw in titles:
+                    return o
+            # 支持任意新建订单的商品标题关键词（取长度 >= 2 的词组）直接命中
+            for it in o.get("items") or []:
+                title = (it.get("title") or "").strip()
+                if title and len(title) >= 2 and any(
+                    seg in msg for seg in re.split(r"[\s/()（）]+", title) if len(seg) >= 2
+                ):
+                    return o
 
-        # 4. 如果用户询问通用订单/物流关键词 ("我的订单", "发货了吗", "物流到哪了", "什么时候到")
-        order_intent_keywords = ["订单", "物流", "发货", "运运", "运单", "快递", "到哪了", "什么时候到", "送达", "签收", "退款", "退货"]
-        if any(k in msg for k in order_intent_keywords):
-            # 优先使用会话画像中预绑定的 orderId
-            bound_order_id = user_profile.get("orderId")
-            if bound_order_id:
-                found = self.get_order_by_id(bound_order_id)
-                if found:
-                    return found
+        # 若客户明确点名了其他品类的商品别名但当前客户名下无对应订单，不强行兜底到无关订单
+        if any(alias in msg for alias in _PRODUCT_ALIAS_TO_TITLE_KW):
+            return None
 
-            # 其次查找该客户姓名对应的最新订单
-            user_name = user_profile.get("name") or user_profile.get("userName")
-            if user_name:
-                user_orders = self.find_orders_for_user(user_name)
-                if user_orders:
-                    return user_orders[0]
-
-            # 最终兜底：如果有订单数据，默认绑定第一个订单（如 ORD-2026-88992）
-            if all_orders:
-                return all_orders[0]
-            return self.get_order_by_id("ORD-2026-88992")
+        # 4. 通用订单/物流/退款意图兜底（仅在当前客户已归属的订单范围内选择）
+        if any(k in msg for k in _ORDER_INTENT_KEYWORDS):
+            bound_order_id = (user_profile.get("orderId") or "").upper()
+            if bound_order_id and bound_order_id in scoped_by_id:
+                return scoped_by_id[bound_order_id]
+            return scoped_orders[0]
 
         return None
+
+    def _apply_refund_to_order(
+        self,
+        order: Dict[str, Any],
+        reason: str,
+        refund_amount: Optional[float],
+        request_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """在已加载且通过前置校验的订单对象上执行退款落盘与幂等流水记录"""
+        after_sales = dict(order.get("afterSales") or {})
+        processed_ids = list(after_sales.get("processedRequestIds") or [])
+        if request_id and request_id in processed_ids:
+            return order
+
+        amount, amount_cents = _calc_refund_amount_cents(order, refund_amount)
+        limit_cents = settings.auto_refund_limit_cents
+        limit_text = settings.auto_refund_limit_text
+        now_str = _now_str()
+
+        after_sales["refundAmount"] = amount
+        after_sales["refundReason"] = reason
+        if request_id:
+            after_sales["lastRequestId"] = request_id
+            processed_ids.append(request_id)
+            after_sales["processedRequestIds"] = processed_ids[-PROCESSED_REQUEST_IDS_LIMIT:]
+
+        if amount_cents >= limit_cents:
+            order["status"] = "REFUND_PENDING_AUDIT"
+            order["statusText"] = "退款待人工审核"
+            after_sales["refundStatus"] = "PENDING_HUMAN_AUDIT"
+            after_sales["requiresHumanAudit"] = True
+            after_sales["auditNote"] = (
+                f"退款金额 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及资金安全，已自动提交至工单中心待人工干涉与审核"
+            )
+        else:
+            order["status"] = "REFUNDED"
+            order["statusText"] = "已退款(秒级到账)"
+            after_sales["refundStatus"] = "AUTO_REFUNDED"
+            after_sales["requiresHumanAudit"] = False
+            after_sales["auditTime"] = now_str
+            after_sales["auditNote"] = (
+                f"退款金额 ¥{amount:.2f} 元 (< {limit_text} 元)，符合智能客服小额直接退款规则，已秒级自动完成原路退款"
+            )
+
+        order["afterSales"] = after_sales
+        order["updatedAt"] = now_str
+        return self.save_order(order)
 
     def process_refund_request(
         self,
@@ -171,77 +285,56 @@ class OrderService:
         request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        处理客户订单退款申请（支持基于 request_id 的请求级幂等控制）：
-        - 若同一个 request_id 已处理过，直接返回当前订单状态，避免重复提交或覆盖审计记录
-        - 若退款金额 < AUTO_REFUND_LIMIT_YUAN（默认 3.00 元）：智能客服直接秒退（无需人工干涉），状态变更为 REFUNDED / AUTO_REFUNDED
-        - 若退款金额 >= AUTO_REFUND_LIMIT_YUAN（默认 3.00 元）：需人工干涉与资金安全审核，状态变更为 REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT
+        处理客户订单退款申请（支持 request_id 幂等控制与重复提交状态拦截）：
+        - 若同一个 request_id 已处理过，直接返回当前订单状态
+        - 若订单已退款或待人工审核，拒绝重复覆写
+        - 金额 < AUTO_REFUND_LIMIT_YUAN：自动秒退 (REFUNDED / AUTO_REFUNDED)
+        - 金额 >= AUTO_REFUND_LIMIT_YUAN：转人工审核 (REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT)
         """
         order = self.get_order_by_id(order_id)
         if not order:
-            raise ValueError(f"订单 {order_id} 不存在")
+            raise OrderNotFoundError(f"订单 {order_id} 不存在")
 
-        after_sales = order.get("afterSales", {})
-        processed_ids = list(after_sales.get("processedRequestIds") or [])
+        after_sales = dict(order.get("afterSales") or {})
+        processed_ids = after_sales.get("processedRequestIds") or []
         if request_id and request_id in processed_ids:
             return order
 
-        amount = refund_amount if refund_amount is not None and refund_amount > 0 else float(order.get("paidAmount", 0.0))
-        amount_cents = int(round(amount * 100))
-        limit_cents = settings.auto_refund_limit_cents
-        limit_text = settings.auto_refund_limit_text
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_status = order.get("status")
+        if current_status in ("REFUNDED", "REFUND_PENDING_AUDIT"):
+            raise ValueError(f"订单 {order_id} 当前状态为【{order.get('statusText') or current_status}】，不可重复提交退款")
 
-        after_sales["refundAmount"] = amount
-        after_sales["refundReason"] = reason
-        if request_id:
-            after_sales["lastRequestId"] = request_id
-            processed_ids.append(request_id)
-            after_sales["processedRequestIds"] = processed_ids[-PROCESSED_REQUEST_IDS_LIMIT:]
-
-        # 统一按配置阈值判断是否需要人工干涉
-        requires_audit = amount_cents >= limit_cents
-
-        if requires_audit:
-            order["status"] = "REFUND_PENDING_AUDIT"
-            order["statusText"] = "退款待人工审核"
-            after_sales["refundStatus"] = "PENDING_HUMAN_AUDIT"
-            after_sales["requiresHumanAudit"] = True
-            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及资金安全，已自动提交至工单中心待人工干涉与审核"
-        else:
-            order["status"] = "REFUNDED"
-            order["statusText"] = "已退款(秒级到账)"
-            after_sales["refundStatus"] = "AUTO_REFUNDED"
-            after_sales["requiresHumanAudit"] = False
-            after_sales["auditTime"] = now_str
-            after_sales["auditNote"] = f"退款金额 ¥{amount:.2f} 元 (< {limit_text} 元)，符合智能客服小额直接退款规则，已秒级自动完成原路退款"
-
-        order["afterSales"] = after_sales
-        order["updatedAt"] = now_str
-        return self.save_order(order)
+        return self._apply_refund_to_order(order, reason, refund_amount, request_id)
 
     def audit_refund(
         self,
         order_id: str,
         action: str,
         operator_name: str = "陈浩",
-        note: str = ""
+        note: str = "",
     ) -> Dict[str, Any]:
         """
         人工干涉与审核订单退款申请：
-        - action == "approve": 审核通过，状态变更为 REFUNDED / AUDIT_APPROVED
-        - action == "reject": 审核驳回，状态恢复为 DELIVERED / AUDIT_REJECTED
+        - action in approve/pass/agree: 审核通过 -> REFUNDED / AUDIT_APPROVED
+        - action in reject/deny/refuse: 审核驳回 -> DELIVERED / AUDIT_REJECTED
         """
+        action_clean = (action or "").strip().lower()
+        if action_clean not in _APPROVE_ACTIONS and action_clean not in _REJECT_ACTIONS:
+            raise ValueError(f"非法审核动作 '{action}'，仅支持 approve 或 reject")
+
         order = self.get_order_by_id(order_id)
         if not order:
-            raise ValueError(f"订单 {order_id} 不存在")
+            raise OrderNotFoundError(f"订单 {order_id} 不存在")
 
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        after_sales = order.get("afterSales", {})
+        if order.get("status") != "REFUND_PENDING_AUDIT":
+            raise ValueError(f"订单 {order_id} 当前状态为【{order.get('statusText') or order.get('status')}】，仅待人工审核订单可执行审批")
+
+        now_str = _now_str()
+        after_sales = dict(order.get("afterSales") or {})
         after_sales["auditOperator"] = operator_name
         after_sales["auditTime"] = now_str
 
-        action_clean = action.lower()
-        if action_clean in ["approve", "pass", "agree"]:
+        if action_clean in _APPROVE_ACTIONS:
             order["status"] = "REFUNDED"
             order["statusText"] = "已退款(人工审核通过)"
             after_sales["refundStatus"] = "AUDIT_APPROVED"
@@ -258,9 +351,8 @@ class OrderService:
 
     def build_refund_gate_reply(self, order: Dict[str, Any]) -> str:
         """生成退款二次确认门控提示文案"""
-        oid = order["orderId"]
-        amount = round(float(order.get("paidAmount", 0.0)), 2)
-        amount_cents = int(round(amount * 100))
+        oid = order.get("orderId", "")
+        amount, amount_cents = _calc_refund_amount_cents(order)
         limit_cents = settings.auto_refund_limit_cents
         limit_text = settings.auto_refund_limit_text
         current_status = order.get("status", "")
@@ -295,9 +387,8 @@ class OrderService:
         request_id: str,
     ) -> Dict[str, Any]:
         """执行退款确认/取消业务决策（含 request_id 幂等去重与动态审核阈值分流）"""
-        oid = order["orderId"]
-        amount = round(float(order.get("paidAmount", 0.0)), 2)
-        amount_cents = int(round(amount * 100))
+        oid = order.get("orderId", "")
+        amount, amount_cents = _calc_refund_amount_cents(order)
         limit_cents = settings.auto_refund_limit_cents
         limit_text = settings.auto_refund_limit_text
         current_status = order.get("status", "")
@@ -305,81 +396,81 @@ class OrderService:
 
         if action == "cancel":
             cprint.node("order_refund", "用户点击取消退款申请", "恢复正常状态")
-            return {
-                "order_id": oid,
-                "request_id": request_id,
-                "status": "CANCELED",
-                "reply": f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
-                "handoff": False,
-                "escalation_reason": None,
-            }
+            return _build_refund_outcome(
+                oid,
+                request_id,
+                "CANCELED",
+                f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
+            )
 
         if request_id and request_id in processed_ids:
             draft_status = "PENDING_AUDIT" if current_status == "REFUND_PENDING_AUDIT" else "SUBMITTED"
             cprint.node("order_refund", f"[request_id 幂等拦截] {request_id}", "返回已受理结果")
-            return {
-                "order_id": oid,
-                "request_id": request_id,
-                "status": draft_status,
-                "reply": f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
-                "handoff": False,
-                "escalation_reason": None,
-            }
+            return _build_refund_outcome(
+                oid,
+                request_id,
+                draft_status,
+                f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
+            )
 
         if current_status == "REFUNDED":
-            return {
-                "order_id": oid,
-                "request_id": request_id,
-                "status": "SUBMITTED",
-                "reply": f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
-                "handoff": False,
-                "escalation_reason": None,
-            }
+            return _build_refund_outcome(
+                oid,
+                request_id,
+                "SUBMITTED",
+                f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
+            )
 
         if current_status == "REFUND_PENDING_AUDIT":
-            return {
-                "order_id": oid,
-                "request_id": request_id,
-                "status": "PENDING_AUDIT",
-                "reply": f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
-                "handoff": False,
-                "escalation_reason": None,
-            }
+            return _build_refund_outcome(
+                oid,
+                request_id,
+                "PENDING_AUDIT",
+                f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
+            )
 
         if amount_cents < limit_cents:
-            self.process_refund_request(
-                oid, reason="用户二次确认提交退款(自动秒退)", refund_amount=amount, request_id=request_id
+            self._apply_refund_to_order(
+                order,
+                reason="用户二次确认提交退款(自动秒退)",
+                refund_amount=amount,
+                request_id=request_id,
             )
             cprint.node("order_refund", f"[幂等秒退成功] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "秒退完成")
-            return {
-                "order_id": oid,
-                "request_id": request_id,
-                "status": "SUBMITTED",
-                "reply": f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< {limit_text} 元)，智能客服已为您直接原路退回解冻，请查收！",
-                "handoff": False,
-                "escalation_reason": None,
-            }
+            return _build_refund_outcome(
+                oid,
+                request_id,
+                "SUBMITTED",
+                f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< {limit_text} 元)，智能客服已为您直接原路退回解冻，请查收！",
+            )
 
-        self.process_refund_request(
-            oid, reason="用户二次确认提交退款(人工审核)", refund_amount=amount, request_id=request_id
+        self._apply_refund_to_order(
+            order,
+            reason="用户二次确认提交退款(人工审核)",
+            refund_amount=amount,
+            request_id=request_id,
         )
         cprint.node("order_refund", f"[转人工干涉队列] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "转人工核验")
-        return {
-            "order_id": oid,
-            "request_id": request_id,
-            "status": "PENDING_AUDIT",
-            "reply": f"【退款审核工单已提交】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！",
-            "handoff": True,
-            "escalation_reason": f"订单 {oid} 申请退款金额 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列",
-        }
+        return _build_refund_outcome(
+            oid,
+            request_id,
+            "PENDING_AUDIT",
+            f"【退款审核工单已提交】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！",
+            handoff=True,
+            escalation_reason=f"订单 {oid} 申请退款金额 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及资金安全，已通过二次确认提交至人工干涉与审核队列",
+        )
 
     def format_order_summary_text(self, order: Dict[str, Any]) -> str:
         """为大模型 (DeepSeek) 提示词生成精炼准确的订单详情与物流事实"""
-        items_desc = ", ".join([f"{it['title']} (x{it['quantity']})" for it in order.get("items", [])])
-        express = order.get("express", {})
-        latest_track = express.get("timeline", [{}])[0].get("context", "暂无物流更新") if express.get("timeline") else "暂无"
-        after_sale = order.get("afterSales", {})
-        receiver = order.get("receiver", {})
+        items_desc = ", ".join(
+            f"{it.get('title', '商品')} (x{it.get('quantity', 1)})"
+            for it in (order.get("items") or [])
+        ) or "暂无商品明细"
+        express = order.get("express") or {}
+        timeline = express.get("timeline") or []
+        latest_track = (timeline[0] or {}).get("context", "暂无物流更新") if timeline else "暂无"
+        after_sale = order.get("afterSales") or {}
+        receiver = order.get("receiver") or {}
         limit_text = settings.auto_refund_limit_text
 
         refund_status_str = after_sale.get("refundStatus", "NONE")
@@ -394,10 +485,10 @@ class OrderService:
             refund_info = f"退款申请已被人工驳回 ({after_sale.get('auditNote', '')})"
 
         return f"""【关联订单事实】
-- 订单编号：{order['orderId']} (下单时间: {order['createTime']})
+- 订单编号：{order.get('orderId', '')} (下单时间: {order.get('createTime', '未知')})
 - 购买商品：{items_desc}
-- 实付金额：¥{order['paidAmount']:.2f}
-- 当前状态：【{order['statusText']}】
+- 实付金额：¥{float(order.get('paidAmount', 0.0) or 0.0):.2f}
+- 当前状态：【{order.get('statusText', order.get('status', '未知'))}】
 - 物流承运：{express.get('company', '暂无')} (运单号: {express.get('trackingNumber', '暂无')})
 - 最新物流节点：{latest_track}
 - 收件地址：{receiver.get('address', '系统地址')}
@@ -411,4 +502,3 @@ class OrderService:
 
 # 全局单例
 order_service = OrderService()
-

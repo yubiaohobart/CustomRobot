@@ -4,13 +4,14 @@ SQLAlchemy 数据库连接与会话管理引擎 (SQLAlchemy Database Engine)
 管理数据库连接池 (Connection Pool)、Session 会话生命周期与元数据建表。
 """
 
-import os
+import threading
 from contextlib import contextmanager
 from typing import Generator
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.pool import QueuePool
-from core.logger import log, cprint, LogColor
+from core.logger import cprint, LogColor
 from config import settings
 
 # 声明式 ORM 基类
@@ -27,53 +28,67 @@ def _normalize_sqlalchemy_pg_url(url: str) -> str:
     return cleaned
 
 
-# PostgreSQL 目标数据库连接串（自动兼容旧 .env 中的 psycopg2 前缀，统一走 Psycopg 3）
-POSTGRES_URL = _normalize_sqlalchemy_pg_url(
-    getattr(
-        settings,
-        "DATABASE_URL",
-        os.getenv("DATABASE_URL", os.getenv("POSTGRES_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/intelliserve")),
-    )
-)
+def _mask_db_url(url: str) -> str:
+    """使用 SQLAlchemy make_url 安全隐藏数据库密码（兼容密码含 @ 字符场景）"""
+    try:
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:
+        return url.split("@")[-1] if "@" in url else url
 
+
+# PostgreSQL 目标数据库连接串（自动兼容旧 .env 中的 psycopg2 前缀，统一走 Psycopg 3）
+POSTGRES_URL = _normalize_sqlalchemy_pg_url(settings.DATABASE_URL)
+
+_engine_lock = threading.RLock()
 _engine = None
 _SessionLocal = None
 
 
 def get_engine():
-    """初始化并获取 PostgreSQL SQLAlchemy 数据库引擎"""
+    """线程安全地初始化并获取 PostgreSQL SQLAlchemy 数据库引擎"""
     global _engine, _SessionLocal
 
     if _engine is not None:
         return _engine
 
-    target_url = POSTGRES_URL
-    pool_size = getattr(settings, "DB_POOL_SIZE", 10)
-    max_overflow = getattr(settings, "DB_MAX_OVERFLOW", 20)
+    with _engine_lock:
+        if _engine is not None:
+            return _engine
 
-    # 创建 PostgreSQL 专属连接池引擎
-    _engine = create_engine(
-        target_url,
-        poolclass=QueuePool,
-        pool_size=pool_size,
-        max_overflow=max_overflow,
-        pool_pre_ping=True,  # 自动探活防断连
-        pool_recycle=3600,   # 定期回收连接
-        echo=getattr(settings, "DB_ECHO", False)
-    )
+        target_url = POSTGRES_URL
+        pool_size = getattr(settings, "DB_POOL_SIZE", 10)
+        max_overflow = getattr(settings, "DB_MAX_OVERFLOW", 20)
 
-    cprint(f"[SQLAlchemy] 数据库引擎初始化成功，已连接 PostgreSQL ({target_url.split('@')[-1] if '@' in target_url else target_url})", LogColor.GREEN)
+        _engine = create_engine(
+            target_url,
+            poolclass=QueuePool,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            echo=getattr(settings, "DB_ECHO", False),
+        )
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
-    _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
-    return _engine
+        cprint(f"[SQLAlchemy] 数据库引擎初始化成功，已连接 PostgreSQL ({_mask_db_url(target_url)})", LogColor.GREEN)
+        return _engine
 
 
 def get_session_factory():
     """获取 SessionLocal 会话工厂"""
-    global _SessionLocal
     if _SessionLocal is None:
         get_engine()
     return _SessionLocal
+
+
+def dispose_engine() -> None:
+    """释放 SQLAlchemy 连接池（应用关闭时调用）"""
+    global _engine, _SessionLocal
+    with _engine_lock:
+        if _engine is not None:
+            _engine.dispose()
+            _engine = None
+            _SessionLocal = None
 
 
 def get_active_dialect() -> str:
@@ -102,5 +117,8 @@ def get_db() -> Generator[Session, None, None]:
     db: Session = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

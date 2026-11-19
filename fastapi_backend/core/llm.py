@@ -4,6 +4,8 @@ DeepSeek 大模型客户端 (DeepSeek LLM Client)
 特性: 严格以 FAQ 知识库与业务中台事实为基准，提供专业、温暖、严谨的智能客服答复
 """
 
+import asyncio
+import json
 import time
 from typing import List, Dict, Any, Optional
 import httpx
@@ -14,14 +16,55 @@ from core.logger import cprint
 class DeepSeekLLMClient:
     def __init__(
         self,
-        api_key: str = settings.DEEPSEEK_API_KEY,
-        base_url: str = settings.DEEPSEEK_BASE_URL,
-        model: str = settings.DEEPSEEK_MODEL
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout: Optional[float] = None,
     ):
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.timeout = settings.LLM_TIMEOUT_SECONDS
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/") if base_url else None
+        self._model = model
+        self._timeout = timeout
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def api_key(self) -> str:
+        return (self._api_key if self._api_key is not None else settings.DEEPSEEK_API_KEY).strip()
+
+    @property
+    def base_url(self) -> str:
+        return (self._base_url if self._base_url is not None else settings.DEEPSEEK_BASE_URL).rstrip("/")
+
+    @property
+    def model(self) -> str:
+        return self._model if self._model is not None else settings.DEEPSEEK_MODEL
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout if self._timeout is not None else settings.LLM_TIMEOUT_SECONDS
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        if (
+            self._client is None
+            or self._client.is_closed
+            or self._client_loop is not loop
+        ):
+            if self._client is not None and not self._client.is_closed:
+                # 若旧客户端绑定在不同的已切换事件循环上，仅丢弃引用避免跨循环 close 报错
+                if self._client_loop is loop:
+                    await self._client.aclose()
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+            self._client_loop = loop
+        return self._client
+
+    async def close(self) -> None:
+        """优雅关闭复用的异步 HTTP 客户端"""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+        self._client_loop = None
 
     async def generate_response(
         self,
@@ -34,11 +77,11 @@ class DeepSeekLLMClient:
         business_facts: str = "",
         order_info: Optional[Dict[str, Any]] = None,
         order_id: Optional[str] = None,
-        order_summary: str = ""
+        order_summary: str = "",
     ) -> str:
         """
         调用 DeepSeek API 生成客服答复
-        优先消费精炼 hits 与 memory_summary，严格遵循知识库与业务实体作答
+        优先消费调用方传入的精炼 hits、business_facts 与 memory_summary，不反向耦合上层业务服务。
         """
         user_profile = user_profile or {}
         vip_level = user_profile.get("vipLevel", "普通会员")
@@ -53,16 +96,14 @@ class DeepSeekLLMClient:
             context_blocks.append(f"【参考条款 {idx} - {title}】\n{content}")
         context_str = "\n\n".join(context_blocks) if context_blocks else "暂无直接匹配的知识库条款。"
 
-        # 2. 提取通用业务事实 (按需根据 order_id 查库或使用已有实体)
+        # 2. 整理动态业务事实（由上层工作流/路由传入，若仅提供 order_info 字典则兜底序列化）
         facts_text = (business_facts or order_summary).strip()
-        if not facts_text:
-            from services.order_service import order_service
-            target_order = order_info or (order_service.get_order_by_id(order_id) if order_id else None)
-            if target_order:
-                facts_text = order_service.format_order_summary_text(target_order)
+        if not facts_text and order_info:
+            facts_text = json.dumps(order_info, ensure_ascii=False)
+        elif not facts_text and order_id:
+            facts_text = f"关联订单号：{order_id}"
 
         business_facts_block = facts_text if facts_text else "当前客户尚未触发或关联特定业务中台实体数据。"
-
         effective_summary = (summary_memory or memory_summary or "").strip()
         limit_text = settings.auto_refund_limit_text
 
@@ -96,35 +137,46 @@ class DeepSeekLLMClient:
 5. 口吻温暖热情、换位思考，条理清晰；
 6. 如客户表达强烈不满、催促或明确要求人工，表达理解并告知已为您做好加急人工转接准备。"""
 
-        # 4. 直接发起 DeepSeek 异步请求 (api_key 确定存在)
+        # 4. API Key 空值前置拦截，避免无效公网请求
+        api_key = self.api_key
+        if not api_key:
+            cprint.llm(self.model, len(system_prompt), 0.0, is_fallback=True)
+            return "智能大模型服务暂未配置 API Key，请先配置 DEEPSEEK_API_KEY 或点击转接人工客服为您处理。"
+
+        # 5. 复用 AsyncClient 发起 DeepSeek 异步请求
         t_req = time.time()
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.api_key}"
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_message}
-                        ],
-                        "temperature": settings.DEEPSEEK_TEMPERATURE,
-                        "max_tokens": settings.DEEPSEEK_MAX_TOKENS
-                    }
-                )
-                latency = time.time() - t_req
-                if resp.status_code == 200:
-                    data = resp.json()
-                    reply = data["choices"][0]["message"]["content"].strip()
-                    cprint.llm(self.model, len(system_prompt), latency, is_fallback=False)
-                    return reply
-                else:
-                    cprint.error(f"DeepSeek API 响应异常 (HTTP {resp.status_code}): {resp.text[:120]}")
-                    return f"抱歉，智能客服服务响应异常 (HTTP {resp.status_code})，请稍后再试或联系人工客服为您处理。"
+            client = await self._get_client()
+            resp = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "temperature": settings.DEEPSEEK_TEMPERATURE,
+                    "max_tokens": settings.DEEPSEEK_MAX_TOKENS,
+                },
+            )
+            latency = time.time() - t_req
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices") or []
+                message = choices[0].get("message") or {} if choices else {}
+                reply = (message.get("content") or "").strip()
+                if not reply:
+                    cprint.error("DeepSeek API 返回内容为空")
+                    return "抱歉，智能客服暂时未能生成有效回复，请稍后重试或联系人工客服。"
+                cprint.llm(self.model, len(system_prompt), latency, is_fallback=False)
+                return reply
+
+            cprint.error(f"DeepSeek API 响应异常 (HTTP {resp.status_code}): {resp.text[:120]}")
+            return f"抱歉，智能客服服务响应异常 (HTTP {resp.status_code})，请稍后再试或联系人工客服为您处理。"
         except Exception as e:
             cprint.error(f"DeepSeek 网络请求异常: {e}")
             return "抱歉，与智能客服大模型通信遇到异常，请稍后重试或联系人工客服。"

@@ -4,10 +4,14 @@
 无需第三方复杂库，基于 Python 标准库 logging 封装，支持多级别彩色输出与业务标签高亮
 """
 
+import os
 import sys
 import logging
 from datetime import datetime
 from typing import Optional
+
+_ANSI_DISABLED = bool(os.getenv("NO_COLOR"))
+
 
 # ANSI 终端颜色转义码
 class LogColor:
@@ -44,8 +48,12 @@ class LogColor:
     BG_CYAN = "\033[46m"
 
 
+def _c(code: str) -> str:
+    return "" if _ANSI_DISABLED else code
+
+
 class ColoredFormatter(logging.Formatter):
-    """自定义带颜色的格式化器"""
+    """自定义带颜色的格式化器（保留异常堆栈与 stack_info 输出）"""
 
     LEVEL_COLORS = {
         logging.DEBUG: LogColor.BRIGHT_BLUE,
@@ -64,24 +72,25 @@ class ColoredFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        # 获取颜色与图标
-        color = self.LEVEL_COLORS.get(record.levelno, LogColor.WHITE)
+        color = _c(self.LEVEL_COLORS.get(record.levelno, LogColor.WHITE))
         icon = self.LEVEL_ICONS.get(record.levelno, f"[{record.levelname}]")
-        reset = LogColor.RESET
+        reset = _c(LogColor.RESET)
+        dim = _c(LogColor.DIM)
+        cyan = _c(LogColor.CYAN)
 
-        # 格式化时间戳
         timestamp = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        time_str = f"{LogColor.DIM}{timestamp}{reset}"
-
-        # 模块名称高亮 (青色)
-        module_name = f"{LogColor.CYAN}{record.name}{reset}"
-
-        # 获取消息内容
+        time_str = f"{dim}{timestamp}{reset}"
+        module_name = f"{cyan}{record.name}{reset}"
         message = record.getMessage()
 
-        # 组装完整彩色日志行
-        # 格式: 2026-09-29 10:15:30.123 ✨ [INFO ] (module) 消息内容
-        return f"{time_str} {color}{icon}{reset} {LogColor.DIM}({module_name}){reset} {color}{message}{reset}"
+        line = f"{time_str} {color}{icon}{reset} {dim}({module_name}){reset} {color}{message}{reset}"
+        if record.exc_info:
+            exc_text = self.formatException(record.exc_info)
+            line = f"{line}\n{color}{exc_text}{reset}"
+        if record.stack_info:
+            stack_text = self.formatStack(record.stack_info)
+            line = f"{line}\n{dim}{stack_text}{reset}"
+        return line
 
 
 def setup_logger(name: str = "IntelliServe", level: int = logging.INFO) -> logging.Logger:
@@ -89,7 +98,6 @@ def setup_logger(name: str = "IntelliServe", level: int = logging.INFO) -> loggi
     logger = logging.getLogger(name)
     logger.setLevel(level)
 
-    # 避免重复挂载 handler
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level)
@@ -112,83 +120,94 @@ class ColorPrinter:
 
     def __call__(self, msg: str, color: Optional[str] = None):
         """支持直接调用 cprint("消息", LogColor.GREEN)"""
-        color_code = color or LogColor.BRIGHT_WHITE
-        print(f"{color_code}{msg}{LogColor.RESET}")
+        color_code = _c(color or LogColor.BRIGHT_WHITE)
+        print(f"{color_code}{msg}{_c(LogColor.RESET)}")
 
     @staticmethod
     def banner(title: str, subtitle: Optional[str] = None):
-        """打印项目启动或核心模块大横幅 (霓虹紫蓝渐变感)"""
+        """打印项目启动或核心模块大横幅"""
         border = "═" * 68
-        print(f"\n{LogColor.BRIGHT_CYAN}{border}{LogColor.RESET}")
-        print(f"{LogColor.BOLD}{LogColor.BRIGHT_WHITE}🚀 {title}{LogColor.RESET}")
+        reset = _c(LogColor.RESET)
+        print(f"\n{_c(LogColor.BRIGHT_CYAN)}{border}{reset}")
+        print(f"{_c(LogColor.BOLD)}{_c(LogColor.BRIGHT_WHITE)}🚀 {title}{reset}")
         if subtitle:
-            print(f"{LogColor.DIM}{subtitle}{LogColor.RESET}")
-        print(f"{LogColor.BRIGHT_CYAN}{border}{LogColor.RESET}\n")
+            print(f"{_c(LogColor.DIM)}{subtitle}{reset}")
+        print(f"{_c(LogColor.BRIGHT_CYAN)}{border}{reset}\n")
 
     @staticmethod
     def node(node_name: str, action: str, details: Optional[str] = None):
-        """LangGraph 节点流转日志 (高亮青色/紫罗兰色)"""
-        tag = f"{LogColor.BOLD}{LogColor.BRIGHT_MAGENTA}┠─ [LangGraph 节点]{LogColor.RESET}"
-        name = f"{LogColor.BRIGHT_CYAN}{node_name:<20}{LogColor.RESET}"
-        act = f"{LogColor.BRIGHT_WHITE}{action}{LogColor.RESET}"
+        """LangGraph 节点流转日志"""
+        reset = _c(LogColor.RESET)
+        tag = f"{_c(LogColor.BOLD)}{_c(LogColor.BRIGHT_MAGENTA)}┠─ [LangGraph 节点]{reset}"
+        name = f"{_c(LogColor.BRIGHT_CYAN)}{node_name:<20}{reset}"
+        act = f"{_c(LogColor.BRIGHT_WHITE)}{action}{reset}"
         print(f"{tag} {name} ➜ {act}")
         if details:
-            print(f"   {LogColor.DIM}↳ 详情: {details}{LogColor.RESET}")
+            print(f"   {_c(LogColor.DIM)}↳ 详情: {details}{reset}")
 
     @staticmethod
     def rag(query: str, hits: int, top_score: float, matched_title: Optional[str] = None):
-        """Qdrant 向量召回日志 (高亮绿色/翠绿)"""
-        tag = f"{LogColor.BOLD}{LogColor.BRIGHT_GREEN}🔍 [Qdrant 检索]{LogColor.RESET}"
-        score_color = LogColor.BRIGHT_GREEN if top_score >= 0.70 else LogColor.BRIGHT_YELLOW
-        print(f"{tag} 查询: \"{LogColor.WHITE}{query}{LogColor.RESET}\"")
-        print(f"   {LogColor.DIM}↳ 命中文档数: {hits} 条 | Top 相似度: {score_color}{top_score:.3f}{LogColor.RESET} | 最佳匹配: {LogColor.CYAN}{matched_title or 'N/A'}{LogColor.RESET}")
+        """Qdrant 向量召回日志"""
+        reset = _c(LogColor.RESET)
+        tag = f"{_c(LogColor.BOLD)}{_c(LogColor.BRIGHT_GREEN)}🔍 [Qdrant 检索]{reset}"
+        score_color = _c(LogColor.BRIGHT_GREEN if top_score >= 0.70 else LogColor.BRIGHT_YELLOW)
+        print(f"{tag} 查询: \"{_c(LogColor.WHITE)}{query}{reset}\"")
+        print(
+            f"   {_c(LogColor.DIM)}↳ 命中文档数: {hits} 条 | Top 相似度: {score_color}{top_score:.3f}{reset} "
+            f"| 最佳匹配: {_c(LogColor.CYAN)}{matched_title or 'N/A'}{reset}"
+        )
 
     @staticmethod
     def llm(model: str, prompt_len: int, token_latency: float, is_fallback: bool = False):
-        """DeepSeek 大模型调用日志 (蓝色 / 琥珀色)"""
+        """DeepSeek 大模型调用日志"""
+        reset = _c(LogColor.RESET)
         if is_fallback:
-            tag = f"{LogColor.BOLD}{LogColor.BRIGHT_YELLOW}🤖 [DeepSeek 降级模式]{LogColor.RESET}"
-            status = f"{LogColor.YELLOW}规则引擎严谨保障响应{LogColor.RESET}"
+            tag = f"{_c(LogColor.BOLD)}{_c(LogColor.BRIGHT_YELLOW)}🤖 [DeepSeek 降级模式]{reset}"
+            status = f"{_c(LogColor.YELLOW)}规则引擎严谨保障响应{reset}"
         else:
-            tag = f"{LogColor.BOLD}{LogColor.BRIGHT_BLUE}🤖 [DeepSeek 推理]{LogColor.RESET}"
-            status = f"{LogColor.BRIGHT_GREEN}API 响应正常{LogColor.RESET}"
+            tag = f"{_c(LogColor.BOLD)}{_c(LogColor.BRIGHT_BLUE)}🤖 [DeepSeek 推理]{reset}"
+            status = f"{_c(LogColor.BRIGHT_GREEN)}API 响应正常{reset}"
 
-        print(f"{tag} 模型: {LogColor.BRIGHT_CYAN}{model}{LogColor.RESET} | 耗时: {token_latency:.2f}s | 状态: {status}")
+        print(
+            f"{tag} 模型: {_c(LogColor.BRIGHT_CYAN)}{model}{reset} "
+            f"| Prompt: {prompt_len} 字符 | 耗时: {token_latency:.2f}s | 状态: {status}"
+        )
 
     @staticmethod
     def transfer(session_id: str, agent_id: str, reason: str):
-        """人工升级转接日志 (高亮橘黄/警戒红)"""
-        tag = f"{LogColor.BOLD}{LogColor.BG_YELLOW}{LogColor.BLACK} ⚡ 转接人工坐席 {LogColor.RESET}"
-        print(f"{tag} 会话ID: {LogColor.BRIGHT_WHITE}{session_id}{LogColor.RESET} ➜ 指派坐席: {LogColor.BRIGHT_CYAN}{agent_id}{LogColor.RESET}")
-        print(f"   {LogColor.BRIGHT_YELLOW}↳ 触发原因: {reason}{LogColor.RESET}")
+        """人工升级转接日志"""
+        reset = _c(LogColor.RESET)
+        tag = f"{_c(LogColor.BOLD)}{_c(LogColor.BG_YELLOW)}{_c(LogColor.BLACK)} ⚡ 转接人工坐席 {reset}"
+        print(
+            f"{tag} 会话ID: {_c(LogColor.BRIGHT_WHITE)}{session_id}{reset} "
+            f"➜ 指派坐席: {_c(LogColor.BRIGHT_CYAN)}{agent_id}{reset}"
+        )
+        print(f"   {_c(LogColor.BRIGHT_YELLOW)}↳ 触发原因: {reason}{reset}")
 
     @staticmethod
     def websocket(event_type: str, session_id: str, detail: str):
-        """WebSocket 实时通信全双工日志 (高亮霓虹蓝/电光绿)"""
-        tag = f"{LogColor.BOLD}{LogColor.BG_BLUE}{LogColor.BRIGHT_WHITE} 🔌 [WebSocket] {LogColor.RESET}"
-        evt = f"{LogColor.BRIGHT_CYAN}{event_type:<6}{LogColor.RESET}"
-        sess = f"{LogColor.BOLD}{LogColor.BRIGHT_YELLOW}{session_id}{LogColor.RESET}"
-        print(f"{tag} [{evt}] 会话: {sess} ➜ {LogColor.BRIGHT_GREEN}{detail}{LogColor.RESET}")
+        """WebSocket 实时通信全双工日志"""
+        reset = _c(LogColor.RESET)
+        tag = f"{_c(LogColor.BOLD)}{_c(LogColor.BG_BLUE)}{_c(LogColor.BRIGHT_WHITE)} 🔌 [WebSocket] {reset}"
+        evt = f"{_c(LogColor.BRIGHT_CYAN)}{event_type}{reset}"
+        sess = f"{_c(LogColor.BOLD)}{_c(LogColor.BRIGHT_YELLOW)}{session_id}{reset}"
+        print(f"{tag} [{evt}] 会话: {sess} ➜ {_c(LogColor.BRIGHT_GREEN)}{detail}{reset}")
 
     @staticmethod
     def success(msg: str):
-        """成功日志 (翠绿色)"""
-        print(f"{LogColor.BRIGHT_GREEN}✅ {msg}{LogColor.RESET}")
+        print(f"{_c(LogColor.BRIGHT_GREEN)}✅ {msg}{_c(LogColor.RESET)}")
 
     @staticmethod
     def warning(msg: str):
-        """警告日志 (金黄色)"""
-        print(f"{LogColor.BRIGHT_YELLOW}⚠️  {msg}{LogColor.RESET}")
+        print(f"{_c(LogColor.BRIGHT_YELLOW)}⚠️  {msg}{_c(LogColor.RESET)}")
 
     @staticmethod
     def error(msg: str):
-        """错误日志 (亮红色)"""
-        print(f"{LogColor.BRIGHT_RED}❌ {msg}{LogColor.RESET}")
+        print(f"{_c(LogColor.BRIGHT_RED)}❌ {msg}{_c(LogColor.RESET)}")
 
     @staticmethod
     def info(msg: str):
-        """普通信息日志 (青白色)"""
-        print(f"{LogColor.CYAN}ℹ️  {msg}{LogColor.RESET}")
+        print(f"{_c(LogColor.CYAN)}ℹ️  {msg}{_c(LogColor.RESET)}")
 
 
 # 便捷导出

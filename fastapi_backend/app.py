@@ -19,12 +19,16 @@ from config import settings
 from api.routes import router as api_router
 from api.websocket_routes import ws_router
 from core.qdrant_store import qdrant_store
+from core.embedding import bge_m3_engine
+from core.llm import deepseek_client
+from core.database import dispose_engine
 from core.logger import log, cprint, LogColor
+from services.storage_service import storage_service
 from workflow.graph import init_postgres_checkpointer, close_postgres_checkpointer
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """服务生命周期管理：服务启动时初始化 Qdrant 知识库"""
+    """服务生命周期管理：服务启动时初始化 PostgreSQL 业务库、Qdrant 知识库与 LangGraph Checkpointer"""
     cprint.banner(
         f"{settings.APP_NAME} v{settings.VERSION} 正在启动...",
         f"FastAPI + LangGraph + Qdrant (BGE-M3) + DeepSeek 智能客服中枢"
@@ -37,6 +41,9 @@ async def lifespan(app: FastAPI):
     print(f"🔹 向量数据库 (Vector DB): {LogColor.BRIGHT_GREEN}Qdrant 纯内存模式 (In-Memory :memory:，无需 Docker 部署){LogColor.RESET}")
     print(f"🔹 默认知识库:             {LogColor.WHITE}XX商城售后服务与退换货政策（2026版）{LogColor.RESET}")
     print(f"{LogColor.BRIGHT_CYAN}{'=' * 68}{LogColor.RESET}")
+
+    # 初始化 PostgreSQL 业务表结构与初始种子数据
+    storage_service.init_database()
     
     # 确保 Qdrant 集合就绪
     qdrant_store.init_collection_with_faq()
@@ -52,7 +59,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        cprint.warning("服务正常关闭中，释放内存与 PostgreSQL Checkpointer 连接池...")
+        cprint.warning("服务正常关闭中，释放连接池与 HTTP 客户端资源...")
+        await deepseek_client.close()
+        bge_m3_engine.close()
+        dispose_engine()
         await close_postgres_checkpointer()
 
 app = FastAPI(

@@ -1,6 +1,4 @@
-from .embedding import bge_m3_engine, BGEM3EmbeddingEngine
-from .qdrant_store import qdrant_store, QdrantKnowledgeStore
-from .llm import deepseek_client, DeepSeekLLMClient
+from typing import Any
 
 __all__ = [
     "bge_m3_engine",
@@ -8,5 +6,18 @@ __all__ = [
     "qdrant_store",
     "QdrantKnowledgeStore",
     "deepseek_client",
-    "DeepSeekLLMClient"
+    "DeepSeekLLMClient",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("bge_m3_engine", "BGEM3EmbeddingEngine"):
+        from . import embedding
+        return getattr(embedding, name)
+    if name in ("qdrant_store", "QdrantKnowledgeStore"):
+        from . import qdrant_store
+        return getattr(qdrant_store, name)
+    if name in ("deepseek_client", "DeepSeekLLMClient"):
+        from . import llm
+        return getattr(llm, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

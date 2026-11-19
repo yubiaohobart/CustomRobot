@@ -1,15 +1,16 @@
 """
 会话记忆管理服务 (Session Memory & Human Transfer Service)
-维持多轮会话状态、长期记忆、客户画像、转接上下文快照打包与审计日志
-全面集成 storage_service 磁盘持久化固化存储，消息写入、坐席移交与画像变更实时写入磁盘文件
+维持多轮会话状态、滑动窗口长期摘要、客户画像、人工接管与转接上下文快照
+通过 storage_service 统一持久化至 PostgreSQL 关系型数据库。
 """
 
 import time
 import uuid
 import datetime
 from typing import Dict, Any, List, Optional, Tuple
-from core.logger import log, cprint, LogColor
+from core.logger import cprint
 from config import (
+    DETERMINISTIC_FLOW_CONFIDENCE,
     HUMAN_TAKEOVER_STATUSES,
     SUMMARY_USER_SNIPPET_LEN,
     SUMMARY_REPLY_SNIPPET_LEN,
@@ -17,36 +18,70 @@ from config import (
     SUMMARY_MAX_CHARS,
 )
 from services.storage_service import storage_service
-from models.entities import (
-    SessionModel,
-    ChatMessageModel,
-    CustomerModel,
-    AgentModel,
-    TransferLogModel
-)
+
+
+def _now_str() -> str:
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _default_metrics(total_turns: int = 0) -> Dict[str, Any]:
+    return {
+        "totalTurns": total_turns,
+        "avgLatencyMs": 350,
+        "avgConfidence": DETERMINISTIC_FLOW_CONFIDENCE,
+        "escalatedAt": None,
+    }
+
+
+def _default_customer_profile(user_name: str = "客户") -> Dict[str, Any]:
+    return {
+        "name": user_name,
+        "vipLevel": "普通会员",
+        "sentiment": "neutral",
+        "urgency": "中",
+        "intent": "常规业务咨询",
+        "tags": ["普通会员"],
+        "orderId": "",
+    }
+
+
+def _resolve_agent(agent_id: str) -> Dict[str, Any]:
+    """按工号查找目标坐席，未命中时回退首位可用坐席或默认督导"""
+    agents = storage_service.list_agents()
+    return next(
+        (a for a in agents if a["id"] == agent_id),
+        agents[0]
+        if agents
+        else {
+            "id": "agent_101",
+            "name": "陈浩",
+            "title": "高级售后督导",
+            "department": "XX商城 售后服务部",
+            "currentWorkload": 1,
+        },
+    )
 
 
 class MemoryService:
-    def __init__(self):
-        # 依赖 storage_service 实现跨进程、跨重启持久化固化
-        pass
-
-    def _ensure_session_defaults(self, session: Dict[str, Any], user_profile: Optional[Dict[str, Any]] = None) -> bool:
+    def _ensure_session_defaults(
+        self,
+        session: Dict[str, Any],
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """补齐缺损字段并将新传入的 userProfile 增量合并进会话画像，返回是否发生变更"""
         changed = False
-        if "metrics" not in session or not isinstance(session["metrics"], dict):
-            session["metrics"] = {"totalTurns": len(session.get("messages", [])), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
+        messages = session.get("messages")
+        if not isinstance(messages, list):
+            session["messages"] = []
+            messages = session["messages"]
             changed = True
-        if "customerProfile" not in session or not isinstance(session["customerProfile"], dict):
-            session["customerProfile"] = {
-                "name": session.get("userName", "客户"),
-                "vipLevel": "普通会员",
-                "sentiment": "neutral",
-                "urgency": "中",
-                "intent": "常规业务咨询",
-                "tags": ["普通会员"],
-                "orderId": ""
-            }
+
+        if not isinstance(session.get("metrics"), dict):
+            session["metrics"] = _default_metrics(len(messages))
+            changed = True
+
+        if not isinstance(session.get("customerProfile"), dict):
+            session["customerProfile"] = _default_customer_profile(session.get("userName", "客户"))
             changed = True
 
         if user_profile:
@@ -67,22 +102,33 @@ class MemoryService:
 
         return changed
 
-    def get_or_create_session(self, session_id: str, user_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """只读查询会话详情（不存在时返回 None，避免 GET 详情接口产生脏会话记录）"""
+        session = storage_service.get_session(session_id)
+        if not session:
+            return None
+        self._ensure_session_defaults(session)
+        return session
+
+    def get_or_create_session(
+        self,
+        session_id: str,
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         session = storage_service.get_session(session_id)
         if session:
             if self._ensure_session_defaults(session, user_profile):
-                session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                session["updatedAt"] = _now_str()
                 storage_service.save_session(session)
             return session
 
-        # 不存在则创建并立即固化到磁盘
         up = user_profile or {}
         name = up.get("name") or up.get("userName") or "客户"
         vip = up.get("vipLevel") or up.get("tier") or "普通会员"
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = _now_str()
 
-        profile = {
-            "name": name,
+        profile = _default_customer_profile(name)
+        profile.update({
             "phone": up.get("phone", ""),
             "vipLevel": vip,
             "sentiment": up.get("sentiment", "neutral"),
@@ -90,8 +136,7 @@ class MemoryService:
             "intent": up.get("intent", "售后咨询"),
             "tags": up.get("tags", [vip]),
             "orderId": up.get("orderId", f"ORD-2026-{uuid.uuid4().hex[:6].upper()}"),
-        }
-        # 保留前端/调用方传入的额外上下文键（如 tier、userId、recentOrder 等）
+        })
         for k, v in up.items():
             if k not in profile and v is not None:
                 profile[k] = v
@@ -105,17 +150,12 @@ class MemoryService:
             "customerProfile": profile,
             "summaryMemory": f"{name}（{vip}）于今日建立咨询连接。",
             "messages": [],
-            "metrics": {
-                "totalTurns": 0,
-                "avgLatencyMs": 350,
-                "avgConfidence": 0.95,
-                "escalatedAt": None
-            },
+            "metrics": _default_metrics(0),
             "contextSnapshot": None,
             "latestTransfer": None,
             "unreadForAgent": False,
             "createdAt": now_str,
-            "updatedAt": now_str
+            "updatedAt": now_str,
         }
         storage_service.save_session(new_session)
         return new_session
@@ -124,9 +164,9 @@ class MemoryService:
     def _update_summary_memory(current_summary: str, role: str, content: str) -> str:
         """
         按完整语义片段维护去重后的滑动窗口摘要：
-        - 过滤旧版 [-1000:] 字符硬截断留下的半句残片
-        - 对连续重复的提问或固定话术合并计数 (×N)，避免测试/重试刷爆上下文
-        - 按完整片段与最大字符上限（500 字）从头部淘汰，不再截断半句话
+        - 过滤旧版字符硬截断留下的开头残片
+        - 对相邻同角色重复发言合并计数 (×N)，避免重试刷爆上下文
+        - 按完整片段与最大字符上限从头部淘汰，不截断半句话
         """
         text = " ".join((content or "").split())
         if not text:
@@ -149,40 +189,33 @@ class MemoryService:
             if not seg:
                 continue
             if not segments and "建立咨询连接" not in seg and not seg.startswith(valid_prefixes):
-                # 清理历史 [-1000:] 截断导致的开头残片
                 continue
             segments.append(seg)
 
-        def _base_text(seg: str) -> str:
-            idx = seg.rfind(" (×")
-            if idx != -1 and seg.endswith(")"):
-                return seg[:idx]
-            return seg
-
-        def _repeat_count(seg: str) -> int:
+        def _split_repeat(seg: str) -> Tuple[str, int]:
             idx = seg.rfind(" (×")
             if idx != -1 and seg.endswith(")"):
                 num_str = seg[idx + 3:-1]
                 if num_str.isdigit():
-                    return int(num_str)
-            return 1
+                    return seg[:idx], int(num_str)
+            return seg, 1
 
-        # 若相邻最近同角色片段完全一致，直接原地合并计数 (×N)
+        # 倒序查找最近一条同角色片段，若内容一致则原地合并计数 (×N)
         merged = False
         entry_prefix = entry.split("：", 1)[0] + "："
-        for check_idx in range(len(segments) - 1, max(-1, len(segments) - 3), -1):
+        for check_idx in range(len(segments) - 1, -1, -1):
             seg = segments[check_idx]
             if not seg.startswith(entry_prefix):
                 continue
-            if _base_text(seg) == entry:
-                segments[check_idx] = f"{entry} (×{_repeat_count(seg) + 1})"
+            base_seg, count = _split_repeat(seg)
+            if base_seg == entry:
+                segments[check_idx] = f"{entry} (×{count + 1})"
                 merged = True
             break
 
         if not merged:
             segments.append(entry)
 
-        # 最多保留最近 SUMMARY_MAX_SEGMENTS 条片段，且总长度控制在 SUMMARY_MAX_CHARS 字以内（按整条片段淘汰）
         if len(segments) > SUMMARY_MAX_SEGMENTS:
             segments = segments[-SUMMARY_MAX_SEGMENTS:]
         while len(segments) > 1 and len("；".join(segments) + "；") > SUMMARY_MAX_CHARS:
@@ -200,12 +233,12 @@ class MemoryService:
         step_trace: Optional[List[Dict[str, Any]]] = None,
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
-        pending_refund_order: Optional[Dict[str, Any]] = None,
         refund_order_id: Optional[str] = None,
         refund_request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """在已加载的 session 对象上原地追加消息与摘要更新（不单独落盘）"""
-        msg_id = f"m_{int(time.time() * 1000)}_{len(session.get('messages', []))}"
+        """在已加载的 session 对象上原地追加消息并更新摘要与指标（不单独落盘）"""
+        self._ensure_session_defaults(session)
+        msg_id = f"m_{int(time.time() * 1000)}_{len(session['messages'])}"
         msg: Dict[str, Any] = {
             "id": msg_id,
             "role": role,
@@ -222,20 +255,15 @@ class MemoryService:
             msg["queriedOrder"] = queried_order
         if refund_confirmation_pending:
             msg["refundConfirmationPending"] = True
-        if pending_refund_order and "queriedOrder" not in msg:
-            msg["queriedOrder"] = pending_refund_order
         if refund_order_id:
             msg["refundOrderId"] = refund_order_id
         if refund_request_id:
             msg["refundRequestId"] = refund_request_id
 
-        session.setdefault("messages", []).append(msg)
-        self._ensure_session_defaults(session)
+        session["messages"].append(msg)
         session["metrics"]["totalTurns"] = len(session["messages"])
-
         session["summaryMemory"] = self._update_summary_memory(session.get("summaryMemory", ""), role, content)
-
-        session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        session["updatedAt"] = _now_str()
         return msg
 
     def add_message(
@@ -248,7 +276,6 @@ class MemoryService:
         step_trace: Optional[List[Dict[str, Any]]] = None,
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
-        pending_refund_order: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         session = self.get_or_create_session(session_id)
         msg = self._append_message_in_place(
@@ -260,7 +287,6 @@ class MemoryService:
             step_trace=step_trace,
             queried_order=queried_order,
             refund_confirmation_pending=refund_confirmation_pending,
-            pending_refund_order=pending_refund_order,
         )
         storage_service.save_session(session)
         return msg
@@ -273,11 +299,7 @@ class MemoryService:
         human_takeover_statuses: Tuple[str, ...] = HUMAN_TAKEOVER_STATUSES,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """单次读写完成：获取/创建会话 + 合并最新画像 + 写入用户消息 + 人工模式未读标记 + 落盘"""
-        session = storage_service.get_session(session_id)
-        if session:
-            self._ensure_session_defaults(session, user_profile)
-        else:
-            session = self.get_or_create_session(session_id, user_profile)
+        session = self.get_or_create_session(session_id, user_profile)
 
         if session.get("status") in human_takeover_statuses:
             session["unreadForAgent"] = True
@@ -300,7 +322,6 @@ class MemoryService:
         step_trace: Optional[List[Dict[str, Any]]] = None,
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
-        pending_refund_order: Optional[Dict[str, Any]] = None,
         refund_order_id: Optional[str] = None,
         refund_request_id: Optional[str] = None,
         clear_pending_refund: bool = False,
@@ -330,7 +351,7 @@ class MemoryService:
                 session["status"] = "NEEDS_INTERVENTION"
             session["unreadForAgent"] = True
             if not metrics.get("escalatedAt"):
-                metrics["escalatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                metrics["escalatedAt"] = _now_str()
 
         assistant_msg = self._append_message_in_place(
             session,
@@ -371,23 +392,16 @@ class MemoryService:
         target_agent_id: str,
         reason: str,
         operator_note: str = "",
-        trigger_type: str = "user_requested"
+        trigger_type: str = "user_requested",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         session = self.get_or_create_session(session_id)
-        agents = storage_service.list_agents()
-        agent = next((a for a in agents if a["id"] == target_agent_id), agents[0] if agents else {
-            "id": "agent_101",
-            "name": "陈浩",
-            "title": "高级售后督导",
-            "department": "XX商城 售后服务部",
-            "currentWorkload": 1
-        })
+        agent = _resolve_agent(target_agent_id)
+        profile = session["customerProfile"]
 
         user_questions = [m["content"] for m in session.get("messages", []) if m["role"] == "user"]
         ai_replies = [m["content"] for m in session.get("messages", []) if m["role"] == "assistant"]
         last_ai_reply = ai_replies[-1] if ai_replies else "（AI尚未回复）"
 
-        # 打包完整的交接单上下文快照
         snapshot = {
             "snapshotId": f"TRF-{int(time.time())}-{uuid.uuid4().hex[:4].upper()}",
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
@@ -397,117 +411,128 @@ class MemoryService:
             "reason": reason,
             "operatorNote": operator_note,
             "triggerType": trigger_type,
-            "customerProfile": session["customerProfile"],
-            "summaryMemory": session["summaryMemory"],
+            "customerProfile": profile,
+            "summaryMemory": session.get("summaryMemory", ""),
             "userQuestions": user_questions,
             "aiResponses": ai_replies,
             "lastAiResponse": last_ai_reply,
             "dialogueRounds": len(user_questions),
-            "suggestedGreeting": f"您好，{session['customerProfile']['name']}！我是售后值班专员{agent['name']}。我已全面调阅您关于【{session['customerProfile']['intent']}】的咨询快照与会员权益，接下来由我为您全权处理！"
+            "suggestedGreeting": (
+                f"您好，{profile.get('name', '客户')}！我是售后值班专员{agent['name']}。"
+                f"我已全面调阅您关于【{profile.get('intent', '售后咨询')}】的咨询快照与会员权益，接下来由我为您全权处理！"
+            ),
         }
+
+        # 对齐 TransferLogEntity / 前端期望字段，并获取持久化后的标准工单对象
+        transfer_log = storage_service.add_transfer_log({
+            "id": snapshot["snapshotId"],
+            "sessionId": session_id,
+            "customerName": profile.get("name", session.get("userName", "客户")),
+            "vipLevel": profile.get("vipLevel", "普通会员"),
+            "reason": reason,
+            "triggerType": trigger_type,
+            "assignedAgentId": agent["id"],
+            "assignedAgentName": agent["name"],
+            "assignedDepartment": agent.get("department", "XX商城 客户服务中心"),
+            "status": "SUCCESS",
+            "transferredAt": _now_str(),
+            "operatorNote": operator_note,
+            "dialogueRounds": len(user_questions),
+            "contextSnapshot": snapshot,
+        })
+
+        previous_agent_id = session.get("assignedAgentId")
+        if previous_agent_id and previous_agent_id != agent["id"]:
+            storage_service.update_agent_workload(previous_agent_id, -1)
+        if previous_agent_id != agent["id"]:
+            storage_service.update_agent_workload(agent["id"], 1)
 
         session["status"] = "HUMAN_INTERVENED"
         session["assignedAgent"] = agent["name"]
         session["assignedAgentId"] = agent["id"]
         session["contextSnapshot"] = snapshot
-
-        # 记录审计日志并固化
-        transfer_log = {
-            "id": snapshot["snapshotId"],
-            "sessionId": session_id,
-            "customerName": session["customerProfile"]["name"],
-            "agentName": agent["name"],
-            "agentId": agent["id"],
-            "reason": reason,
-            "triggerType": trigger_type,
-            "operatorNote": operator_note,
-            "dialogueRounds": len(user_questions),
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        storage_service.add_transfer_log(transfer_log)
         session["latestTransfer"] = transfer_log
-
-        # 增加坐席负载并固化
-        storage_service.update_agent_workload(agent["id"], 1)
+        session["unreadForAgent"] = False
 
         cprint.transfer(session_id, f"{agent['name']} ({agent['id']})", reason)
 
-        # 增加系统转接消息并保存
-        self.add_message(
-            session_id,
+        # 原地追加系统通知后再单次落盘，避免二次读取覆盖 status 与 contextSnapshot
+        self._append_message_in_place(
+            session,
             "system",
-            f"已为您无缝接入值班坐席【{agent['name']}】（工号: {agent['id']}），完整对话快照与会员权益已成功冻结移交。"
+            f"已为您无缝接入值班坐席【{agent['name']}】（工号: {agent['id']}），完整对话快照与会员权益已成功冻结移交。",
         )
+        saved_session = storage_service.save_session(session)
+        return transfer_log, saved_session
 
-        return transfer_log, session
-
-    def intervene_session(self, session_id: str, action: str, agent_id: str = "agent_101", note: str = "") -> Dict[str, Any]:
+    def intervene_session(
+        self,
+        session_id: str,
+        action: str,
+        agent_id: str = "agent_101",
+        note: str = "",
+    ) -> Dict[str, Any]:
         session = self.get_or_create_session(session_id)
-        agents = storage_service.list_agents()
-        if action in ["takeover", "intervene"]:
-            agent = next((a for a in agents if a["id"] == agent_id), agents[0] if agents else {
-                "id": "agent_101",
-                "name": "陈浩"
-            })
+        note_suffix = f"（备注：{note.strip()}）" if note and note.strip() else ""
+
+        if action in ("takeover", "intervene"):
+            agent = _resolve_agent(agent_id)
+            previous_agent_id = session.get("assignedAgentId")
+            if previous_agent_id and previous_agent_id != agent["id"]:
+                storage_service.update_agent_workload(previous_agent_id, -1)
+            if previous_agent_id != agent["id"]:
+                storage_service.update_agent_workload(agent["id"], 1)
+
             session["status"] = "HUMAN_INTERVENED"
             session["assignedAgent"] = agent["name"]
             session["assignedAgentId"] = agent["id"]
-            self.add_message(session_id, "system", f"人工坐席【{agent['name']}】（工号: {agent['id']}）已主动切入接管对话。")
+            session["unreadForAgent"] = False
+            self._append_message_in_place(
+                session,
+                "system",
+                f"人工坐席【{agent['name']}】（工号: {agent['id']}）已主动切入接管对话{note_suffix}。",
+            )
         elif action == "release":
+            previous_agent_id = session.get("assignedAgentId")
+            if previous_agent_id:
+                storage_service.update_agent_workload(previous_agent_id, -1)
             session["status"] = "AI_HANDLING"
             session["assignedAgent"] = None
             session["assignedAgentId"] = None
-            self.add_message(session_id, "system", "人工坐席已将对话交还给 AI 智能客服继续服务。")
+            session["unreadForAgent"] = False
+            self._append_message_in_place(
+                session,
+                "system",
+                f"人工坐席已将对话交还给 AI 智能客服继续服务{note_suffix}。",
+            )
 
-        session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        storage_service.save_session(session)
-        return session
+        return storage_service.save_session(session)
 
     def update_session_status(self, session_id: str, new_status: str) -> Dict[str, Any]:
         """更新并持久化会话状态（如 AI_HANDLING -> NEEDS_INTERVENTION）"""
         session = self.get_or_create_session(session_id)
         session["status"] = new_status
-        session["updatedAt"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        session["updatedAt"] = _now_str()
+        return storage_service.save_session(session)
+
+    def clear_session_messages(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """清空指定会话的消息历史并持久化"""
+        session = self.get_session(session_id)
+        if not session:
+            return None
+        session["messages"] = []
+        session["metrics"]["totalTurns"] = 0
+        session["pendingRefund"] = None
+        session["updatedAt"] = _now_str()
         return storage_service.save_session(session)
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         sessions_map = storage_service.list_sessions()
         for s in sessions_map.values():
-            if "metrics" not in s or not isinstance(s["metrics"], dict):
-                s["metrics"] = {"totalTurns": len(s.get("messages", [])), "avgLatencyMs": 350, "avgConfidence": 0.95, "escalatedAt": None}
-            else:
-                s["metrics"]["totalTurns"] = len(s.get("messages", []))
-            if "customerProfile" not in s or not isinstance(s["customerProfile"], dict):
-                s["customerProfile"] = {
-                    "name": s.get("userName", "客户"),
-                    "vipLevel": "普通会员",
-                    "sentiment": "neutral",
-                    "urgency": "中",
-                    "intent": "常规业务咨询",
-                    "tags": ["普通会员"],
-                    "orderId": ""
-                }
+            self._ensure_session_defaults(s)
+            s["metrics"]["totalTurns"] = len(s["messages"])
         return list(sessions_map.values())
-
-    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        return self.get_or_create_session(session_id)
-
-    def list_agents(self) -> List[Dict[str, Any]]:
-        return storage_service.list_agents()
-
-    def list_transfer_logs(self) -> List[Dict[str, Any]]:
-        return storage_service.list_transfer_logs()
-
-    def list_customers(self) -> List[Dict[str, Any]]:
-        return storage_service.list_customers()
-
-    def get_customer(self, customer_id: str) -> Optional[Dict[str, Any]]:
-        return storage_service.get_customer(customer_id)
-
-    def save_customer(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
-        return storage_service.save_customer(customer_data)
 
 
 # 全局单例记忆服务
 memory_service = MemoryService()
-AVAILABLE_AGENTS = storage_service.list_agents()
