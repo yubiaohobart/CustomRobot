@@ -401,23 +401,28 @@ cprint = ColorPrinter()
 def trace_node(node_name: str, description: Optional[str] = None) -> Callable:
     """LangGraph 节点执行追踪装饰器（单行输出完成摘要或 interrupt 挂起，零侵入业务代码）"""
 
+    def _log_success(t0: float, result: Any) -> Any:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        cprint.node(node_name, _extract_trace_summary(result, node_name), f"{elapsed_ms}ms")
+        return result
+
+    def _log_error(t0: float, exc: BaseException) -> None:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        if exc.__class__.__name__ == "GraphInterrupt":
+            cprint.node_interrupt(node_name, "触发 interrupt() 挂起等待确认", f"{elapsed_ms}ms")
+        else:
+            cprint.error(f"[{node_name}] 节点执行异常: {exc!r}")
+
     def decorator(fn: Callable) -> Callable:
         if inspect.iscoroutinefunction(fn):
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 t0 = time.perf_counter()
                 try:
-                    result = await fn(*args, **kwargs)
+                    return _log_success(t0, await fn(*args, **kwargs))
                 except BaseException as exc:
-                    elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                    if exc.__class__.__name__ == "GraphInterrupt":
-                        cprint.node_interrupt(node_name, "触发 interrupt() 挂起等待确认", f"{elapsed_ms}ms")
-                    else:
-                        cprint.error(f"[{node_name}] 节点执行异常: {exc!r}")
+                    _log_error(t0, exc)
                     raise
-                elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                cprint.node(node_name, _extract_trace_summary(result, node_name), f"{elapsed_ms}ms")
-                return result
 
             return async_wrapper
 
@@ -425,17 +430,10 @@ def trace_node(node_name: str, description: Optional[str] = None) -> Callable:
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             t0 = time.perf_counter()
             try:
-                result = fn(*args, **kwargs)
+                return _log_success(t0, fn(*args, **kwargs))
             except BaseException as exc:
-                elapsed_ms = int((time.perf_counter() - t0) * 1000)
-                if exc.__class__.__name__ == "GraphInterrupt":
-                    cprint.node_interrupt(node_name, "触发 interrupt() 挂起等待确认", f"{elapsed_ms}ms")
-                else:
-                    cprint.error(f"[{node_name}] 节点执行异常: {exc!r}")
+                _log_error(t0, exc)
                 raise
-            elapsed_ms = int((time.perf_counter() - t0) * 1000)
-            cprint.node(node_name, _extract_trace_summary(result, node_name), f"{elapsed_ms}ms")
-            return result
 
         return sync_wrapper
 
