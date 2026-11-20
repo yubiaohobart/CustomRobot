@@ -153,16 +153,16 @@ def _build_node_path(
     if is_resumed and nodes:
         if len(nodes) > 1:
             path.extend(nodes[:-1])
-        path.append("⏸️ Checkpoint断点唤醒")
+        path.append("Checkpoint断点唤醒")
         path.append(nodes[-1])
     else:
         path.extend(nodes)
 
     if is_interrupted:
         if path and path[-1] == "order_refund":
-            path[-1] = "order_refund (⏸️ interrupt挂起)"
+            path[-1] = "order_refund (interrupt挂起)"
         else:
-            path.append("⏸️ interrupt挂起")
+            path.append("interrupt挂起")
     else:
         path.append("END")
     return path
@@ -247,7 +247,7 @@ class ColorPrinter:
         name = f"{_c(LogColor.BRIGHT_CYAN)}{node_name:<18}{reset}"
         act = f"{_c(LogColor.BRIGHT_YELLOW)}{action}{reset}"
         detail_str = f" {_c(LogColor.DIM)}({details}){reset}" if details else ""
-        print(f"  {_c(LogColor.BRIGHT_YELLOW)}⏸{reset} {name} {act}{detail_str}")
+        print(f"  {_c(LogColor.BRIGHT_YELLOW)}•{reset} {name} {act}{detail_str}")
 
     @staticmethod
     def route(from_node: str, to_node: str, reason: Optional[str] = None):
@@ -279,7 +279,7 @@ class ColorPrinter:
         reset = _c(LogColor.RESET)
         if status == "INTERRUPTED":
             color = _c(LogColor.BRIGHT_YELLOW)
-            icon = "⏸"
+            icon = "•"
         elif status == "ERROR":
             color = _c(LogColor.BRIGHT_RED)
             icon = "❌"
