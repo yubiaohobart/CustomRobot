@@ -96,26 +96,39 @@ export interface OrderData {
   afterSales: OrderAfterSales;
 }
 
-export interface ChatMessage {
-  id: string;
-  role: MessageRole;
-  content: string;
-  timestamp: string;
+export interface MessageAiMeta {
+  confidenceScore?: number;
+  sentiment?: "positive" | "neutral" | "negative" | "frustrated" | string;
+  intent?: string;
   references?: Array<{
     id: string;
     title: string;
     score: number;
     snippet: string;
   }>;
-  confidenceScore?: number;
-  sentiment?: "positive" | "neutral" | "negative" | "frustrated";
-  intent?: string;
   stepTrace?: StepTraceItem[];
-  queriedOrder?: OrderData;
-  refundConfirmationPending?: boolean;
-  pendingRefundOrder?: OrderData;
-  refundOrderId?: string;
-  refundRequestId?: string;
+}
+
+export type MessageCard =
+  | {
+      type: "order";
+      order: OrderData;
+    }
+  | {
+      type: "refund_confirm";
+      orderId: string;
+      requestId: string;
+      order?: OrderData;
+    };
+
+export interface ChatMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  timestamp: string;
+  senderName?: string;
+  aiMeta?: MessageAiMeta;
+  card?: MessageCard;
 }
 
 export interface CustomerProfile {
@@ -244,8 +257,8 @@ export interface ConversationSession {
   id: string;
   userName: string;
   status: SessionStatus;
-  assignedAgent?: string;
-  assignedAgentId?: string;
+  assignedAgent?: string | null;
+  assignedAgentId?: string | null;
   transferLogs?: TransferLog[];
   latestTransfer?: TransferLog;
   messages: ChatMessage[];
@@ -256,12 +269,95 @@ export interface ConversationSession {
     totalTurns: number;
     avgLatencyMs: number;
     avgConfidence: number;
-    escalatedAt?: string;
+    escalatedAt?: string | null;
   };
+  pendingRefund?: {
+    orderId: string;
+    requestId: string;
+  } | null;
   unreadForAgent: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface SessionMeta {
+  id: string;
+  userName: string;
+  status: SessionStatus;
+  assignedAgent?: string | null;
+  assignedAgentId?: string | null;
+  customerProfile: CustomerProfile;
+  summaryMemory: string;
+  metrics: {
+    totalTurns: number;
+    avgLatencyMs: number;
+    avgConfidence: number;
+    escalatedAt?: string | null;
+  };
+  pendingRefund?: {
+    orderId: string;
+    requestId: string;
+  } | null;
+  unreadForAgent: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WsRole = "customer" | "agent" | "dual_observer" | "supervisor";
+
+export type WsClientEvent =
+  | {
+      type: "join";
+      sessionId: string;
+      role: WsRole;
+      name?: string;
+    }
+  | {
+      type: "typing";
+      sessionId: string;
+      role: "customer" | "agent";
+      name?: string;
+      isTyping: boolean;
+    }
+  | {
+      type: "ping";
+    };
+
+export type WsServerEvent =
+  | {
+      type: "subscribed";
+      sessionId: string;
+      role: WsRole;
+      name: string;
+    }
+  | {
+      type: "pong";
+    }
+  | {
+      type: "typing";
+      sessionId: string;
+      role: "customer" | "agent" | string;
+      name?: string;
+      isTyping: boolean;
+    }
+  | {
+      type: "message:new";
+      sessionId: string;
+      message: ChatMessage;
+      sessionMeta: SessionMeta | null;
+    }
+  | {
+      type: "session:update";
+      sessionId: string;
+      action: "message" | "transfer" | "takeover" | "release" | string;
+      sessionMeta: SessionMeta | null;
+      message?: ChatMessage;
+    }
+  | {
+      type: "order:update";
+      orderId: string;
+      order: OrderData;
+    };
 
 export interface MetricsData {
   totalSessions: number;

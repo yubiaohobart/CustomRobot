@@ -226,27 +226,25 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       if (payload.type === "message:new") {
         if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
           setActiveSession((prev) => {
-            if (!prev) return payload.session || null;
-            const meta = payload.sessionMeta || {};
+            if (!prev) return prev;
+            const meta = payload.sessionMeta;
             const hasMsg = prev.messages.some((m) => m.id === payload.message.id);
             return {
               ...prev,
-              ...meta,
+              ...(meta || {}),
               messages: hasMsg ? prev.messages : [...prev.messages, payload.message],
-              status: meta.status || payload.session?.status || prev.status,
+              status: meta?.status || prev.status,
             };
           });
         }
         fetchSessions();
       } else if (payload.type === "session:update") {
         if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
-          if (payload.session) {
-            setActiveSession(payload.session);
-          } else if (payload.sessionMeta) {
+          if (payload.sessionMeta) {
             setActiveSession((prev) => {
               if (!prev) return prev;
               const nextMsgs =
-                payload.message && !prev.messages.some((m) => m.id === payload.message.id)
+                payload.message && !prev.messages.some((m) => m.id === payload.message!.id)
                   ? [...prev.messages, payload.message]
                   : prev.messages;
               return { ...prev, ...payload.sessionMeta, messages: nextMsgs };
@@ -258,7 +256,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
           fetchTransferData();
         }
       } else if (payload.type === "typing") {
-        if (payload.sender === "customer" && (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId)) {
+        if (payload.role === "customer" && (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId)) {
           setCustomerTyping(payload.isTyping ? "客户正在输入..." : null);
           clearTimeout(typingTimer);
           if (payload.isTyping) typingTimer = setTimeout(() => setCustomerTyping(null), 3500);
@@ -829,11 +827,11 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
 
                     <div className={`flex flex-col ${isUser ? "items-start" : "items-end"} max-w-[85%]`}>
                       <div className="flex items-center gap-2 mb-1 text-[11px] text-slate-400">
-                        <span>{isUser ? activeSession.userName : isHumanAgent ? (activeSession.assignedAgent || "人工客服") : "智能客服 (AI)"}</span>
+                        <span>{isUser ? activeSession.userName : isHumanAgent ? (msg.senderName || activeSession.assignedAgent || "人工客服") : "智能客服 (AI)"}</span>
                         <span>{msg.timestamp}</span>
-                        {msg.confidenceScore && (
+                        {msg.aiMeta?.confidenceScore !== undefined && (
                           <span className="text-[10px] bg-slate-200 px-1 rounded">
-                            置信度: {(msg.confidenceScore * 100).toFixed(0)}%
+                            置信度: {(msg.aiMeta.confidenceScore * 100).toFixed(0)}%
                           </span>
                         )}
                       </div>
@@ -929,7 +927,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                     sendJson({
                       type: "typing",
                       sessionId: activeSession.id,
-                      sender: "agent",
+                      role: "agent",
                       name: activeSession.assignedAgent || "人工坐席",
                       isTyping: e.target.value.length > 0,
                     });

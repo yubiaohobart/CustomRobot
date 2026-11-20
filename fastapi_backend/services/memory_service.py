@@ -228,15 +228,12 @@ class MemoryService:
         session: Dict[str, Any],
         role: str,
         content: str,
-        confidence_score: Optional[float] = None,
-        references: Optional[List[Dict[str, Any]]] = None,
-        step_trace: Optional[List[Dict[str, Any]]] = None,
-        queried_order: Optional[Dict[str, Any]] = None,
-        refund_confirmation_pending: Optional[bool] = None,
-        refund_order_id: Optional[str] = None,
-        refund_request_id: Optional[str] = None,
+        *,
+        sender_name: Optional[str] = None,
+        ai_meta: Optional[Dict[str, Any]] = None,
+        card: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """在已加载的 session 对象上原地追加消息并更新摘要与指标（不单独落盘）"""
+        """在已加载的 session 对象上原地追加统一结构的消息并更新摘要与指标（不单独落盘）"""
         self._ensure_session_defaults(session)
         msg_id = f"m_{int(time.time() * 1000)}_{len(session['messages'])}"
         msg: Dict[str, Any] = {
@@ -245,20 +242,12 @@ class MemoryService:
             "content": content,
             "timestamp": time.strftime("%H:%M:%S"),
         }
-        if confidence_score is not None:
-            msg["confidenceScore"] = confidence_score
-        if references:
-            msg["references"] = references
-        if step_trace:
-            msg["stepTrace"] = step_trace
-        if queried_order:
-            msg["queriedOrder"] = queried_order
-        if refund_confirmation_pending:
-            msg["refundConfirmationPending"] = True
-        if refund_order_id:
-            msg["refundOrderId"] = refund_order_id
-        if refund_request_id:
-            msg["refundRequestId"] = refund_request_id
+        if sender_name:
+            msg["senderName"] = sender_name
+        if ai_meta:
+            msg["aiMeta"] = ai_meta
+        if card:
+            msg["card"] = card
 
         session["messages"].append(msg)
         session["metrics"]["totalTurns"] = len(session["messages"])
@@ -271,22 +260,19 @@ class MemoryService:
         session_id: str,
         role: str,
         content: str,
-        confidence_score: Optional[float] = None,
-        references: Optional[List[Dict[str, Any]]] = None,
-        step_trace: Optional[List[Dict[str, Any]]] = None,
-        queried_order: Optional[Dict[str, Any]] = None,
-        refund_confirmation_pending: Optional[bool] = None,
+        *,
+        sender_name: Optional[str] = None,
+        ai_meta: Optional[Dict[str, Any]] = None,
+        card: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         session = self.get_or_create_session(session_id)
         msg = self._append_message_in_place(
             session,
             role,
             content,
-            confidence_score=confidence_score,
-            references=references,
-            step_trace=step_trace,
-            queried_order=queried_order,
-            refund_confirmation_pending=refund_confirmation_pending,
+            sender_name=sender_name,
+            ai_meta=ai_meta,
+            card=card,
         )
         storage_service.save_session(session)
         return msg
@@ -326,7 +312,7 @@ class MemoryService:
         refund_request_id: Optional[str] = None,
         clear_pending_refund: bool = False,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 挂起退款上下文 + 真实指标 + AI消息落盘"""
+        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 挂起退款上下文 + 真实指标 + 统一结构 AI 消息落盘"""
         session = self.get_or_create_session(session_id)
         profile = session["customerProfile"]
         profile["intent"] = intent
@@ -353,17 +339,37 @@ class MemoryService:
             if not metrics.get("escalatedAt"):
                 metrics["escalatedAt"] = _now_str()
 
+        ai_meta: Dict[str, Any] = {
+            "confidenceScore": confidence_score,
+            "intent": intent,
+            "sentiment": sentiment,
+        }
+        if references is not None:
+            ai_meta["references"] = references
+        if step_trace is not None:
+            ai_meta["stepTrace"] = step_trace
+
+        card: Optional[Dict[str, Any]] = None
+        if refund_confirmation_pending and refund_order_id and refund_request_id:
+            card = {
+                "type": "refund_confirm",
+                "orderId": refund_order_id,
+                "requestId": refund_request_id,
+            }
+            if queried_order:
+                card["order"] = queried_order
+        elif queried_order:
+            card = {
+                "type": "order",
+                "order": queried_order,
+            }
+
         assistant_msg = self._append_message_in_place(
             session,
             "assistant",
             reply,
-            confidence_score=confidence_score,
-            references=references,
-            step_trace=step_trace,
-            queried_order=queried_order,
-            refund_confirmation_pending=refund_confirmation_pending,
-            refund_order_id=refund_order_id if refund_confirmation_pending else None,
-            refund_request_id=refund_request_id if refund_confirmation_pending else None,
+            ai_meta=ai_meta,
+            card=card,
         )
         storage_service.save_session(session)
         return assistant_msg, session

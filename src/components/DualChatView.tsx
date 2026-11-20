@@ -215,23 +215,26 @@ export const DualChatView: React.FC = () => {
 
     const unsubscribe = subscribe((payload) => {
       if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
-        const meta = payload.sessionMeta || {};
+        const meta = payload.sessionMeta;
+        if (payload.message.card?.order) {
+          setCurrentOrder(payload.message.card.order);
+        }
         setSession((prev) => {
           if (!prev) {
-            return payload.session || (payload.sessionMeta ? { ...payload.sessionMeta, messages: [payload.message] } : null);
+            return meta ? ({ ...meta, messages: [payload.message] } as ConversationSession) : null;
           }
           const prevMsgs = prev.messages || [];
           const merged = mergeServerMessages(prevMsgs, [payload.message], false);
           return {
             ...prev,
-            ...meta,
+            ...(meta || {}),
             messages: merged,
-            status: meta.status || payload.session?.status || prev.status,
-            assignedAgent: meta.assignedAgent ?? payload.session?.assignedAgent ?? prev.assignedAgent,
+            status: meta?.status || prev.status,
+            assignedAgent: meta?.assignedAgent ?? prev.assignedAgent,
           };
         });
         if (payload.message.role === "human_agent") {
-          showToast(`🎧 人工坐席【${payload.message.agentName || "陈浩"}】已回复客户`);
+          showToast(`🎧 人工坐席【${payload.message.senderName || meta?.assignedAgent || "陈浩"}】已回复客户`);
         } else if (payload.message.role === "user") {
           showToast(`👤 收到客户【${sessionRef.current?.customerProfile?.name || "客户"}】新提问`);
         }
@@ -251,38 +254,30 @@ export const DualChatView: React.FC = () => {
         }
       } else if (
         payload.type === "session:update" &&
-        (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId || payload.sessionMeta?.id === selectedSessionId)
+        (payload.sessionId === selectedSessionId || payload.sessionMeta?.id === selectedSessionId)
       ) {
-        setSession((prev) => {
-          const incomingMsgs = payload.session?.messages || (payload.message ? [payload.message] : []);
-          const isFull = Boolean(payload.session?.messages);
-          if (payload.session) {
-            if (!prev) return payload.session;
-            return {
-              ...payload.session,
-              messages: mergeServerMessages(prev.messages || [], incomingMsgs, isFull),
-            };
-          }
-          if (payload.sessionMeta) {
+        if (payload.sessionMeta) {
+          const meta = payload.sessionMeta;
+          const incomingMsgs = payload.message ? [payload.message] : [];
+          setSession((prev) => {
             if (!prev) {
-              return { ...payload.sessionMeta, messages: incomingMsgs } as ConversationSession;
+              return { ...meta, messages: incomingMsgs } as ConversationSession;
             }
             return {
               ...prev,
-              ...payload.sessionMeta,
+              ...meta,
               messages: incomingMsgs.length > 0
                 ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
                 : prev.messages || [],
             };
-          }
-          return prev;
-        });
+          });
+        }
       } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
-        if (payload.sender === "agent") {
+        if (payload.role === "agent") {
           setAgentTypingNotice(payload.isTyping ? "人工坐席正在输入..." : null);
           clearTimeout(agentTypingTimeout);
           if (payload.isTyping) agentTypingTimeout = setTimeout(() => setAgentTypingNotice(null), 3500);
-        } else if (payload.sender === "customer") {
+        } else if (payload.role === "customer") {
           setCustomerTypingNotice(payload.isTyping ? "客户正在输入..." : null);
           clearTimeout(customerTypingTimeout);
           if (payload.isTyping) customerTypingTimeout = setTimeout(() => setCustomerTypingNotice(null), 3500);
@@ -375,7 +370,7 @@ export const DualChatView: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        const orderFromMsg = data.assistantMessage?.queriedOrder;
+        const orderFromMsg = data.assistantMessage?.card?.order;
         if (orderFromMsg) {
           setCurrentOrder(orderFromMsg);
         }
@@ -762,6 +757,9 @@ export const DualChatView: React.FC = () => {
               const isHumanAgent = msg.role === "human_agent";
               const isSystem = msg.role === "system";
               const isRefundCardActive = !(session?.messages || []).slice(msgIdx + 1).some((m) => m.role === "assistant" || m.role === "human_agent");
+              const orderCard = msg.card?.type === "order" ? msg.card.order : undefined;
+              const refundCard = msg.card?.type === "refund_confirm" ? msg.card : undefined;
+              const refundOrder = refundCard?.order;
 
               if (isSystem) {
                 return (
@@ -803,7 +801,7 @@ export const DualChatView: React.FC = () => {
                         {isUser
                           ? "我 (客户)"
                           : isHumanAgent
-                          ? `人工客服 · ${session?.assignedAgent || "陈浩"}`
+                          ? `人工客服 · ${msg.senderName || session?.assignedAgent || "陈浩"}`
                           : "IntelliServe AI"}
                       </span>
                       <span>{msg.timestamp}</span>
@@ -832,39 +830,39 @@ export const DualChatView: React.FC = () => {
                       <p className="whitespace-pre-wrap">{msg.content}</p>
 
                       {/* Interactive Order Card */}
-                      {msg.queriedOrder && (
+                      {orderCard && (
                         <div className="mt-2.5 p-3 bg-gradient-to-b from-blue-50/70 via-slate-50 to-white rounded-xl border border-blue-200 text-slate-800 space-y-2">
                           <div className="flex items-center justify-between pb-1.5 border-b border-blue-100">
                             <div className="flex items-center gap-1.5 text-xs font-semibold">
                               <Package className="w-3.5 h-3.5 text-blue-600" />
-                              <span>订单: <span className="font-mono text-blue-900">{msg.queriedOrder.orderId}</span></span>
+                              <span>订单: <span className="font-mono text-blue-900">{orderCard.orderId}</span></span>
                             </div>
                             <span className={`px-1.5 py-0.2 text-[10px] font-bold rounded ${
-                              (currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.status : msg.queriedOrder.status) === "REFUNDED"
+                              (currentOrder && currentOrder.orderId === orderCard.orderId ? currentOrder.status : orderCard.status) === "REFUNDED"
                                 ? "bg-emerald-100 text-emerald-800"
-                                : (currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.status : msg.queriedOrder.status) === "REFUND_PENDING_AUDIT"
+                                : (currentOrder && currentOrder.orderId === orderCard.orderId ? currentOrder.status : orderCard.status) === "REFUND_PENDING_AUDIT"
                                 ? "bg-amber-100 text-amber-800"
                                 : "bg-blue-100 text-blue-800"
                             }`}>
-                              {(currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.statusText : msg.queriedOrder.statusText)}
+                              {(currentOrder && currentOrder.orderId === orderCard.orderId ? currentOrder.statusText : orderCard.statusText)}
                             </span>
                           </div>
-                          {msg.queriedOrder.items?.[0] && (
+                          {orderCard.items?.[0] && (
                             <div className="flex items-center justify-between text-xs">
-                              <span className="truncate text-slate-700 max-w-[220px]">{msg.queriedOrder.items[0].title}</span>
-                              <span className="font-bold text-rose-600">¥{msg.queriedOrder.paidAmount.toFixed(2)}</span>
+                              <span className="truncate text-slate-700 max-w-[220px]">{orderCard.items[0].title}</span>
+                              <span className="font-bold text-rose-600">¥{orderCard.paidAmount.toFixed(2)}</span>
                             </div>
                           )}
-                          {msg.queriedOrder.express && (
+                          {orderCard.express && (
                             <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                              <span>承运: {msg.queriedOrder.express.company}</span>
-                              <span className="text-blue-700 font-medium">{msg.queriedOrder.express.statusDescription}</span>
+                              <span>承运: {orderCard.express.company}</span>
+                              <span className="text-blue-700 font-medium">{orderCard.express.statusDescription}</span>
                             </div>
                           )}
                           <div className="pt-1 flex items-center gap-1.5 flex-wrap">
-                            {(currentOrder && currentOrder.orderId === msg.queriedOrder.orderId ? currentOrder.status : msg.queriedOrder.status) !== "REFUNDED" && (
+                            {(currentOrder && currentOrder.orderId === orderCard.orderId ? currentOrder.status : orderCard.status) !== "REFUNDED" && (
                               <button
-                                onClick={() => handleCustomerSend(`我申请退款订单 ${msg.queriedOrder!.orderId}`)}
+                                onClick={() => handleCustomerSend(`我申请退款订单 ${orderCard.orderId}`)}
                                 className="px-2 py-0.5 text-[10px] text-white bg-rose-600 hover:bg-rose-700 rounded font-semibold cursor-pointer"
                               >
                                 申请退款
@@ -872,7 +870,7 @@ export const DualChatView: React.FC = () => {
                             )}
                             <button
                               onClick={async () => {
-                                await handleResetOrder(msg.queriedOrder!.orderId);
+                                await handleResetOrder(orderCard.orderId);
                               }}
                               className="px-2 py-0.5 text-[10px] text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded font-medium cursor-pointer"
                             >
@@ -883,13 +881,7 @@ export const DualChatView: React.FC = () => {
                       )}
 
                       {/* Interactive Pre-Refund Confirmation Gate Card */}
-                      {(msg.refundConfirmationPending || msg.pendingRefundOrder || (msg.role === "assistant" && (
-                        msg.content.includes("确认提交退款") || 
-                        msg.content.includes("退款风险") || 
-                        msg.content.includes("退款前确认") || 
-                        msg.content.includes("请在下方卡片中点击") ||
-                        msg.content.includes("待交互确认")
-                      ))) && (
+                      {refundCard && (
                         <div className="mt-3 p-3.5 bg-gradient-to-br from-amber-50 via-orange-50/60 to-amber-50 rounded-xl border-2 border-amber-300 shadow-xs text-slate-800 space-y-2.5">
                           {/* Header */}
                           <div className="flex items-center justify-between pb-2 border-b border-amber-200">
@@ -916,23 +908,23 @@ export const DualChatView: React.FC = () => {
                             <div className="flex justify-between items-center text-[11px]">
                               <span className="text-slate-500">待处理订单号:</span>
                               <span className="font-mono font-bold text-amber-900">
-                                {(msg.pendingRefundOrder || msg.queriedOrder)?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}
+                                {refundCard.orderId || refundOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}
                               </span>
                             </div>
                             <div className="flex justify-between items-center text-[11px]">
                               <span className="text-slate-500">实付金额:</span>
                               <span className="font-bold text-rose-600 text-xs">
-                                ¥{((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount ?? 2999.00).toFixed(2)} 元
+                                ¥{(refundOrder?.paidAmount ?? 2999.00).toFixed(2)} 元
                               </span>
                             </div>
                             <div className="flex justify-between items-center text-[10px] pt-1 border-t border-slate-100">
                               <span className="text-slate-500">退款执行路径:</span>
                               <span className={`font-semibold px-1.5 py-0.2 rounded text-[10px] ${
-                                ((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount ?? 2999.00) < 3.00
+                                (refundOrder?.paidAmount ?? 2999.00) < 3.00
                                   ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                                   : "bg-amber-100 text-amber-800 border border-amber-200"
                               }`}>
-                                {((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount ?? 2999.00) < 3.00
+                                {(refundOrder?.paidAmount ?? 2999.00) < 3.00
                                   ? "< 3.00 元 · 智能客服直接秒级退款"
                                   : "≥ 3.00 元 · 提交人工干涉审核队列"}
                               </span>
@@ -946,7 +938,7 @@ export const DualChatView: React.FC = () => {
                               <span>权益及规则说明：</span>
                             </div>
                             <ul className="list-disc list-inside space-y-0.5 text-slate-600 pl-1 leading-normal text-[10px]">
-                              <li>退款成功后，对应订单获赠的 VIP 积分与专属免运费特权将同步收回。</li>
+                              <li>退款成功后，对应订单获赠的 VIP 会员积分与专属免运费特权将同步收回。</li>
                               <li><strong>实付 &lt; 3.00 元：</strong>点击确认后，智能客服将直接完成原路秒级退款。</li>
                               <li><strong>实付 &ge; 3.00 元：</strong>点击确认后，将转入工单并接入人工客服核验干涉。</li>
                             </ul>
@@ -957,8 +949,8 @@ export const DualChatView: React.FC = () => {
                             <div className="pt-0.5 flex items-center gap-2">
                               <button
                                 onClick={() => handleCustomerSend("我确认提交退款申请", "confirm", {
-                                  orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
-                                  requestId: msg.refundRequestId,
+                                  orderId: refundCard.orderId,
+                                  requestId: refundCard.requestId,
                                 })}
                                 disabled={customerLoading}
                                 className="flex-1 py-2 px-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
@@ -969,8 +961,8 @@ export const DualChatView: React.FC = () => {
 
                               <button
                                 onClick={() => handleCustomerSend("取消退款申请", "cancel", {
-                                  orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
-                                  requestId: msg.refundRequestId,
+                                  orderId: refundCard.orderId,
+                                  requestId: refundCard.requestId,
                                 })}
                                 disabled={customerLoading}
                                 className="flex-1 py-2 px-2.5 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-300 transition-all flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
@@ -1047,7 +1039,7 @@ export const DualChatView: React.FC = () => {
                   sendJson({
                     type: "typing",
                     sessionId: selectedSessionId,
-                    sender: "customer",
+                    role: "customer",
                     isTyping: e.target.value.length > 0,
                   });
                 }}
@@ -1418,7 +1410,7 @@ export const DualChatView: React.FC = () => {
                   sendJson({
                     type: "typing",
                     sessionId: selectedSessionId,
-                    sender: "agent",
+                    role: "agent",
                     name: session?.assignedAgent || "陈浩",
                     isTyping: e.target.value.length > 0,
                   });

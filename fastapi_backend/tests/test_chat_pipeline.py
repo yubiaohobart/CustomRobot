@@ -38,8 +38,9 @@ def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dic
     assistant_msg = data["assistantMessage"]
     assert assistant_msg["role"] == "assistant"
     assert assistant_msg["content"] == data["reply"]
-    assert isinstance(assistant_msg.get("references"), list)
-    assert isinstance(assistant_msg.get("stepTrace"), list)
+    ai_meta = assistant_msg.get("aiMeta") or {}
+    assert isinstance(ai_meta.get("references"), list)
+    assert isinstance(ai_meta.get("stepTrace"), list)
 
     meta = data["sessionMeta"]
     assert meta["id"] == sample_chat_request["sessionId"]

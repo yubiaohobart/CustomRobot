@@ -1,16 +1,17 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { WsClientEvent, WsRole, WsServerEvent } from "../types";
 
 export interface JoinParams {
   sessionId: string;
-  role: "customer" | "agent" | "dual_observer" | "supervisor";
+  role: WsRole;
   name?: string;
 }
 
 interface WebSocketContextValue {
   isConnected: boolean;
   joinSession: (params: JoinParams) => void;
-  sendJson: (payload: Record<string, any>) => void;
-  subscribe: (listener: (payload: any) => void) => () => void;
+  sendJson: (payload: WsClientEvent) => void;
+  subscribe: (listener: (payload: WsServerEvent) => void) => () => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextValue | null>(null);
@@ -24,7 +25,7 @@ let pendingCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let providerActiveCount = 0;
 
-const messageListeners = new Set<(payload: any) => void>();
+const messageListeners = new Set<(payload: WsServerEvent) => void>();
 const statusListeners = new Set<(connected: boolean) => void>();
 
 function notifyStatus(connected: boolean) {

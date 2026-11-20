@@ -48,6 +48,7 @@ async def _emit_message_event(session_id: str, message: Dict[str, Any], session:
             {
                 "type": "session:update",
                 "sessionId": session_id,
+                "action": "message",
                 "sessionMeta": session_meta,
             },
             exclude_session=session_id,
@@ -332,7 +333,9 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
     text = req.message or req.content or ""
     if not text:
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
-    msg = memory_service.add_message(session_id, "human_agent", text)
+    existing = memory_service.get_session(session_id)
+    agent_name = req.agentName or (existing or {}).get("assignedAgent") or "人工客服"
+    msg = memory_service.add_message(session_id, "human_agent", text, sender_name=agent_name)
     session = memory_service.get_session(session_id)
     await _emit_message_event(session_id, msg, session)
     return {"success": True, "message": msg, "session": session}

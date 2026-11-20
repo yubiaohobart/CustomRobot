@@ -189,29 +189,22 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (payload.type === "message:new" && payload.message) {
         if (!payload.sessionId || payload.sessionId === currentSessionId) {
           setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
-          if (payload.session) {
-            setSession(payload.session);
-          } else if (payload.sessionMeta) {
-            setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+          if (payload.sessionMeta) {
+            const meta = payload.sessionMeta;
+            setSession((prev) => (prev ? { ...prev, ...meta } : prev));
           }
         }
-      } else if (payload.type === "session:update" && (payload.session || payload.sessionMeta)) {
-        const targetId = payload.sessionId || payload.session?.id || payload.sessionMeta?.id;
+      } else if (payload.type === "session:update" && payload.sessionMeta) {
+        const meta = payload.sessionMeta;
+        const targetId = payload.sessionId || meta.id;
         if (targetId === currentSessionId) {
-          if (payload.session) {
-            setSession(payload.session);
-            if (payload.session.messages) {
-              setMessages((prev) => mergeServerMessages(prev, payload.session.messages, true));
-            }
-          } else if (payload.sessionMeta) {
-            setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
-            if (payload.message) {
-              setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
-            }
+          setSession((prev) => (prev ? { ...prev, ...meta } : prev));
+          if (payload.message) {
+            setMessages((prev) => mergeServerMessages(prev, [payload.message!], false));
           }
         }
       } else if (payload.type === "typing" && (!payload.sessionId || payload.sessionId === currentSessionId)) {
-        if (payload.sender === "agent") {
+        if (payload.role === "agent") {
           setAgentTyping(payload.isTyping ? (payload.name || "客服专员") : null);
           clearTimeout(typingTimer);
           if (payload.isTyping) {
@@ -691,7 +684,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             }
 
             // Low confidence check (< 0.65) or explicit transfer indicator
-            const isLowConfidence = msg.role === "assistant" && msg.confidenceScore !== undefined && msg.confidenceScore < 0.65;
+            const confScore = msg.aiMeta?.confidenceScore;
+            const references = msg.aiMeta?.references;
+            const stepTrace = msg.aiMeta?.stepTrace;
+            const orderCard = msg.card?.type === "order" ? msg.card.order : undefined;
+            const refundCard = msg.card?.type === "refund_confirm" ? msg.card : undefined;
+            const refundOrder = refundCard?.order;
+            const isLowConfidence = msg.role === "assistant" && confScore !== undefined && confScore < 0.65;
 
             return (
               <div
@@ -717,17 +716,17 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                       {isUser 
                         ? "您" 
                         : isHumanAgent 
-                        ? (session?.assignedAgent || "人工专属客服")
+                        ? (msg.senderName || session?.assignedAgent || "人工专属客服")
                         : "IntelliServe AI"}
                     </span>
                     <span>{msg.timestamp}</span>
-                    {msg.confidenceScore !== undefined && !isUser && (
+                    {confScore !== undefined && !isUser && (
                       <span className={`px-1.5 py-0.2 rounded text-[10px] font-medium ${
-                        msg.confidenceScore >= 0.75 
+                        confScore >= 0.75 
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
                           : "bg-amber-50 text-amber-700 border border-amber-200"
                       }`}>
-                        置信度: {(msg.confidenceScore * 100).toFixed(0)}%
+                        置信度: {(confScore * 100).toFixed(0)}%
                       </span>
                     )}
                   </div>
@@ -749,19 +748,19 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                     <p className="whitespace-pre-wrap">{msg.content}</p>
 
                     {/* Interactive Order & Logistics Card */}
-                    {msg.queriedOrder && (
+                    {orderCard && (
                       <div className="mt-3.5 p-3.5 bg-gradient-to-b from-blue-50/80 via-slate-50 to-white rounded-xl border border-blue-200/90 shadow-2xs text-slate-800">
                         {/* Order Header */}
                         <div className="flex items-center justify-between pb-2.5 border-b border-blue-100">
                           <div className="flex items-center gap-2">
                             <Package className="w-4 h-4 text-blue-600" />
                             <span className="font-semibold text-xs text-slate-800">
-                              订单号: <span className="font-mono text-blue-900">{msg.queriedOrder.orderId}</span>
+                              订单号: <span className="font-mono text-blue-900">{orderCard.orderId}</span>
                             </span>
                             <button
                               onClick={() => {
                                 if (navigator.clipboard) {
-                                  navigator.clipboard.writeText(msg.queriedOrder!.orderId);
+                                  navigator.clipboard.writeText(orderCard.orderId);
                                 }
                               }}
                               title="复制订单号"
@@ -771,20 +770,20 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                             </button>
                           </div>
                           <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full flex items-center gap-1 ${
-                            msg.queriedOrder.status === "DELIVERED"
+                            orderCard.status === "DELIVERED"
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                              : msg.queriedOrder.status === "IN_TRANSIT"
+                              : orderCard.status === "IN_TRANSIT"
                               ? "bg-blue-100 text-blue-800 border border-blue-200"
                               : "bg-amber-100 text-amber-800 border border-amber-200"
                           }`}>
                             <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                            {msg.queriedOrder.statusText}
+                            {orderCard.statusText}
                           </span>
                         </div>
 
                         {/* Product Items */}
                         <div className="py-2.5 space-y-2">
-                          {msg.queriedOrder.items?.map((item, idx) => (
+                          {orderCard.items?.map((item, idx) => (
                             <div key={idx} className="flex items-center gap-3 bg-white p-2 rounded-lg border border-slate-100">
                               <div className="w-11 h-11 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center border border-slate-200">
                                 {item.imageUrl ? (
@@ -806,33 +805,33 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         </div>
 
                         {/* Express & Logistics Tracker */}
-                        {msg.queriedOrder.express && (
+                        {orderCard.express && (
                           <div className="pt-2 border-t border-slate-100 space-y-1.5">
                             <div className="flex items-center justify-between text-xs">
                               <div className="flex items-center gap-1.5 text-slate-700">
                                 <Truck className="w-3.5 h-3.5 text-blue-600" />
-                                <span className="font-semibold text-xs">{msg.queriedOrder.express.company}</span>
-                                <span className="text-slate-400 font-mono text-[10px]">({msg.queriedOrder.express.trackingNumber})</span>
+                                <span className="font-semibold text-xs">{orderCard.express.company}</span>
+                                <span className="text-slate-400 font-mono text-[10px]">({orderCard.express.trackingNumber})</span>
                               </div>
                               <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
-                                {msg.queriedOrder.express.statusDescription}
+                                {orderCard.express.statusDescription}
                               </span>
                             </div>
 
                             {/* Latest Tracking Milestone */}
-                            {msg.queriedOrder.express.timeline && msg.queriedOrder.express.timeline.length > 0 && (
+                            {orderCard.express.timeline && orderCard.express.timeline.length > 0 && (
                               <div className="bg-white p-2.5 rounded-lg border border-slate-100 text-[11px] space-y-1">
                                 <div className="flex items-start gap-2">
                                   <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0"></div>
                                   <div className="flex-1">
                                     <div className="font-semibold text-slate-800 text-[11px]">
-                                      {msg.queriedOrder.express.timeline[0].status}
+                                      {orderCard.express.timeline[0].status}
                                     </div>
                                     <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
-                                      {msg.queriedOrder.express.timeline[0].context}
+                                      {orderCard.express.timeline[0].context}
                                     </p>
                                     <span className="text-[10px] text-slate-400 font-mono">
-                                      {msg.queriedOrder.express.timeline[0].time}
+                                      {orderCard.express.timeline[0].time}
                                     </span>
                                   </div>
                                 </div>
@@ -842,41 +841,41 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         )}
 
                         {/* AfterSales Policy Badge */}
-                        {msg.queriedOrder.afterSales && (
+                        {orderCard.afterSales && (
                           <div className="mt-2.5 pt-2 border-t border-blue-100 flex flex-wrap items-center justify-between gap-1 text-[11px]">
                             <div className="flex items-center gap-1 text-slate-700 font-medium text-[11px]">
                               <ShieldAlert className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
                               <span>
-                                {msg.queriedOrder.afterSales.canReturn7Days
-                                  ? `7天无理由：剩余 ${msg.queriedOrder.afterSales.returnDaysRemaining} 天`
+                                {orderCard.afterSales.canReturn7Days
+                                  ? `7天无理由：剩余 ${orderCard.afterSales.returnDaysRemaining} 天`
                                   : "7天无理由：已超过期限或特殊商品"}
                               </span>
                             </div>
                             <span className="text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
-                              {msg.queriedOrder.afterSales.shippingSubsidy}
+                              {orderCard.afterSales.shippingSubsidy}
                             </span>
                           </div>
                         )}
 
                         {/* Refund Status Notice Box */}
-                        {msg.queriedOrder.afterSales?.refundStatus === "PENDING_HUMAN_AUDIT" || msg.queriedOrder.status === "REFUND_PENDING_AUDIT" ? (
+                        {orderCard.afterSales?.refundStatus === "PENDING_HUMAN_AUDIT" || orderCard.status === "REFUND_PENDING_AUDIT" ? (
                           <div className="mt-2 p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-900 space-y-1">
                             <div className="font-bold flex items-center gap-1">
                               <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
                               <span>退款审核中（需人工干涉）</span>
                             </div>
                             <p className="text-[10px] text-amber-800">
-                              您的退款申请金额为 <strong>¥{msg.queriedOrder.paidAmount.toFixed(2)} 元</strong>（&ge; 3.00 元），已提交工单接入人工客服加急干涉与核验。
+                              您的退款申请金额为 <strong>¥{orderCard.paidAmount.toFixed(2)} 元</strong>（&ge; 3.00 元），已提交工单接入人工客服加急干涉与核验。
                             </p>
                           </div>
-                        ) : msg.queriedOrder.status === "REFUNDED" || msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" || msg.queriedOrder.afterSales?.refundStatus === "AUDIT_APPROVED" ? (
+                        ) : orderCard.status === "REFUNDED" || orderCard.afterSales?.refundStatus === "AUTO_REFUNDED" || orderCard.afterSales?.refundStatus === "AUDIT_APPROVED" ? (
                           <div className="mt-2 p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-900 space-y-1">
                             <div className="font-bold flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>{msg.queriedOrder.afterSales?.refundStatus === "AUTO_REFUNDED" ? "智能客服小额直接退款成功 (秒级到账)" : "人工干涉核验通过 (已退款)"}</span>
+                              <span>{orderCard.afterSales?.refundStatus === "AUTO_REFUNDED" ? "智能客服小额直接退款成功 (秒级到账)" : "人工干涉核验通过 (已退款)"}</span>
                             </div>
                             <p className="text-[10px] text-emerald-800">
-                              退款金额 ¥{msg.queriedOrder.paidAmount.toFixed(2)} 元已通过原支付渠道退回解冻。
+                              退款金额 ¥{orderCard.paidAmount.toFixed(2)} 元已通过原支付渠道退回解冻。
                             </p>
                           </div>
                         ) : null}
@@ -884,11 +883,11 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         {/* Quick Follow-up Buttons */}
                         <div className="mt-2.5 pt-2 border-t border-blue-100 flex items-center gap-1.5 flex-wrap">
                           <span className="text-[10px] text-slate-400 font-medium">快捷操作:</span>
-                          {msg.queriedOrder.status !== "REFUNDED" && msg.queriedOrder.status !== "REFUND_PENDING_AUDIT" && (
+                          {orderCard.status !== "REFUNDED" && orderCard.status !== "REFUND_PENDING_AUDIT" && (
                             <button
                               onClick={() => {
-                                const oid = msg.queriedOrder!.orderId;
-                                const amt = msg.queriedOrder!.paidAmount;
+                                const oid = orderCard.orderId;
+                                const amt = orderCard.paidAmount;
                                 if (amt < 3.00) {
                                   handleSendMessage(`我申请退款订单 ${oid}（实付 ¥${amt.toFixed(2)} 元 < 3元），请通过智能客服帮我办理退款！`);
                                 } else {
@@ -897,13 +896,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                               }}
                               className="px-2 py-0.5 text-[11px] text-white bg-rose-600 hover:bg-rose-700 rounded-md font-semibold cursor-pointer shadow-2xs transition-colors"
                             >
-                              申请退款 ({msg.queriedOrder.paidAmount < 3.00 ? "<3元智能客服直退" : ">=3元需人工干涉"})
+                              申请退款 ({orderCard.paidAmount < 3.00 ? "<3元智能客服直退" : ">=3元需人工干涉"})
                             </button>
                           )}
-                          {(msg.queriedOrder.status === "REFUNDED" || msg.queriedOrder.status === "REFUND_PENDING_AUDIT") && (
+                          {(orderCard.status === "REFUNDED" || orderCard.status === "REFUND_PENDING_AUDIT") && (
                             <button
                               onClick={async () => {
-                                const oid = msg.queriedOrder!.orderId;
+                                const oid = orderCard.orderId;
                                 try {
                                   await fetch(`/api/orders/${oid}/reset`, { method: "POST" });
                                   await handleSendMessage(`申请退款订单 ${oid}`);
@@ -917,13 +916,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                             </button>
                           )}
                           <button
-                            onClick={() => handleSendMessage(`我要为订单 ${msg.queriedOrder!.orderId} 申请7天无理由退货，请问退货运费和流程是什么？`)}
+                            onClick={() => handleSendMessage(`我要为订单 ${orderCard.orderId} 申请7天无理由退货，请问退货运费和流程是什么？`)}
                             className="px-2 py-0.5 text-[11px] text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
                           >
                             咨询退货政策
                           </button>
                           <button
-                            onClick={() => handleSendMessage(`请问订单 ${msg.queriedOrder!.orderId} 目前具体在哪个分拨中心？还能催单派送吗？`)}
+                            onClick={() => handleSendMessage(`请问订单 ${orderCard.orderId} 目前具体在哪个分拨中心？还能催单派送吗？`)}
                             className="px-2 py-0.5 text-[11px] text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md font-medium cursor-pointer shadow-2xs transition-colors"
                           >
                             催促配送
@@ -933,13 +932,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                     )}
 
                     {/* Scenario 1: Pre-Refund Interactive Confirmation Gate Card */}
-                    {(msg.refundConfirmationPending || msg.pendingRefundOrder || (msg.role === "assistant" && (
-                      msg.content.includes("确认提交退款") || 
-                      msg.content.includes("退款风险") || 
-                      msg.content.includes("退款前确认") || 
-                      msg.content.includes("请在下方卡片中点击") ||
-                      msg.content.includes("待交互确认")
-                    ))) && (
+                    {refundCard && (
                       <div className="mt-3.5 p-4 bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-50 rounded-2xl border-2 border-amber-300 shadow-xs text-slate-800 space-y-3">
                         {/* Header */}
                         <div className="flex items-center justify-between pb-2 border-b border-amber-200">
@@ -962,28 +955,28 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         </div>
 
                         {/* Order Summary */}
-                        {(msg.pendingRefundOrder || msg.queriedOrder) && (
+                        {refundOrder && (
                           <div className="p-2.5 bg-white rounded-xl border border-amber-200/80 text-xs space-y-1">
                             <div className="flex justify-between items-center">
                               <span className="text-slate-500">待处理订单号:</span>
                               <span className="font-mono font-bold text-amber-900">
-                                {(msg.pendingRefundOrder || msg.queriedOrder)?.orderId}
+                                {refundOrder.orderId}
                               </span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-slate-500">实付金额:</span>
                               <span className="font-bold text-rose-600 text-sm">
-                                ¥{(msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount.toFixed(2)} 元
+                                ¥{refundOrder.paidAmount.toFixed(2)} 元
                               </span>
                             </div>
                             <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-100">
                               <span className="text-slate-500">退款执行路径:</span>
                               <span className={`font-semibold px-2 py-0.5 rounded text-[10px] ${
-                                ((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount || 0) < 3.00
+                                refundOrder.paidAmount < 3.00
                                   ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                                   : "bg-amber-100 text-amber-800 border border-amber-200"
                               }`}>
-                                {((msg.pendingRefundOrder || msg.queriedOrder)?.paidAmount || 0) < 3.00
+                                {refundOrder.paidAmount < 3.00
                                   ? "< 3.00 元 · 智能客服直接秒级退款"
                                   : "≥ 3.00 元 · 提交人工干涉审核队列"}
                               </span>
@@ -1009,8 +1002,8 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                           <div className="pt-1 flex items-center gap-2">
                             <button
                               onClick={() => handleSendMessage("我确认提交退款申请", "confirm", {
-                                orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
-                                requestId: msg.refundRequestId,
+                                orderId: refundCard.orderId,
+                                requestId: refundCard.requestId,
                               })}
                               disabled={loading}
                               className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1021,8 +1014,8 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
                             <button
                               onClick={() => handleSendMessage("取消退款申请", "cancel", {
-                                orderId: msg.refundOrderId || (msg.pendingRefundOrder || msg.queriedOrder)?.orderId,
-                                requestId: msg.refundRequestId,
+                                orderId: refundCard.orderId,
+                                requestId: refundCard.requestId,
                               })}
                               disabled={loading}
                               className="flex-1 py-2.5 px-3 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
@@ -1040,7 +1033,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                     )}
 
                     {/* Reference Sources Accordion (RAG hits) */}
-                    {msg.references && msg.references.length > 0 && (
+                    {references && references.length > 0 && (
                       <div className="mt-3 pt-2.5 border-t border-slate-100">
                         <button
                           onClick={() => setExpandedRefId(expandedRefId === msg.id ? null : msg.id)}
@@ -1048,14 +1041,14 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         >
                           <span className="flex items-center gap-1">
                             <BookOpen className="w-3.5 h-3.5" />
-                            参考企业知识库条目 ({msg.references.length}条相关文档)
+                            参考企业知识库条目 ({references.length}条相关文档)
                           </span>
                           {expandedRefId === msg.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
 
                         {expandedRefId === msg.id && (
                           <div className="mt-2 space-y-1.5">
-                            {msg.references.map((ref) => (
+                            {references.map((ref) => (
                               <div key={ref.id} className="p-2 bg-blue-50/60 rounded-lg text-xs border border-blue-100">
                                 <div className="flex items-center justify-between font-medium text-blue-900">
                                   <span>{ref.title}</span>
@@ -1092,7 +1085,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                     )}
 
                     {/* LangGraph Trace Inspector Toggle */}
-                    {msg.stepTrace && msg.stepTrace.length > 0 && (
+                    {stepTrace && stepTrace.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-slate-100">
                         <button
                           onClick={() => setExpandedTraceId(expandedTraceId === msg.id ? null : msg.id)}
@@ -1109,7 +1102,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                               <span>LangGraph Pipeline State Transitions</span>
                               <span className="text-emerald-400">STATE_NORMAL</span>
                             </div>
-                            {msg.stepTrace.map((rawSt: any, sIdx: number) => {
+                            {stepTrace.map((rawSt: any, sIdx: number) => {
                               const st = typeof rawSt === "string" ? { node: "trace", description: rawSt, durationMs: 1 } : rawSt;
                               return (
                                 <div key={sIdx} className="flex items-start gap-2 text-[11px] border-l-2 border-indigo-500 pl-2 py-0.5">
@@ -1202,7 +1195,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 sendJson({
                   type: "typing",
                   sessionId: currentSessionId,
-                  sender: "customer",
+                  role: "customer",
                   name: session?.customerProfile?.name || "客户",
                   isTyping: e.target.value.length > 0,
                 });

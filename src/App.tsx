@@ -102,7 +102,7 @@ function AppContent() {
     checkAlerts();
     return subscribe((payload) => {
       if (payload.type === "session:update" || payload.type === "message:new") {
-        const meta = payload.sessionMeta || payload.session;
+        const meta = payload.sessionMeta;
         const sid = payload.sessionId || meta?.id;
         const status = meta?.status;
         if (sid && status) {

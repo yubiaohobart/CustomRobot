@@ -323,7 +323,7 @@ def build_seed_sessions(now: str) -> List[Dict[str, Any]]:
             "id": "m2",
             "role": "assistant",
             "content": "王女士您好！根据XX商城政策：签收7天内商品完好支持7天无理由退换。虽然个人原因退换通常由买家承担运费，但检测到您是【黄金会员】，享有平台全额补贴的『退货免运费』专属权益，您无需承担任何寄回运费！",
-            "confidenceScore": 0.96,
+            "aiMeta": {"confidenceScore": 0.96},
             "timestamp": "10:14:24",
         },
         {"id": "m3", "role": "user", "content": "那我退回去之后，钱大概几天能退回我的支付宝？", "timestamp": "10:15:02"},

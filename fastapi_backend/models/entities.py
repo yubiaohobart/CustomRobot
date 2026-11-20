@@ -122,12 +122,15 @@ class ChatMessageModel(BaseModel):
     role: str = Field(..., description="发言角色：user (客户) / assistant (AI) / human_agent (人工坐席) / system (系统公告)")
     content: str = Field(..., description="消息正文")
     timestamp: str = Field(default_factory=lambda: datetime.datetime.now().strftime("%H:%M:%S"), description="发送时分秒")
-    confidenceScore: Optional[float] = Field(default=None, description="AI 答复置信度")
-    sentiment: Optional[str] = Field(default=None, description="情感识别")
-    intent: Optional[str] = Field(default=None, description="意图识别")
-    references: Optional[List[Dict[str, Any]]] = Field(default=None, description="知识库引用溯源")
-    stepTrace: Optional[List[Dict[str, Any]]] = Field(default=None, description="LangGraph 决策链路追踪")
-    queriedOrder: Optional[Dict[str, Any]] = Field(default=None, description="挂载的订单卡片数据")
+    senderName: Optional[str] = Field(default=None, description="发送者显示名称（人工坐席消息填写坐席姓名）")
+    aiMeta: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="AI 消息专属元信息：confidenceScore, intent, sentiment, references, stepTrace",
+    )
+    card: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="结构化交互卡片：order (订单物流卡) / refund_confirm (退款前确认门槛卡)",
+    )
 
 
 class SessionMetricsModel(BaseModel):
