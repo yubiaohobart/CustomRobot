@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional, Tuple
 import datetime
 import re
 from services.storage_service import storage_service
-from core.logger import cprint
 from config import settings, PROCESSED_REQUEST_IDS_LIMIT
 
 
@@ -395,7 +394,6 @@ class OrderService:
         processed_ids = (order.get("afterSales") or {}).get("processedRequestIds") or []
 
         if action == "cancel":
-            cprint.node("order_refund", "用户点击取消退款申请", "恢复正常状态")
             return _build_refund_outcome(
                 oid,
                 request_id,
@@ -405,7 +403,6 @@ class OrderService:
 
         if request_id and request_id in processed_ids:
             draft_status = "PENDING_AUDIT" if current_status == "REFUND_PENDING_AUDIT" else "SUBMITTED"
-            cprint.node("order_refund", f"[request_id 幂等拦截] {request_id}", "返回已受理结果")
             return _build_refund_outcome(
                 oid,
                 request_id,
@@ -436,7 +433,6 @@ class OrderService:
                 refund_amount=amount,
                 request_id=request_id,
             )
-            cprint.node("order_refund", f"[幂等秒退成功] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "秒退完成")
             return _build_refund_outcome(
                 oid,
                 request_id,
@@ -450,7 +446,6 @@ class OrderService:
             refund_amount=amount,
             request_id=request_id,
         )
-        cprint.node("order_refund", f"[转人工干涉队列] 订单 {oid} 金额 {amount_cents}分 (req={request_id})", "转人工核验")
         return _build_refund_outcome(
             oid,
             request_id,

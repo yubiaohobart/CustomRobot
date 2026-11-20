@@ -8,15 +8,12 @@ WebSocket 独立路由模块 (WebSocket Route & Event Dispatcher)
 """
 
 import time
-import logging
 from typing import Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from services.websocket_manager import ws_manager
 from services.memory_service import memory_service
-from core.logger import cprint, LogColor
-
-logger = logging.getLogger("IntelliServe.WebSocketRoutes")
+from core.logger import log, cprint
 
 ws_router = APIRouter(tags=["WebSocket 实时通信"])
 
@@ -77,7 +74,7 @@ async def handle_human_message_event(websocket: WebSocket, data: Dict[str, Any],
     agent_name = data.get("agentName") or meta.get("name") or "人工客服"
     agent_id = data.get("agentId", "agent_101")
     
-    cprint.websocket("坐席发言", target_session_id, f"收到人工坐席 [{agent_name} ({agent_id})] 回复: \"{content}\" -> 全双工实时广播")
+    cprint.websocket("坐席发言", target_session_id, f"收到坐席 [{agent_name} ({agent_id})] 消息 ({len(content)} 字符)")
 
     # 状态机标记：人工介入中
     session = memory_service.get_session(target_session_id)
@@ -113,7 +110,7 @@ async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, An
     if not content:
         return
 
-    cprint.websocket("客户发言", target_session_id, f"收到客户消息: \"{content}\" -> 广播至人工坐席工作台")
+    cprint.websocket("客户发言", target_session_id, f"收到客户消息 ({len(content)} 字符)")
 
     msg = memory_service.add_message(target_session_id, "user", content)
     updated_session = memory_service.get_session(target_session_id)
@@ -142,7 +139,7 @@ async def handle_transfer_event(websocket: WebSocket, data: Dict[str, Any], meta
     operator_note = data.get("operatorNote", "WebSocket 转人工请求")
     trigger_type = data.get("triggerType", "user_requested")
 
-    cprint.websocket("转接请求", target_session_id, f"触发人工转接: 原因=\"{reason}\" -> 指派坐席工号: {target_agent_id}")
+    cprint.websocket("转接请求", target_session_id, f"WS 触发人工转接 -> 指派坐席工号: {target_agent_id}")
 
     transfer_log, session = memory_service.transfer_session(
         session_id=target_session_id,
@@ -240,13 +237,13 @@ async def handle_websocket_loop(websocket: WebSocket, initial_session_id: str):
                     await handle_customer_message_event(websocket, data, meta, current_session_id)
                 
             else:
-                logger.warning(f"收到未识别的 WebSocket 消息类型: {msg_type}")
+                log.warning(f"收到未识别的 WebSocket 消息类型: {msg_type}")
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket 正常断开连接: {current_session_id}")
+        log.info(f"WebSocket 正常断开连接: {current_session_id}")
         ws_manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket 连接异常退出: {e}", exc_info=True)
+        log.error(f"WebSocket 连接异常退出: {e}", exc_info=True)
         ws_manager.disconnect(websocket)
 
 

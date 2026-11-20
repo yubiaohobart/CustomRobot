@@ -14,7 +14,7 @@ from services.intent_service import intent_service
 from services.order_service import order_service
 from services.storage_service import storage_service
 from config import settings
-from core.logger import cprint, LogColor
+from core.logger import cprint, trace_node
 
 
 def _resolve_refund_request_id(state: AgentState, oid: str) -> str:
@@ -36,12 +36,12 @@ def _parse_resume_payload(resume_data: Any, fallback_request_id: str) -> Tuple[O
     return None, fallback_request_id
 
 
+@trace_node("analyze_query", "意图分类、情绪识别与瞬态字段复位")
 def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     """1. 意图分类、情绪识别与单轮瞬态字段复位"""
     t0 = time.time()
     intent, sentiment = intent_service.classify_query(state.get("user_message", ""))
     duration = int((time.time() - t0) * 1000)
-    cprint.node("analyze_query", f"意图: {LogColor.BRIGHT_WHITE}{intent}{LogColor.RESET} | 情绪: {sentiment}", f"耗时 {duration}ms")
 
     # PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口复位瞬态输出字段以防跨轮污染
     return {
@@ -57,6 +57,7 @@ def analyze_query_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+@trace_node("order_query", "订单与物流中台检索")
 def order_query_node(state: AgentState) -> Dict[str, Any]:
     """2. 订单与物流中台检索"""
     t0 = time.time()
@@ -73,16 +74,18 @@ def order_query_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+@trace_node("order_refund", "订单退款门控与二次确认执行")
 def order_refund_node(state: AgentState) -> Dict[str, Any]:
     """3. 订单退款门控 (LangGraph interrupt) 与二次确认执行"""
     t0 = time.time()
     order = order_service.get_owned_order(state.get("order_id"), state.get("user_profile"))
     if not order:
+        duration = int((time.time() - t0) * 1000)
         return {
             "order_id": None,
             "refund": None,
             "reply": "未检测到您关联的有效订单信息，请提供正确的订单编号，我来为您核验办理。",
-            "trace": ["order_refund: 未命中有效归属订单，流程终止 (1ms)"],
+            "trace": [f"order_refund: 未命中有效归属订单，流程终止 ({duration}ms)"],
         }
 
     oid = order["orderId"]
@@ -92,7 +95,6 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
     # 首次发起退款申请：触发 LangGraph interrupt 挂起，等待 Command(resume=...) 唤醒
     if not action and state.get("intent") == "退款申请与审批":
         gate_reply = order_service.build_refund_gate_reply(order)
-        cprint.node("order_refund", f"[触发 LangGraph interrupt 挂起] 订单 {oid} (req={request_id})", "等待用户确认")
         resume_data = interrupt({
             "order_id": oid,
             "request_id": request_id,
@@ -136,6 +138,7 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         }
 
 
+@trace_node("qdrant_retrieve", "BGE-M3 向量编码与 Qdrant FAQ 检索")
 def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     """4. 基于 BGE-M3 向量嵌入检索 FAQ 条款（保留完整切片）"""
     t0 = time.time()
@@ -156,13 +159,15 @@ def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     ]
 
     duration = int((time.time() - t0) * 1000)
-    cprint.rag(query, len(formatted_hits), top_score, top_title)
     return {
         "hits": formatted_hits,
-        "trace": [f"qdrant_retrieve: hits={len(formatted_hits)}, top_score={top_score:.2f} ({duration}ms)"],
+        "trace": [
+            f"qdrant_retrieve: hits={len(formatted_hits)}, top_score={top_score:.2f}, 最佳=《{top_title}》 ({duration}ms)"
+        ],
     }
 
 
+@trace_node("deepseek_generate", "组装上下文并调用 DeepSeek 生成答复")
 async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     """5. 调用 DeepSeek 大模型生成严谨回答（按需加载会话记忆摘要与订单事实）"""
     t0 = time.time()
@@ -186,7 +191,6 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
         order_id=order_id,
     )
     duration = int((time.time() - t0) * 1000)
-    cprint.node("deepseek_generate", f"DeepSeek 推理完成，生成回复: {LogColor.BRIGHT_GREEN}{len(reply)} 字{LogColor.RESET}", f"耗时: {duration}ms")
     return {
         "reply": reply,
         "handoff": False,
@@ -194,6 +198,7 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+@trace_node("human_escalation", "触发人工客服接入与转接升级")
 def human_escalation_node(state: AgentState) -> Dict[str, Any]:
     """6. 人工接入触发节点"""
     t0 = time.time()
@@ -203,7 +208,6 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
         hits=state.get("hits", []),
         similarity_threshold=settings.SIMILARITY_THRESHOLD,
     )
-    cprint.transfer(state.get("session_id", "当前会话"), "值班客服专员", reason)
     duration = int((time.time() - t0) * 1000)
     return {
         "reply": reply,
@@ -215,20 +219,25 @@ def human_escalation_node(state: AgentState) -> Dict[str, Any]:
 
 # ================= 智能条件路由 =================
 
+
 def router_after_analysis(state: AgentState) -> str:
     """意图分析后的路由：二次确认动作或涉订单意图先查订单，纯转人工直接升级，其余直接走向量检索"""
-    if state.get("confirm_action") in ("confirm", "cancel"):
+    confirm_action = state.get("confirm_action")
+    intent = state.get("intent", "")
+    if confirm_action in ("confirm", "cancel"):
         return "order_query"
-    if state.get("intent") == "handoff":
+    if intent == "handoff":
         return "human_escalation"
-    if intent_service.requires_order_query(state.get("intent", "")):
+    if intent_service.requires_order_query(intent):
         return "order_query"
     return "qdrant_retrieve"
 
 
 def router_after_order_query(state: AgentState) -> str:
     """订单查询后的路由：退款申请或确认回调进 order_refund，纯查物流/查政策进知识检索"""
-    if state.get("confirm_action") in ("confirm", "cancel") or state.get("intent") == "退款申请与审批":
+    confirm_action = state.get("confirm_action")
+    intent = state.get("intent", "")
+    if confirm_action in ("confirm", "cancel") or intent == "退款申请与审批":
         return "order_refund"
     return "qdrant_retrieve"
 
@@ -237,7 +246,8 @@ def router_after_retrieval(state: AgentState) -> str:
     """向量检索后的路由：低分情绪预警转人工；常规未知咨询且无任何知识/订单依据时也转人工防大模型幻觉"""
     hits = state.get("hits", [])
     top_score = hits[0]["score"] if hits else 0.0
-    if top_score < settings.SIMILARITY_THRESHOLD and state.get("sentiment") in ("frustrated", "angry"):
+    sentiment = state.get("sentiment", "neutral")
+    if top_score < settings.SIMILARITY_THRESHOLD and sentiment in ("frustrated", "angry"):
         return "human_escalation"
     if (
         state.get("intent") == "常规售后咨询"

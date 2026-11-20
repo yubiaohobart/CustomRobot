@@ -34,17 +34,31 @@ async def lifespan(app: FastAPI):
         f"FastAPI + LangGraph + Qdrant (BGE-M3) + DeepSeek 智能客服中枢"
     )
 
-    api_key_status = f"{LogColor.BRIGHT_GREEN}已配置 ({settings.DEEPSEEK_API_KEY[:4]}...){LogColor.RESET}" if settings.DEEPSEEK_API_KEY else f"{LogColor.BRIGHT_YELLOW}未配置 (自动使用智能规则兜底){LogColor.RESET}"
-    
-    print(f"🔹 大语言模型 (LLM):       {LogColor.BRIGHT_CYAN}DeepSeek ({settings.DEEPSEEK_MODEL}){LogColor.RESET} [API Key: {api_key_status}]")
-    print(f"🔹 向量模型 (Embedding):  {LogColor.BRIGHT_BLUE}本地 Ollama (模型: {settings.OLLAMA_EMBED_MODEL}, 地址: {settings.OLLAMA_BASE_URL}, 维度: {settings.EMBEDDING_DIM}){LogColor.RESET}")
-    print(f"🔹 向量数据库 (Vector DB): {LogColor.BRIGHT_GREEN}Qdrant 纯内存模式 (In-Memory :memory:，无需 Docker 部署){LogColor.RESET}")
-    print(f"🔹 默认知识库:             {LogColor.WHITE}XX商城售后服务与退换货政策（2026版）{LogColor.RESET}")
-    print(f"{LogColor.BRIGHT_CYAN}{'=' * 68}{LogColor.RESET}")
+    api_key_status = (
+        cprint.colorize(f"已配置 ({settings.DEEPSEEK_API_KEY[:4]}...)", LogColor.BRIGHT_GREEN)
+        if settings.DEEPSEEK_API_KEY
+        else cprint.colorize("未配置 (自动使用智能规则兜底)", LogColor.BRIGHT_YELLOW)
+    )
+    if settings.QDRANT_HOST:
+        qdrant_mode = f"Qdrant 远程服务 ({settings.QDRANT_HOST}:{settings.QDRANT_PORT})"
+    elif settings.QDRANT_LOCATION == ":memory:":
+        qdrant_mode = "Qdrant 纯内存模式 (In-Memory :memory:)"
+    else:
+        qdrant_mode = f"Qdrant 本地持久化 ({settings.QDRANT_LOCATION})"
+
+    cprint.startup_item("大语言模型 (LLM):", f"DeepSeek ({settings.DEEPSEEK_MODEL})", LogColor.BRIGHT_CYAN, f"[API Key: {api_key_status}]")
+    cprint.startup_item(
+        "向量模型 (Embed):",
+        f"Ollama ({settings.OLLAMA_EMBED_MODEL}, {settings.OLLAMA_BASE_URL}, {settings.EMBEDDING_DIM}维)",
+        LogColor.BRIGHT_BLUE,
+    )
+    cprint.startup_item("向量数据库 (VDB):", qdrant_mode, LogColor.BRIGHT_GREEN)
+    cprint.startup_item("默认知识库:", "XX商城售后服务与退换货政策（2026版）", LogColor.WHITE)
+    cprint.divider("=", 68, LogColor.BRIGHT_CYAN)
 
     # 初始化 PostgreSQL 业务表结构与初始种子数据
     storage_service.init_database()
-    
+
     # 确保 Qdrant 集合就绪
     qdrant_store.init_collection_with_faq()
     cprint.success("Qdrant 向量知识库初始化完成，FAQ 语义切片已注入！")
@@ -53,8 +67,8 @@ async def lifespan(app: FastAPI):
     await init_postgres_checkpointer()
     cprint.success("LangGraph PostgreSQL Checkpointer 已就绪（状态与中断断点固化存储）！")
 
-    print(f"🌐 服务监听地址: {LogColor.BRIGHT_CYAN}http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}{LogColor.RESET}")
-    print(f"📖 Swagger 交互文档: {LogColor.BRIGHT_CYAN}http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/docs{LogColor.RESET}\n")
+    cprint(f"🌐 服务监听地址: http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}", LogColor.BRIGHT_CYAN)
+    cprint(f"📖 Swagger 交互文档: http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/docs\n", LogColor.BRIGHT_CYAN)
     
     try:
         yield

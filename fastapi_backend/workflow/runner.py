@@ -4,6 +4,7 @@ LangGraph 状态图执行器 (Workflow Runner)
 """
 
 import asyncio
+import time
 from contextlib import nullcontext
 from typing import Dict, Any, Optional
 from langgraph.types import Command
@@ -114,9 +115,12 @@ async def _execute_graph(
     refund_request_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     graph_config = {"configurable": {"thread_id": session_id}}
+    t_graph = time.time()
     try:
         graph = await get_customer_service_graph()
         invoke_payload: Any = input_state
+        is_resumed = False
+        mode_label = "标准执行"
 
         # 仅当存在真实挂起 interrupt（且与回调目标订单匹配）时，才通过 Command(resume=...) 从断点恢复
         if input_state.get("confirm_action") in ("confirm", "cancel"):
@@ -128,11 +132,40 @@ async def _execute_graph(
                     "action": input_state["confirm_action"],
                     "request_id": resolved_request_id,
                 })
+                is_resumed = True
+                mode_label = f"断点恢复({input_state['confirm_action']})"
 
-        final_state = dict(await graph.ainvoke(invoke_payload, config=graph_config))
-        return _apply_interrupt_payload(final_state)
+        profile = input_state.get("user_profile") or {}
+        user_name = profile.get("name") or profile.get("userName") or "访客"
+        tier = profile.get("vipLevel") or profile.get("tier") or "NORMAL"
+        cprint.flow_start(
+            session_id=session_id,
+            mode=mode_label,
+            user_message=input_state.get("user_message", ""),
+            confirm_action=None if is_resumed else input_state.get("confirm_action"),
+            customer_label=f"{user_name}({tier})",
+        )
+
+        raw_state = dict(await graph.ainvoke(invoke_payload, config=graph_config))
+        final_state = _apply_interrupt_payload(raw_state)
+        duration_ms = int((time.time() - t_graph) * 1000)
+
+        cprint.flow_summary(
+            session_id=session_id,
+            final_state=final_state,
+            duration_ms=duration_ms,
+            is_resumed=is_resumed,
+        )
+        return final_state
     except Exception as e:
+        duration_ms = int((time.time() - t_graph) * 1000)
         cprint.error(f"[Graph 执行异常兜底]: {e}")
+        cprint.flow_end(
+            session_id=session_id,
+            node_path=["START", "ERROR -> 兜底转人工"],
+            status="ERROR",
+            duration_ms=duration_ms,
+        )
         return {
             "reply": "系统处理请求时遇到临时异常，已为您转接人工客服专员跟进处理，请稍候片刻...",
             "handoff": True,

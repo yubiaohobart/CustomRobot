@@ -154,11 +154,6 @@ async def chat_endpoint(req: ChatRequest):
             user_profile=req.userProfile,
             human_takeover_statuses=HUMAN_TAKEOVER_STATUSES,
         )
-        profile = session.get("customerProfile") or {}
-        tier = profile.get("vipLevel") or profile.get("tier") or "NORMAL"
-        user_name = profile.get("name") or profile.get("userName") or "访客"
-        cprint.info(f"💬 [收到客户问答] 会话: {req.sessionId} | 客户: {user_name} ({tier}) | 内容: \"{message_text}\"")
-
         await _emit_message_event(req.sessionId, user_msg, session)
 
         # 2. 若当前会话已被人工接管，AI 暂停自主介入，直接返回坐席协同提示
@@ -224,9 +219,6 @@ async def chat_endpoint(req: ChatRequest):
         )
 
     await _emit_message_event(req.sessionId, assistant_msg, updated_session)
-    cprint.success(
-        f"会话 [{req.sessionId}] 处理完毕 (端到端总耗时: {latency_ms}ms, 引用条数: {len(references)}, 命中订单: {bool(current_order)})"
-    )
 
     return ChatResponse(
         sessionId=req.sessionId,
@@ -316,7 +308,6 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
     msg = memory_service.add_message(session_id, "human_agent", text)
     session = memory_service.get_session(session_id)
-    cprint.websocket("坐席回复", session_id, f"人工客服发言: \"{text}\" -> WebSocket 全局广播")
     await _emit_message_event(session_id, msg, session)
     return {"success": True, "message": msg, "session": session}
 
