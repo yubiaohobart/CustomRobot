@@ -102,6 +102,12 @@ export default function App() {
         // suppress unhandled WebSocket connection errors
       };
       ws.onopen = () => {
+        if (disposed) {
+          try {
+            ws?.close();
+          } catch (e) {}
+          return;
+        }
         ws?.send(JSON.stringify({
           type: "join",
           sessionId: currentSessionId,
@@ -110,6 +116,7 @@ export default function App() {
         }));
       };
       ws.onmessage = (evt) => {
+        if (disposed) return;
         try {
           const payload = JSON.parse(evt.data);
           if (payload.type === "session:update") {
@@ -136,7 +143,8 @@ export default function App() {
       if (ws) {
         ws.onerror = null;
         ws.onclose = null;
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.onmessage = null;
+        if (ws.readyState === WebSocket.OPEN) {
           try {
             ws.close();
           } catch (e) {}

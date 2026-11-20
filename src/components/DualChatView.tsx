@@ -205,6 +205,7 @@ export const DualChatView: React.FC = () => {
     const port = window.location.port ? `:${window.location.port}` : "";
     const wsUrl = `${protocol}//${hostname}${port}/ws`;
     let ws: WebSocket;
+    let disposed = false;
     let agentTypingTimeout: any = null;
     let customerTypingTimeout: any = null;
 
@@ -217,6 +218,12 @@ export const DualChatView: React.FC = () => {
       };
 
       ws.onopen = () => {
+        if (disposed) {
+          try {
+            ws.close();
+          } catch (e) {}
+          return;
+        }
         ws.send(JSON.stringify({
           type: "join",
           sessionId: selectedSessionId,
@@ -226,6 +233,7 @@ export const DualChatView: React.FC = () => {
       };
 
       ws.onmessage = (evt) => {
+        if (disposed) return;
         try {
           const payload = JSON.parse(evt.data);
           if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
@@ -298,10 +306,12 @@ export const DualChatView: React.FC = () => {
     }
 
     return () => {
+      disposed = true;
       if (wsRef.current) {
         wsRef.current.onerror = null;
         wsRef.current.onclose = null;
-        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+        wsRef.current.onmessage = null;
+        if (wsRef.current.readyState === WebSocket.OPEN) {
           try {
             wsRef.current.close();
           } catch (e) {}
