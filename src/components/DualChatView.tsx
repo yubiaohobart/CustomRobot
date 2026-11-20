@@ -27,7 +27,6 @@ import { ConversationSession, ChatMessage, OrderData } from "../types";
 export const DualChatView: React.FC = () => {
   const [selectedSessionId, setSelectedSessionId] = useState("session_user_001");
   const [session, setSession] = useState<ConversationSession | null>(null);
-  const [sessionsList, setSessionsList] = useState<ConversationSession[]>([]);
 
   // 严格基于唯一 ID 去重，绝不按文本内容误杀用户的多次发言
   const uniqueMessages = (msgs: ChatMessage[]): ChatMessage[] => {
@@ -162,8 +161,8 @@ export const DualChatView: React.FC = () => {
     }
   };
 
-  // Fetch Session Data
-  const loadSession = async (sid = selectedSessionId) => {
+  // Fetch Session Data (order is only fetched when explicitly requested, e.g., session switch or manual refresh)
+  const loadSession = async (sid = selectedSessionId, includeOrder = false) => {
     try {
       const res = await fetch(`/api/sessions/${sid}`);
       if (res.ok) {
@@ -177,8 +176,10 @@ export const DualChatView: React.FC = () => {
               messages: mergeServerMessages(prevMsgs, s.messages || [], true),
             };
           });
-          const oid = s.customerProfile?.orderId || "ORD-2026-88992";
-          fetchOrder(oid);
+          if (includeOrder) {
+            const oid = s.customerProfile?.orderId || "ORD-2026-88992";
+            fetchOrder(oid);
+          }
         }
       }
     } catch (e) {
@@ -186,30 +187,12 @@ export const DualChatView: React.FC = () => {
     }
   };
 
-  const loadAllSessions = async () => {
-    try {
-      const res = await fetch("/api/sessions");
-      if (res.ok) {
-        const data = await res.json();
-        setSessionsList(data.sessions || []);
-      }
-    } catch (e) {
-      console.error("loadAllSessions error:", e);
-    }
-  };
-
   useEffect(() => {
-    loadSession();
-    loadAllSessions();
-    const oid = session?.customerProfile?.orderId || "ORD-2026-88992";
-    fetchOrder(oid);
-    let counter = 0;
+    loadSession(selectedSessionId, true);
     const interval = setInterval(() => {
-      counter++;
       const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
-      if (!isWsActive || counter % 10 === 0) {
-        loadSession();
-        loadAllSessions();
+      if (!isWsActive) {
+        loadSession(selectedSessionId, false);
       }
     }, 3000);
     return () => clearInterval(interval);
@@ -688,7 +671,7 @@ export const DualChatView: React.FC = () => {
           </select>
           <button
             onClick={() => {
-              loadSession();
+              loadSession(selectedSessionId, true);
               showToast("已刷新当前会话状态");
             }}
             className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"

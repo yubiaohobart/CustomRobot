@@ -260,6 +260,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
               }
             }
             fetchSessions();
+            if (payload.action === "transfer") {
+              fetchTransferData();
+            }
           } else if (payload.type === "typing") {
             if (payload.sender === "customer" && (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId)) {
               setCustomerTyping(payload.isTyping ? "客户正在输入..." : null);
@@ -293,12 +296,10 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   useEffect(() => {
     fetchSessions();
     fetchTransferData();
-    // 智能自适应轮询：WebSocket 正常连接时不反复刷屏，仅在断线或每隔 30 秒执行一次低频校准
-    let counter = 0;
+    // WebSocket 正常连接时不轮询，仅在断线兜底时使用 3 秒轮询
     const interval = setInterval(() => {
-      counter++;
       const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
-      if (!isWsActive || counter % 10 === 0) {
+      if (!isWsActive) {
         fetchSessions();
         fetchTransferData();
       }

@@ -259,13 +259,10 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     setMessages([]);
     fetchSession();
     fetchAgents();
-    // 智能自适应轮询：当 WebSocket 正常连接 (OPEN) 时，实时消息与状态均已通过 WS 毫秒推送，无需每 3 秒发起密集 HTTP 轮询；
-    // 仅当 WebSocket 未连接或断开时，才使用 3 秒轮询兜底；连上时降为 30 秒低频状态校准，彻底解决控制台与网络面板刷屏问题。
-    let counter = 0;
+    // WebSocket 正常连接 (OPEN) 时由服务端实时推送，仅在未连接或断线时使用 3 秒轮询兜底
     const interval = setInterval(() => {
-      counter++;
       const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
-      if (!isWsActive || counter % 10 === 0) {
+      if (!isWsActive) {
         fetchSession();
       }
     }, 3000);

@@ -67,8 +67,11 @@ export default function App() {
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
 
-  // 实时轮询会话预警状态 (降低频率为 10 秒，避免刷屏)
+  // 初始化拉取一次预警数量，后续通过 WebSocket 事件实时更新；仅在 WS 未连通时降级为 10 秒轮询兜底
   useEffect(() => {
+    let ws: WebSocket | null = null;
+    let disposed = false;
+
     const checkAlerts = async () => {
       try {
         const res = await fetch("/api/sessions");
@@ -77,7 +80,9 @@ export default function App() {
           const count = (data.sessions || []).filter(
             (s: any) => s.status === "NEEDS_INTERVENTION"
           ).length;
-          setNeedsInterventionCount(count);
+          if (!disposed) {
+            setNeedsInterventionCount(count);
+          }
         }
       } catch (e) {
         // silent
@@ -85,8 +90,59 @@ export default function App() {
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 10000);
-    return () => clearInterval(interval);
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : "";
+    const wsUrl = `${protocol}//${hostname}${port}/ws`;
+
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onerror = () => {
+        // suppress unhandled WebSocket connection errors
+      };
+      ws.onopen = () => {
+        ws?.send(JSON.stringify({
+          type: "join",
+          sessionId: currentSessionId,
+          role: "supervisor",
+          name: "全局状态徽标",
+        }));
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          if (payload.type === "session:update") {
+            checkAlerts();
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+    } catch (e) {
+      // fallback to polling
+    }
+
+    const interval = setInterval(() => {
+      const isWsActive = ws && ws.readyState === WebSocket.OPEN;
+      if (!isWsActive) {
+        checkAlerts();
+      }
+    }, 10000);
+
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      if (ws) {
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          try {
+            ws.close();
+          } catch (e) {}
+        }
+      }
+    };
   }, []);
 
   const sessionOptions = [

@@ -292,12 +292,14 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
         note=req.note or ""
     )
     # 实时 WebSocket 广播状态流转
-    await ws_manager.broadcast_to_session(session_id, {
+    update_payload = {
         "type": "session:update",
         "sessionId": session_id,
         "action": req.action,
         "session": session
-    })
+    }
+    await ws_manager.broadcast_to_session(session_id, update_payload)
+    await ws_manager.broadcast_all(update_payload)
     return {"success": True, "session": session}
 
 @router.post("/sessions/{session_id}/human-message")
