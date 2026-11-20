@@ -159,7 +159,6 @@ class WebSocketConnectionManager:
                 "sessionId": meta["session_id"],
                 "role": meta["role"],
                 "name": meta["name"],
-                "message": f"Python FastAPI WebSocket 长连接已就绪 (会话: {meta['session_id']}, 角色: {meta['role']})",
             }
             ack_text = json.dumps(ack_payload, ensure_ascii=False)
             lock = self._send_locks[websocket]

@@ -43,11 +43,15 @@ async def _emit_message_event(session_id: str, message: Dict[str, Any], session:
             "message": message,
             "sessionMeta": session_meta,
         })
-        await ws_manager.broadcast_all({
-            "type": "session:update",
-            "sessionId": session_id,
-            "sessionMeta": session_meta,
-        })
+        await ws_manager.broadcast_to_roles(
+            ("agent", "supervisor", "dual_observer"),
+            {
+                "type": "session:update",
+                "sessionId": session_id,
+                "sessionMeta": session_meta,
+            },
+            exclude_session=session_id,
+        )
     except Exception as e:
         cprint.warning(f"WebSocket 广播失败 (已忽略，不影响主请求): {e}")
 
@@ -260,21 +264,28 @@ async def transfer_session_endpoint(session_id: str, req: TransferRequest):
         operator_note=req.operatorNote or "",
         trigger_type=req.triggerType or "user_requested"
     )
-    # 实时 WebSocket 广播：通知会话各方与全局坐席大厅
-    await ws_manager.broadcast_to_session(session_id, {
+    # 实时 WebSocket 广播：房间内发送轻量元数据+新增系统消息，全局仅向其他坐席/主管端推送元数据
+    session_meta = memory_service.build_session_meta(session)
+    last_msg = session["messages"][-1] if session.get("messages") else None
+    room_payload: Dict[str, Any] = {
         "type": "session:update",
         "sessionId": session_id,
         "action": "transfer",
-        "session": session,
-        "transferLog": transfer_log
-    })
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": session_id,
-        "action": "transfer",
-        "session": session,
-        "transferLog": transfer_log
-    })
+        "sessionMeta": session_meta,
+    }
+    if last_msg:
+        room_payload["message"] = last_msg
+    await ws_manager.broadcast_to_session(session_id, room_payload)
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "session:update",
+            "sessionId": session_id,
+            "action": "transfer",
+            "sessionMeta": session_meta,
+        },
+        exclude_session=session_id,
+    )
     return {
         "success": True,
         "message": f"会话已成功转接给坐席工号 {req.targetAgentId}",
@@ -291,15 +302,28 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
         agent_id=req.agentId or "agent_101",
         note=req.note or ""
     )
-    # 实时 WebSocket 广播状态流转
-    update_payload = {
+    # 实时 WebSocket 广播状态流转（房间内附带新增系统消息，全局大厅仅推元数据）
+    session_meta = memory_service.build_session_meta(session)
+    last_msg = session["messages"][-1] if session.get("messages") else None
+    room_payload: Dict[str, Any] = {
         "type": "session:update",
         "sessionId": session_id,
         "action": req.action,
-        "session": session
+        "sessionMeta": session_meta,
     }
-    await ws_manager.broadcast_to_session(session_id, update_payload)
-    await ws_manager.broadcast_all(update_payload)
+    if last_msg:
+        room_payload["message"] = last_msg
+    await ws_manager.broadcast_to_session(session_id, room_payload)
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "session:update",
+            "sessionId": session_id,
+            "action": req.action,
+            "sessionMeta": session_meta,
+        },
+        exclude_session=session_id,
+    )
     return {"success": True, "session": session}
 
 @router.post("/sessions/{session_id}/human-message")
@@ -432,11 +456,14 @@ async def request_order_refund_endpoint(order_id: str, payload: Dict[str, Any] =
             
     try:
         updated = order_service.process_refund_request(order_id, reason=reason, refund_amount=amount)
-        await ws_manager.broadcast_all({
-            "type": "order:update",
-            "orderId": order_id,
-            "order": updated
-        })
+        await ws_manager.broadcast_to_roles(
+            ("agent", "supervisor", "dual_observer"),
+            {
+                "type": "order:update",
+                "orderId": order_id,
+                "order": updated,
+            },
+        )
         return {"success": True, "order": updated}
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -458,11 +485,14 @@ async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
 
     try:
         updated = order_service.audit_refund(order_id, action=action, operator_name=operator, note=note)
-        await ws_manager.broadcast_all({
-            "type": "order:update",
-            "orderId": order_id,
-            "order": updated
-        })
+        await ws_manager.broadcast_to_roles(
+            ("agent", "supervisor", "dual_observer"),
+            {
+                "type": "order:update",
+                "orderId": order_id,
+                "order": updated,
+            },
+        )
         return {"success": True, "order": updated}
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -483,11 +513,14 @@ async def reset_order_status_endpoint(order_id: str):
         order["afterSales"]["requiresHumanAudit"] = False
         order["afterSales"]["refundAmount"] = 0.0
     saved = order_service.save_order(order)
-    await ws_manager.broadcast_all({
-        "type": "order:update",
-        "orderId": order_id,
-        "order": saved
-    })
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "order:update",
+            "orderId": order_id,
+            "order": saved,
+        },
+    )
     return {"success": True, "message": f"订单 {order_id} 已重置为已签收状态，可重新进行退款前门槛卡片测试", "order": saved}
 
 @router.get("/customers")

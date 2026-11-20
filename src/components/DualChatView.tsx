@@ -271,18 +271,31 @@ export const DualChatView: React.FC = () => {
                 showToast(`✅ 订单【${payload.order.orderId}】退款审核通过，款项已原路退回！`);
               }
             }
-          } else if (payload.type === "session:update" && (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId)) {
+          } else if (
+            payload.type === "session:update" &&
+            (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId || payload.sessionMeta?.id === selectedSessionId)
+          ) {
             setSession((prev) => {
+              const incomingMsgs = payload.session?.messages || (payload.message ? [payload.message] : []);
+              const isFull = Boolean(payload.session?.messages);
               if (payload.session) {
                 if (!prev) return payload.session;
-                const prevMsgs = prev.messages || [];
                 return {
                   ...payload.session,
-                  messages: mergeServerMessages(prevMsgs, payload.session.messages || [], true),
+                  messages: mergeServerMessages(prev.messages || [], incomingMsgs, isFull),
                 };
               }
-              if (payload.sessionMeta && prev) {
-                return { ...prev, ...payload.sessionMeta };
+              if (payload.sessionMeta) {
+                if (!prev) {
+                  return { ...payload.sessionMeta, messages: incomingMsgs } as ConversationSession;
+                }
+                return {
+                  ...prev,
+                  ...payload.sessionMeta,
+                  messages: incomingMsgs.length > 0
+                    ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
+                    : prev.messages || [],
+                };
               }
               return prev;
             });

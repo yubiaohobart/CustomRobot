@@ -7,7 +7,6 @@ WebSocket 独立路由模块 (WebSocket Route & Event Dispatcher)
 4. 与常规 REST API 严格解耦，保障连接池健康与异常边界隔离
 """
 
-import time
 from typing import Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -27,24 +26,19 @@ async def handle_subscribe_event(websocket: WebSocket, data: Dict[str, Any], met
     name = data.get("name") or meta.get("name", "")
     
     ws_manager.register_session(websocket, session_id=target_session_id, role=role, name=name)
-    
+
     await websocket.send_json({
         "type": "subscribed",
         "sessionId": target_session_id,
         "role": role,
         "name": name,
-        "timestamp": time.time(),
-        "message": f"成功绑定会话房间: {target_session_id}"
     })
     return target_session_id
 
 
 async def handle_ping_event(websocket: WebSocket):
     """处理心跳探活"""
-    await websocket.send_json({
-        "type": "pong",
-        "timestamp": time.time()
-    })
+    await websocket.send_json({"type": "pong"})
 
 
 async def handle_typing_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
@@ -53,14 +47,13 @@ async def handle_typing_event(websocket: WebSocket, data: Dict[str, Any], meta: 
     sender_role = data.get("sender") or meta.get("role", "unknown")
     sender_name = data.get("name") or meta.get("name", "")
     is_typing = bool(data.get("isTyping", False))
-    
+
     await ws_manager.broadcast_to_session(target_session_id, {
         "type": "typing",
         "sessionId": target_session_id,
         "sender": sender_role,
         "name": sender_name,
         "isTyping": is_typing,
-        "timestamp": time.time()
     }, exclude=websocket)
 
 
@@ -73,7 +66,7 @@ async def handle_human_message_event(websocket: WebSocket, data: Dict[str, Any],
 
     agent_name = data.get("agentName") or meta.get("name") or "人工客服"
     agent_id = data.get("agentId", "agent_101")
-    
+
     cprint.websocket("坐席发言", target_session_id, f"收到坐席 [{agent_name} ({agent_id})] 消息 ({len(content)} 字符)")
 
     # 状态机标记：人工介入中
@@ -86,21 +79,27 @@ async def handle_human_message_event(websocket: WebSocket, data: Dict[str, Any],
     # 持久化存储到会话记忆
     msg = memory_service.add_message(target_session_id, "human_agent", content)
     updated_session = memory_service.get_session(target_session_id)
-    
-    # 1. 广播给该会话房间内的所有其他订阅者（客户手机端、同屏监控、主管端，排除发送方以防重复显示）
+    session_meta = memory_service.build_session_meta(updated_session) if updated_session else None
+
+    # 1. 广播给该会话房间内的其他订阅者（仅发单条消息与轻量元数据）
     await ws_manager.broadcast_to_session(target_session_id, {
         "type": "message:new",
         "sessionId": target_session_id,
         "message": msg,
-        "session": updated_session
+        "sessionMeta": session_meta,
     }, exclude=websocket)
-    
-    # 2. 广播给全局客服大厅（更新工单列表最新消息预览）
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": target_session_id,
-        "session": updated_session
-    })
+
+    # 2. 广播给房间外的坐席/主管/同屏台（刷新队列与徽标）
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "session:update",
+            "sessionId": target_session_id,
+            "sessionMeta": session_meta,
+        },
+        exclude=websocket,
+        exclude_session=target_session_id,
+    )
 
 
 async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
@@ -114,21 +113,27 @@ async def handle_customer_message_event(websocket: WebSocket, data: Dict[str, An
 
     msg = memory_service.add_message(target_session_id, "user", content)
     updated_session = memory_service.get_session(target_session_id)
-    
-    # 广播给会话房间（排除发送方连接，避免发送端自己收到自己的回声重复渲染）
+    session_meta = memory_service.build_session_meta(updated_session) if updated_session else None
+
+    # 广播给会话房间（排除发送方连接，仅发增量消息与轻量元数据）
     await ws_manager.broadcast_to_session(target_session_id, {
         "type": "message:new",
         "sessionId": target_session_id,
         "message": msg,
-        "session": updated_session
+        "sessionMeta": session_meta,
     }, exclude=websocket)
-    
-    # 广播给全局坐席大厅 (刷新工作台会话列表的未读数与最新消息)
-    await ws_manager.broadcast_all({
-        "type": "session:update",
-        "sessionId": target_session_id,
-        "session": updated_session
-    })
+
+    # 广播给房间外的坐席/主管/同屏台
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "session:update",
+            "sessionId": target_session_id,
+            "sessionMeta": session_meta,
+        },
+        exclude=websocket,
+        exclude_session=target_session_id,
+    )
 
 
 async def handle_transfer_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
@@ -141,7 +146,7 @@ async def handle_transfer_event(websocket: WebSocket, data: Dict[str, Any], meta
 
     cprint.websocket("转接请求", target_session_id, f"WS 触发人工转接 -> 指派坐席工号: {target_agent_id}")
 
-    transfer_log, session = memory_service.transfer_session(
+    _, session = memory_service.transfer_session(
         session_id=target_session_id,
         target_agent_id=target_agent_id,
         reason=reason,
@@ -149,19 +154,28 @@ async def handle_transfer_event(websocket: WebSocket, data: Dict[str, Any], meta
         trigger_type=trigger_type
     )
 
-    update_payload = {
+    session_meta = memory_service.build_session_meta(session)
+    last_msg = session["messages"][-1] if session.get("messages") else None
+    room_payload: Dict[str, Any] = {
         "type": "session:update",
         "sessionId": target_session_id,
         "action": "transfer",
-        "session": session,
-        "transferLog": transfer_log,
-        "message": f"会话已成功转接给坐席工号 {target_agent_id}"
+        "sessionMeta": session_meta,
     }
+    if last_msg:
+        room_payload["message"] = last_msg
 
-    # 1. 广播通知该会话房间内各终端 (客户界面、坐席工作台)
-    await ws_manager.broadcast_to_session(target_session_id, update_payload)
-    # 2. 广播通知全局客服大厅 (工单分配与气泡闪烁)
-    await ws_manager.broadcast_all(update_payload)
+    await ws_manager.broadcast_to_session(target_session_id, room_payload)
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "session:update",
+            "sessionId": target_session_id,
+            "action": "transfer",
+            "sessionMeta": session_meta,
+        },
+        exclude_session=target_session_id,
+    )
 
 
 async def handle_intervene_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str):
@@ -178,15 +192,28 @@ async def handle_intervene_event(websocket: WebSocket, data: Dict[str, Any], met
         note=note
     )
 
-    update_payload = {
+    session_meta = memory_service.build_session_meta(session)
+    last_msg = session["messages"][-1] if session.get("messages") else None
+    room_payload: Dict[str, Any] = {
         "type": "session:update",
         "sessionId": target_session_id,
         "action": action,
-        "session": session
+        "sessionMeta": session_meta,
     }
+    if last_msg:
+        room_payload["message"] = last_msg
 
-    await ws_manager.broadcast_to_session(target_session_id, update_payload)
-    await ws_manager.broadcast_all(update_payload)
+    await ws_manager.broadcast_to_session(target_session_id, room_payload)
+    await ws_manager.broadcast_to_roles(
+        ("agent", "supervisor", "dual_observer"),
+        {
+            "type": "session:update",
+            "sessionId": target_session_id,
+            "action": action,
+            "sessionMeta": session_meta,
+        },
+        exclude_session=target_session_id,
+    )
 
 
 # ==================== WebSocket 连接主循环 ====================

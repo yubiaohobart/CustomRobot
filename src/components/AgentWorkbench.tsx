@@ -264,7 +264,14 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
               if (payload.session) {
                 setActiveSession(payload.session);
               } else if (payload.sessionMeta) {
-                setActiveSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+                setActiveSession((prev) => {
+                  if (!prev) return prev;
+                  const nextMsgs =
+                    payload.message && !prev.messages.some((m) => m.id === payload.message.id)
+                      ? [...prev.messages, payload.message]
+                      : prev.messages;
+                  return { ...prev, ...payload.sessionMeta, messages: nextMsgs };
+                });
               }
             }
             fetchSessions();

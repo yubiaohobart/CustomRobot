@@ -229,6 +229,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 }
               } else if (payload.sessionMeta) {
                 setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+                if (payload.message) {
+                  setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
+                }
               }
             }
           } else if (payload.type === "typing") {

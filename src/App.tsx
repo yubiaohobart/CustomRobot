@@ -67,22 +67,33 @@ export default function App() {
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
 
-  // 初始化拉取一次预警数量，后续通过 WebSocket 事件实时更新；仅在 WS 未连通时降级为 10 秒轮询兜底
+  // 初始化拉取一次预警数量，后续直接从 WebSocket 轻量 session:update 事件在内存中实时更新，不再重复发 HTTP 请求
   useEffect(() => {
     let ws: WebSocket | null = null;
     let disposed = false;
+    const statusMap = new Map<string, string>();
+
+    const updateCountFromMap = () => {
+      if (disposed) return;
+      let count = 0;
+      for (const status of statusMap.values()) {
+        if (status === "NEEDS_INTERVENTION") count++;
+      }
+      setNeedsInterventionCount(count);
+    };
 
     const checkAlerts = async () => {
       try {
         const res = await fetch("/api/sessions");
         if (res.ok) {
           const data = await res.json();
-          const count = (data.sessions || []).filter(
-            (s: any) => s.status === "NEEDS_INTERVENTION"
-          ).length;
-          if (!disposed) {
-            setNeedsInterventionCount(count);
+          statusMap.clear();
+          for (const s of data.sessions || []) {
+            if (s?.id && s?.status) {
+              statusMap.set(s.id, s.status);
+            }
           }
+          updateCountFromMap();
         }
       } catch (e) {
         // silent
@@ -110,7 +121,7 @@ export default function App() {
         }
         ws?.send(JSON.stringify({
           type: "join",
-          sessionId: currentSessionId,
+          sessionId: "__global__",
           role: "supervisor",
           name: "全局状态徽标",
         }));
@@ -120,7 +131,15 @@ export default function App() {
         try {
           const payload = JSON.parse(evt.data);
           if (payload.type === "session:update") {
-            checkAlerts();
+            const meta = payload.sessionMeta || payload.session;
+            const sid = payload.sessionId || meta?.id;
+            const status = meta?.status;
+            if (sid && status) {
+              statusMap.set(sid, status);
+              updateCountFromMap();
+            } else {
+              checkAlerts();
+            }
           }
         } catch (e) {
           // ignore
