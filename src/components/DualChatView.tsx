@@ -23,6 +23,7 @@ import {
   X
 } from "lucide-react";
 import { ConversationSession, ChatMessage, OrderData } from "../types";
+import { useWebSocket } from "../contexts/WebSocketContext";
 
 export const DualChatView: React.FC = () => {
   const [selectedSessionId, setSelectedSessionId] = useState("session_user_001");
@@ -129,9 +130,11 @@ export const DualChatView: React.FC = () => {
   const [auditNote, setAuditNote] = useState("");
   const [summaryExpanded, setSummaryExpanded] = useState(false);
 
-  // Live Toast & WebSocket
+  // Live Toast & Shared WebSocket
   const [toast, setToast] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const { isConnected, joinSession, sendJson, subscribe } = useWebSocket();
+  const sessionRef = useRef<ConversationSession | null>(null);
+  sessionRef.current = session;
   const customerMessagesEndRef = useRef<HTMLDivElement>(null);
   const agentMessagesEndRef = useRef<HTMLDivElement>(null);
   const customerScrollRef = useRef<HTMLDivElement>(null);
@@ -189,152 +192,110 @@ export const DualChatView: React.FC = () => {
 
   useEffect(() => {
     loadSession(selectedSessionId, true);
-    const interval = setInterval(() => {
-      const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
-      if (!isWsActive) {
-        loadSession(selectedSessionId, false);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
   }, [selectedSessionId]);
 
-  // WebSocket Live Connection
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : "";
-    const wsUrl = `${protocol}//${hostname}${port}/ws`;
-    let ws: WebSocket;
-    let disposed = false;
+    if (isConnected) return;
+    const interval = setInterval(() => {
+      loadSession(selectedSessionId, false);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [selectedSessionId, isConnected]);
+
+  // Shared WebSocket Live Subscription
+  useEffect(() => {
+    joinSession({
+      sessionId: selectedSessionId,
+      role: "dual_observer",
+      name: "同屏双向观测台",
+    });
+
     let agentTypingTimeout: any = null;
     let customerTypingTimeout: any = null;
 
-    try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onerror = () => {
-        // suppress unhandled WebSocket connection errors
-      };
-
-      ws.onopen = () => {
-        if (disposed) {
-          try {
-            ws.close();
-          } catch (e) {}
-          return;
-        }
-        ws.send(JSON.stringify({
-          type: "join",
-          sessionId: selectedSessionId,
-          role: "dual_observer",
-          name: "同屏双向观测台"
-        }));
-      };
-
-      ws.onmessage = (evt) => {
-        if (disposed) return;
-        try {
-          const payload = JSON.parse(evt.data);
-          if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
-            const meta = payload.sessionMeta || {};
-            setSession((prev) => {
-              if (!prev) {
-                return payload.session || (payload.sessionMeta ? { ...payload.sessionMeta, messages: [payload.message] } : null);
-              }
-              const prevMsgs = prev.messages || [];
-              const merged = mergeServerMessages(prevMsgs, [payload.message], false);
-              return {
-                ...prev,
-                ...meta,
-                messages: merged,
-                status: meta.status || payload.session?.status || prev.status,
-                assignedAgent: meta.assignedAgent ?? payload.session?.assignedAgent ?? prev.assignedAgent,
-              };
-            });
-            if (payload.message.role === "human_agent") {
-              showToast(`🎧 人工坐席【${payload.message.agentName || "陈浩"}】已回复客户`);
-            } else if (payload.message.role === "user") {
-              showToast(`👤 收到客户【${session?.customerProfile?.name || "客户"}】新提问`);
-            }
-          } else if (payload.type === "order:update") {
-            if (payload.order) {
-              setCurrentOrder((prev) => {
-                if (!prev || prev.orderId === payload.orderId || payload.orderId === (session?.customerProfile?.orderId || "ORD-2026-88992")) {
-                  return payload.order;
-                }
-                return prev;
-              });
-              if (payload.order.status === "REFUND_PENDING_AUDIT") {
-                showToast(`⚠️ 收到订单【${payload.order.orderId}】退款申请（¥${payload.order.paidAmount.toFixed(2)}），待人工坐席审核！`);
-              } else if (payload.order.status === "REFUNDED") {
-                showToast(`✅ 订单【${payload.order.orderId}】退款审核通过，款项已原路退回！`);
-              }
-            }
-          } else if (
-            payload.type === "session:update" &&
-            (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId || payload.sessionMeta?.id === selectedSessionId)
-          ) {
-            setSession((prev) => {
-              const incomingMsgs = payload.session?.messages || (payload.message ? [payload.message] : []);
-              const isFull = Boolean(payload.session?.messages);
-              if (payload.session) {
-                if (!prev) return payload.session;
-                return {
-                  ...payload.session,
-                  messages: mergeServerMessages(prev.messages || [], incomingMsgs, isFull),
-                };
-              }
-              if (payload.sessionMeta) {
-                if (!prev) {
-                  return { ...payload.sessionMeta, messages: incomingMsgs } as ConversationSession;
-                }
-                return {
-                  ...prev,
-                  ...payload.sessionMeta,
-                  messages: incomingMsgs.length > 0
-                    ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
-                    : prev.messages || [],
-                };
-              }
-              return prev;
-            });
-          } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
-            if (payload.sender === "agent") {
-              setAgentTypingNotice(payload.isTyping ? "人工坐席正在输入..." : null);
-              clearTimeout(agentTypingTimeout);
-              if (payload.isTyping) agentTypingTimeout = setTimeout(() => setAgentTypingNotice(null), 3500);
-            } else if (payload.sender === "customer") {
-              setCustomerTypingNotice(payload.isTyping ? "客户正在输入..." : null);
-              clearTimeout(customerTypingTimeout);
-              if (payload.isTyping) customerTypingTimeout = setTimeout(() => setCustomerTypingNotice(null), 3500);
-            }
+    const unsubscribe = subscribe((payload) => {
+      if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
+        const meta = payload.sessionMeta || {};
+        setSession((prev) => {
+          if (!prev) {
+            return payload.session || (payload.sessionMeta ? { ...payload.sessionMeta, messages: [payload.message] } : null);
           }
-        } catch (e) {
-          // ignore
+          const prevMsgs = prev.messages || [];
+          const merged = mergeServerMessages(prevMsgs, [payload.message], false);
+          return {
+            ...prev,
+            ...meta,
+            messages: merged,
+            status: meta.status || payload.session?.status || prev.status,
+            assignedAgent: meta.assignedAgent ?? payload.session?.assignedAgent ?? prev.assignedAgent,
+          };
+        });
+        if (payload.message.role === "human_agent") {
+          showToast(`🎧 人工坐席【${payload.message.agentName || "陈浩"}】已回复客户`);
+        } else if (payload.message.role === "user") {
+          showToast(`👤 收到客户【${sessionRef.current?.customerProfile?.name || "客户"}】新提问`);
         }
-      };
-    } catch (e) {
-      // fallback
-    }
+      } else if (payload.type === "order:update") {
+        if (payload.order) {
+          setCurrentOrder((prev) => {
+            if (!prev || prev.orderId === payload.orderId || payload.orderId === (sessionRef.current?.customerProfile?.orderId || "ORD-2026-88992")) {
+              return payload.order;
+            }
+            return prev;
+          });
+          if (payload.order.status === "REFUND_PENDING_AUDIT") {
+            showToast(`⚠️ 收到订单【${payload.order.orderId}】退款申请（¥${payload.order.paidAmount.toFixed(2)}），待人工坐席审核！`);
+          } else if (payload.order.status === "REFUNDED") {
+            showToast(`✅ 订单【${payload.order.orderId}】退款审核通过，款项已原路退回！`);
+          }
+        }
+      } else if (
+        payload.type === "session:update" &&
+        (payload.sessionId === selectedSessionId || payload.session?.id === selectedSessionId || payload.sessionMeta?.id === selectedSessionId)
+      ) {
+        setSession((prev) => {
+          const incomingMsgs = payload.session?.messages || (payload.message ? [payload.message] : []);
+          const isFull = Boolean(payload.session?.messages);
+          if (payload.session) {
+            if (!prev) return payload.session;
+            return {
+              ...payload.session,
+              messages: mergeServerMessages(prev.messages || [], incomingMsgs, isFull),
+            };
+          }
+          if (payload.sessionMeta) {
+            if (!prev) {
+              return { ...payload.sessionMeta, messages: incomingMsgs } as ConversationSession;
+            }
+            return {
+              ...prev,
+              ...payload.sessionMeta,
+              messages: incomingMsgs.length > 0
+                ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
+                : prev.messages || [],
+            };
+          }
+          return prev;
+        });
+      } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
+        if (payload.sender === "agent") {
+          setAgentTypingNotice(payload.isTyping ? "人工坐席正在输入..." : null);
+          clearTimeout(agentTypingTimeout);
+          if (payload.isTyping) agentTypingTimeout = setTimeout(() => setAgentTypingNotice(null), 3500);
+        } else if (payload.sender === "customer") {
+          setCustomerTypingNotice(payload.isTyping ? "客户正在输入..." : null);
+          clearTimeout(customerTypingTimeout);
+          if (payload.isTyping) customerTypingTimeout = setTimeout(() => setCustomerTypingNotice(null), 3500);
+        }
+      }
+    });
 
     return () => {
-      disposed = true;
-      if (wsRef.current) {
-        wsRef.current.onerror = null;
-        wsRef.current.onclose = null;
-        wsRef.current.onmessage = null;
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          try {
-            wsRef.current.close();
-          } catch (e) {}
-        }
-        wsRef.current = null;
-      }
+      unsubscribe();
       clearTimeout(agentTypingTimeout);
       clearTimeout(customerTypingTimeout);
     };
-  }, [selectedSessionId]);
+  }, [selectedSessionId, joinSession, subscribe]);
 
   const handleCustomerScroll = () => {
     const el = customerScrollRef.current;
@@ -1083,16 +1044,12 @@ export const DualChatView: React.FC = () => {
                 }}
                 onChange={(e) => {
                   setCustomerInput(e.target.value);
-                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(
-                      JSON.stringify({
-                        type: "typing",
-                        sessionId: selectedSessionId,
-                        sender: "customer",
-                        isTyping: e.target.value.length > 0
-                      })
-                    );
-                  }
+                  sendJson({
+                    type: "typing",
+                    sessionId: selectedSessionId,
+                    sender: "customer",
+                    isTyping: e.target.value.length > 0,
+                  });
                 }}
                 placeholder={isHumanActive ? "人工客服已接听，请输入您的需求（Shift+Enter 换行，右下角可拖拽拉大）..." : "请输入您想咨询的问题（输入【转人工】可呼叫人工客服；Shift+Enter 换行）..."}
                 className="flex-1 min-h-[72px] max-h-[240px] px-3.5 py-2.5 text-xs bg-slate-100 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 resize-y transition-colors leading-relaxed"
@@ -1458,17 +1415,13 @@ export const DualChatView: React.FC = () => {
                 }}
                 onChange={(e) => {
                   setAgentInput(e.target.value);
-                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(
-                      JSON.stringify({
-                        type: "typing",
-                        sessionId: selectedSessionId,
-                        sender: "agent",
-                        name: session?.assignedAgent || "陈浩",
-                        isTyping: e.target.value.length > 0
-                      })
-                    );
-                  }
+                  sendJson({
+                    type: "typing",
+                    sessionId: selectedSessionId,
+                    sender: "agent",
+                    name: session?.assignedAgent || "陈浩",
+                    isTyping: e.target.value.length > 0,
+                  });
                 }}
                 placeholder="人工坐席回复输入框（回车发送，Shift+Enter 换行，右下角可拖拽拉大）..."
                 className="flex-1 min-h-[72px] max-h-[240px] px-3 py-2.5 text-xs bg-slate-50 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-amber-500 resize-y transition-colors leading-relaxed"

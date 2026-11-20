@@ -30,6 +30,7 @@ import {
   Search
 } from "lucide-react";
 import { ChatMessage, ConversationSession, AvailableAgent, TransferTriggerType, TransferLog } from "../types";
+import { useWebSocket } from "../contexts/WebSocketContext";
 
 interface CustomerChatViewProps {
   currentSessionId: string;
@@ -146,7 +147,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const prevSessionIdRef = useRef(currentSessionId);
 
   const [agentTyping, setAgentTyping] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const { isConnected, joinSession, sendJson, subscribe } = useWebSocket();
 
   const fetchSession = async () => {
     try {
@@ -173,114 +174,73 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     }
   };
 
-  // WebSocket Live Connection for instantaneous real-time sync with human agents
+  // Shared WebSocket Live Subscription for instantaneous real-time sync with human agents
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : "";
-    const wsUrl = `${protocol}//${hostname}${port}/ws`;
-    let ws: WebSocket;
-    let disposed = false;
+    joinSession({
+      sessionId: currentSessionId,
+      role: "customer",
+      name: session?.customerProfile?.name || "客户",
+    });
+  }, [currentSessionId, session?.customerProfile?.name, joinSession]);
+
+  useEffect(() => {
     let typingTimer: any = null;
-
-    try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onerror = () => {
-        // suppress unhandled WebSocket connection errors
-      };
-
-      ws.onopen = () => {
-        if (disposed) {
-          try {
-            ws.close();
-          } catch (e) {}
-          return;
+    const unsubscribe = subscribe((payload) => {
+      if (payload.type === "message:new" && payload.message) {
+        if (!payload.sessionId || payload.sessionId === currentSessionId) {
+          setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
+          if (payload.session) {
+            setSession(payload.session);
+          } else if (payload.sessionMeta) {
+            setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+          }
         }
-        ws.send(JSON.stringify({
-          type: "join",
-          sessionId: currentSessionId,
-          role: "customer",
-          name: session?.customerProfile?.name || "客户"
-        }));
-      };
-
-      ws.onmessage = (evt) => {
-        if (disposed) return;
-        try {
-          const payload = JSON.parse(evt.data);
-          if (payload.type === "message:new" && payload.message) {
-            if (!payload.sessionId || payload.sessionId === currentSessionId) {
+      } else if (payload.type === "session:update" && (payload.session || payload.sessionMeta)) {
+        const targetId = payload.sessionId || payload.session?.id || payload.sessionMeta?.id;
+        if (targetId === currentSessionId) {
+          if (payload.session) {
+            setSession(payload.session);
+            if (payload.session.messages) {
+              setMessages((prev) => mergeServerMessages(prev, payload.session.messages, true));
+            }
+          } else if (payload.sessionMeta) {
+            setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
+            if (payload.message) {
               setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
-              if (payload.session) {
-                setSession(payload.session);
-              } else if (payload.sessionMeta) {
-                setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
-              }
-            }
-          } else if (payload.type === "session:update" && (payload.session || payload.sessionMeta)) {
-            const targetId = payload.sessionId || payload.session?.id || payload.sessionMeta?.id;
-            if (targetId === currentSessionId) {
-              if (payload.session) {
-                setSession(payload.session);
-                if (payload.session.messages) {
-                  setMessages((prev) => mergeServerMessages(prev, payload.session.messages, true));
-                }
-              } else if (payload.sessionMeta) {
-                setSession((prev) => (prev ? { ...prev, ...payload.sessionMeta } : prev));
-                if (payload.message) {
-                  setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
-                }
-              }
-            }
-          } else if (payload.type === "typing") {
-            if (payload.sender === "agent") {
-              setAgentTyping(payload.isTyping ? (payload.name || "客服专员") : null);
-              clearTimeout(typingTimer);
-              if (payload.isTyping) {
-                typingTimer = setTimeout(() => setAgentTyping(null), 4000);
-              }
             }
           }
-        } catch (e) {
-          // ignore
         }
-      };
-    } catch (e) {
-      // fallback to polling
-    }
+      } else if (payload.type === "typing" && (!payload.sessionId || payload.sessionId === currentSessionId)) {
+        if (payload.sender === "agent") {
+          setAgentTyping(payload.isTyping ? (payload.name || "客服专员") : null);
+          clearTimeout(typingTimer);
+          if (payload.isTyping) {
+            typingTimer = setTimeout(() => setAgentTyping(null), 4000);
+          }
+        }
+      }
+    });
 
     return () => {
-      disposed = true;
-      if (wsRef.current) {
-        wsRef.current.onerror = null;
-        wsRef.current.onclose = null;
-        wsRef.current.onmessage = null;
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          try {
-            wsRef.current.close();
-          } catch (e) {}
-        }
-        wsRef.current = null;
-      }
+      unsubscribe();
       clearTimeout(typingTimer);
     };
-  }, [currentSessionId]);
+  }, [currentSessionId, subscribe]);
 
   useEffect(() => {
     setMessages([]);
     fetchSession();
     fetchAgents();
-    // WebSocket 正常连接 (OPEN) 时由服务端实时推送，仅在未连接或断线时使用 3 秒轮询兜底
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (isConnected) return;
+    // 仅在共享 WebSocket 未连接或断线时使用 3 秒轮询兜底
     const interval = setInterval(() => {
-      const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
-      if (!isWsActive) {
-        fetchSession();
-      }
+      fetchSession();
     }, 3000);
     return () => clearInterval(interval);
-  }, [currentSessionId]);
+  }, [currentSessionId, isConnected]);
 
   const handleReleaseToAI = async () => {
     try {
@@ -1239,17 +1199,13 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               }}
               onChange={(e) => {
                 setInputMessage(e.target.value);
-                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                  wsRef.current.send(
-                    JSON.stringify({
-                      type: "typing",
-                      sessionId: currentSessionId,
-                      sender: "customer",
-                      name: session?.customerProfile?.name || "客户",
-                      isTyping: e.target.value.length > 0
-                    })
-                  );
-                }
+                sendJson({
+                  type: "typing",
+                  sessionId: currentSessionId,
+                  sender: "customer",
+                  name: session?.customerProfile?.name || "客户",
+                  isTyping: e.target.value.length > 0,
+                });
               }}
               placeholder={isHumanServing ? "已接通人工坐席，客服正在查看您的上下文背景，可直接在此发送（Shift+Enter 换行，右下角可拖拽拉大）..." : "请输入您想咨询的问题（例如：申请退款、补开发票、物流查询；Shift+Enter 换行，右下角可拖拽拉大）..."}
               className="flex-1 min-w-0 min-h-[76px] max-h-[280px] px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-y transition-colors leading-relaxed"

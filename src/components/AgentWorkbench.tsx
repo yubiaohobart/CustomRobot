@@ -42,6 +42,7 @@ import {
   OrderData,
   CustomerRecord
 } from "../types";
+import { useWebSocket } from "../contexts/WebSocketContext";
 
 interface AgentWorkbenchProps {
   currentSessionId: string;
@@ -157,7 +158,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   const prevMsgCountRef = useRef(0);
   const prevSessionIdRef = useRef<string | undefined>(undefined);
   const [customerTyping, setCustomerTyping] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const { isConnected, joinSession, sendJson, subscribe } = useWebSocket();
+  const activeSessionIdRef = useRef<string | undefined>(undefined);
+  activeSessionIdRef.current = activeSession?.id;
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -207,122 +210,82 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     }
   };
 
-  // WebSocket Live Connection for real-time customer and agent dialogue
+  // Shared WebSocket Live Subscription for real-time customer and agent dialogue
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : "";
-    const wsUrl = `${protocol}//${hostname}${port}/ws`;
-    let ws: WebSocket;
-    let disposed = false;
+    joinSession({
+      sessionId: currentSessionId || "__global__",
+      role: "agent",
+      name: activeSession?.assignedAgent || "人工坐席",
+    });
+  }, [currentSessionId, activeSession?.assignedAgent, joinSession]);
+
+  useEffect(() => {
     let typingTimer: any = null;
-
-    try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onerror = () => {
-        // suppress unhandled WebSocket connection errors
-      };
-
-      ws.onopen = () => {
-        if (disposed) {
-          try {
-            ws.close();
-          } catch (e) {}
-          return;
+    const unsubscribe = subscribe((payload) => {
+      const currentActiveId = activeSessionIdRef.current;
+      if (payload.type === "message:new") {
+        if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
+          setActiveSession((prev) => {
+            if (!prev) return payload.session || null;
+            const meta = payload.sessionMeta || {};
+            const hasMsg = prev.messages.some((m) => m.id === payload.message.id);
+            return {
+              ...prev,
+              ...meta,
+              messages: hasMsg ? prev.messages : [...prev.messages, payload.message],
+              status: meta.status || payload.session?.status || prev.status,
+            };
+          });
         }
-        ws.send(JSON.stringify({
-          type: "join",
-          sessionId: currentSessionId,
-          role: "agent",
-          name: activeSession?.assignedAgent || "人工坐席"
-        }));
-      };
-
-      ws.onmessage = (evt) => {
-        if (disposed) return;
-        try {
-          const payload = JSON.parse(evt.data);
-          if (payload.type === "message:new") {
-            if (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId) {
-              setActiveSession((prev) => {
-                if (!prev) return payload.session || null;
-                const meta = payload.sessionMeta || {};
-                const hasMsg = prev.messages.some((m) => m.id === payload.message.id);
-                return {
-                  ...prev,
-                  ...meta,
-                  messages: hasMsg ? prev.messages : [...prev.messages, payload.message],
-                  status: meta.status || payload.session?.status || prev.status,
-                };
-              });
-            }
-            fetchSessions();
-          } else if (payload.type === "session:update") {
-            if (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId) {
-              if (payload.session) {
-                setActiveSession(payload.session);
-              } else if (payload.sessionMeta) {
-                setActiveSession((prev) => {
-                  if (!prev) return prev;
-                  const nextMsgs =
-                    payload.message && !prev.messages.some((m) => m.id === payload.message.id)
-                      ? [...prev.messages, payload.message]
-                      : prev.messages;
-                  return { ...prev, ...payload.sessionMeta, messages: nextMsgs };
-                });
-              }
-            }
-            fetchSessions();
-            if (payload.action === "transfer") {
-              fetchTransferData();
-            }
-          } else if (payload.type === "typing") {
-            if (payload.sender === "customer" && (payload.sessionId === currentSessionId || activeSession?.id === payload.sessionId)) {
-              setCustomerTyping(payload.isTyping ? "客户正在输入..." : null);
-              clearTimeout(typingTimer);
-              if (payload.isTyping) typingTimer = setTimeout(() => setCustomerTyping(null), 3500);
-            }
+        fetchSessions();
+      } else if (payload.type === "session:update") {
+        if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
+          if (payload.session) {
+            setActiveSession(payload.session);
+          } else if (payload.sessionMeta) {
+            setActiveSession((prev) => {
+              if (!prev) return prev;
+              const nextMsgs =
+                payload.message && !prev.messages.some((m) => m.id === payload.message.id)
+                  ? [...prev.messages, payload.message]
+                  : prev.messages;
+              return { ...prev, ...payload.sessionMeta, messages: nextMsgs };
+            });
           }
-        } catch (e) {
-          // ignore
         }
-      };
-    } catch (e) {
-      // fallback
-    }
+        fetchSessions();
+        if (payload.action === "transfer") {
+          fetchTransferData();
+        }
+      } else if (payload.type === "typing") {
+        if (payload.sender === "customer" && (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId)) {
+          setCustomerTyping(payload.isTyping ? "客户正在输入..." : null);
+          clearTimeout(typingTimer);
+          if (payload.isTyping) typingTimer = setTimeout(() => setCustomerTyping(null), 3500);
+        }
+      }
+    });
 
     return () => {
-      disposed = true;
-      if (wsRef.current) {
-        wsRef.current.onerror = null;
-        wsRef.current.onclose = null;
-        wsRef.current.onmessage = null;
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          try {
-            wsRef.current.close();
-          } catch (e) {}
-        }
-        wsRef.current = null;
-      }
+      unsubscribe();
       clearTimeout(typingTimer);
     };
-  }, [currentSessionId]);
+  }, [currentSessionId, subscribe]);
 
   useEffect(() => {
     fetchSessions();
     fetchTransferData();
-    // WebSocket 正常连接时不轮询，仅在断线兜底时使用 3 秒轮询
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (isConnected) return;
+    // 仅在共享 WebSocket 断线兜底时使用 3 秒轮询
     const interval = setInterval(() => {
-      const isWsActive = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
-      if (!isWsActive) {
-        fetchSessions();
-        fetchTransferData();
-      }
+      fetchSessions();
+      fetchTransferData();
     }, 3000);
     return () => clearInterval(interval);
-  }, [currentSessionId]);
+  }, [currentSessionId, isConnected]);
 
   const handleMessagesScroll = () => {
     const el = messagesContainerRef.current;
@@ -963,17 +926,13 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   value={agentInput}
                   onChange={(e) => {
                     setAgentInput(e.target.value);
-                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                      wsRef.current.send(
-                        JSON.stringify({
-                          type: "typing",
-                          sessionId: activeSession.id,
-                          sender: "agent",
-                          name: activeSession.assignedAgent || "人工坐席",
-                          isTyping: e.target.value.length > 0
-                        })
-                      );
-                    }
+                    sendJson({
+                      type: "typing",
+                      sessionId: activeSession.id,
+                      sender: "agent",
+                      name: activeSession.assignedAgent || "人工坐席",
+                      isTyping: e.target.value.length > 0,
+                    });
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {

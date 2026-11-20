@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { 
   Bot, 
   Headphones, 
@@ -11,6 +11,7 @@ import { AgentWorkbench } from "./components/AgentWorkbench";
 import { DualChatView } from "./components/DualChatView";
 import { MonitoringDashboard } from "./components/MonitoringDashboard";
 import { VectorKnowledgeBase } from "./components/VectorKnowledgeBase";
+import { WebSocketProvider, useWebSocket } from "./contexts/WebSocketContext";
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -59,118 +60,82 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-export default function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState<
     "dual" | "chat" | "workbench" | "monitoring" | "vector"
   >("dual");
 
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
+  const { isConnected, joinSession, subscribe } = useWebSocket();
+  const statusMapRef = useRef<Map<string, string>>(new Map());
+  const prevTabRef = useRef(activeTab);
 
-  // 初始化拉取一次预警数量，后续直接从 WebSocket 轻量 session:update 事件在内存中实时更新，不再重复发 HTTP 请求
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    let disposed = false;
-    const statusMap = new Map<string, string>();
-
-    const updateCountFromMap = () => {
-      if (disposed) return;
-      let count = 0;
-      for (const status of statusMap.values()) {
-        if (status === "NEEDS_INTERVENTION") count++;
-      }
-      setNeedsInterventionCount(count);
-    };
-
-    const checkAlerts = async () => {
-      try {
-        const res = await fetch("/api/sessions");
-        if (res.ok) {
-          const data = await res.json();
-          statusMap.clear();
-          for (const s of data.sessions || []) {
-            if (s?.id && s?.status) {
-              statusMap.set(s.id, s.status);
-            }
-          }
-          updateCountFromMap();
-        }
-      } catch (e) {
-        // silent
-      }
-    };
-
-    checkAlerts();
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const hostname = window.location.hostname === "0.0.0.0" ? "127.0.0.1" : window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : "";
-    const wsUrl = `${protocol}//${hostname}${port}/ws`;
-
-    try {
-      ws = new WebSocket(wsUrl);
-      ws.onerror = () => {
-        // suppress unhandled WebSocket connection errors
-      };
-      ws.onopen = () => {
-        if (disposed) {
-          try {
-            ws?.close();
-          } catch (e) {}
-          return;
-        }
-        ws?.send(JSON.stringify({
-          type: "join",
-          sessionId: "__global__",
-          role: "supervisor",
-          name: "全局状态徽标",
-        }));
-      };
-      ws.onmessage = (evt) => {
-        if (disposed) return;
-        try {
-          const payload = JSON.parse(evt.data);
-          if (payload.type === "session:update") {
-            const meta = payload.sessionMeta || payload.session;
-            const sid = payload.sessionId || meta?.id;
-            const status = meta?.status;
-            if (sid && status) {
-              statusMap.set(sid, status);
-              updateCountFromMap();
-            } else {
-              checkAlerts();
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-      };
-    } catch (e) {
-      // fallback to polling
+  const updateCountFromMap = useCallback(() => {
+    let count = 0;
+    for (const status of statusMapRef.current.values()) {
+      if (status === "NEEDS_INTERVENTION") count++;
     }
+    setNeedsInterventionCount(count);
+  }, []);
 
-    const interval = setInterval(() => {
-      const isWsActive = ws && ws.readyState === WebSocket.OPEN;
-      if (!isWsActive) {
-        checkAlerts();
+  const checkAlerts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sessions");
+      if (res.ok) {
+        const data = await res.json();
+        statusMapRef.current.clear();
+        for (const s of data.sessions || []) {
+          if (s?.id && s?.status) {
+            statusMapRef.current.set(s.id, s.status);
+          }
+        }
+        updateCountFromMap();
       }
-    }, 10000);
+    } catch (e) {
+      // silent
+    }
+  }, [updateCountFromMap]);
 
-    return () => {
-      disposed = true;
-      clearInterval(interval);
-      if (ws) {
-        ws.onerror = null;
-        ws.onclose = null;
-        ws.onmessage = null;
-        if (ws.readyState === WebSocket.OPEN) {
-          try {
-            ws.close();
-          } catch (e) {}
+  // 订阅全局唯一 WebSocket 事件实时维护预警数；当切换回非客户端页面或 WS 重连时同步一次
+  useEffect(() => {
+    checkAlerts();
+    return subscribe((payload) => {
+      if (payload.type === "session:update" || payload.type === "message:new") {
+        const meta = payload.sessionMeta || payload.session;
+        const sid = payload.sessionId || meta?.id;
+        const status = meta?.status;
+        if (sid && status) {
+          statusMapRef.current.set(sid, status);
+          updateCountFromMap();
+        } else if (payload.type === "session:update") {
+          checkAlerts();
         }
       }
-    };
-  }, []);
+    });
+  }, [checkAlerts, subscribe, updateCountFromMap]);
+
+  // 无聊天组件挂载的页面（监控大盘/知识库）由 App 维持 __global__ + supervisor 订阅以保活全站通知
+  useEffect(() => {
+    if (activeTab === "monitoring" || activeTab === "vector") {
+      joinSession({
+        sessionId: "__global__",
+        role: "supervisor",
+        name: "全局状态徽标",
+      });
+    }
+    if (prevTabRef.current === "chat" && activeTab !== "chat") {
+      checkAlerts();
+    }
+    prevTabRef.current = activeTab;
+  }, [activeTab, checkAlerts, joinSession]);
+
+  // 仅当共享 WebSocket 未连通时才降级为 10 秒轮询兜底
+  useEffect(() => {
+    if (isConnected) return;
+    const interval = setInterval(checkAlerts, 10000);
+    return () => clearInterval(interval);
+  }, [isConnected, checkAlerts]);
 
   const sessionOptions = [
     { id: "session_user_001", name: "王女士 (钻石VIP - 售后退款争议)" },
@@ -335,5 +300,13 @@ export default function App() {
         </ErrorBoundary>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <WebSocketProvider>
+      <AppContent />
+    </WebSocketProvider>
   );
 }
