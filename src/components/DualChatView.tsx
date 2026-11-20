@@ -1064,11 +1064,17 @@ export const DualChatView: React.FC = () => {
                 e.preventDefault();
                 handleCustomerSend();
               }}
-              className="flex items-center gap-2"
+              className="flex items-end gap-2"
             >
-              <input
-                type="text"
+              <textarea
+                rows={3}
                 value={customerInput}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleCustomerSend();
+                  }
+                }}
                 onChange={(e) => {
                   setCustomerInput(e.target.value);
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1082,13 +1088,13 @@ export const DualChatView: React.FC = () => {
                     );
                   }
                 }}
-                placeholder={isHumanActive ? "人工客服已接听，请输入您的需求..." : "请输入您想咨询的问题（输入【转人工】可呼叫人工客服）..."}
-                className="flex-1 px-3.5 py-2 text-xs bg-slate-100 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 transition-all"
+                placeholder={isHumanActive ? "人工客服已接听，请输入您的需求（Shift+Enter 换行，右下角可拖拽拉大）..." : "请输入您想咨询的问题（输入【转人工】可呼叫人工客服；Shift+Enter 换行）..."}
+                className="flex-1 min-h-[72px] max-h-[240px] px-3.5 py-2.5 text-xs bg-slate-100 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 resize-y transition-colors leading-relaxed"
               />
               <button
                 type="submit"
                 disabled={customerLoading || !customerInput.trim()}
-                className="flex items-center gap-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs"
+                className="h-[42px] flex items-center gap-1 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs shrink-0"
               >
                 <span>发送</span>
                 <Send className="w-3.5 h-3.5" />
@@ -1433,11 +1439,17 @@ export const DualChatView: React.FC = () => {
                 e.preventDefault();
                 handleAgentSend();
               }}
-              className="flex items-center gap-2"
+              className="flex items-end gap-2"
             >
               <textarea
-                rows={2}
+                rows={3}
                 value={agentInput}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleAgentSend();
+                  }
+                }}
                 onChange={(e) => {
                   setAgentInput(e.target.value);
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1452,15 +1464,15 @@ export const DualChatView: React.FC = () => {
                     );
                   }
                 }}
-                placeholder="人工坐席回复输入框（回车或点击右侧按钮直接发送至客户视窗）..."
-                className="flex-1 px-3 py-2 text-xs bg-slate-50 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-amber-500 resize-none transition-all"
+                placeholder="人工坐席回复输入框（回车发送，Shift+Enter 换行，右下角可拖拽拉大）..."
+                className="flex-1 min-h-[72px] max-h-[240px] px-3 py-2.5 text-xs bg-slate-50 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-amber-500 resize-y transition-colors leading-relaxed"
               />
               <button
                 type="submit"
                 disabled={agentSending || !agentInput.trim()}
-                className="h-full px-4 py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs flex flex-col items-center justify-center gap-1"
+                className="h-[42px] px-4 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs flex items-center justify-center gap-1 shrink-0"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-3.5 h-3.5" />
                 <span>发送</span>
               </button>
             </form>

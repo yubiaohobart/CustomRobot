@@ -1215,14 +1215,14 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               e.preventDefault();
               handleSendMessage();
             }}
-            className="flex items-center gap-2"
+            className="flex items-end gap-2.5"
           >
-            <input
+            <textarea
               id="customer-chat-input"
-              type="text"
+              rows={3}
               value={inputMessage}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   handleSendMessage();
                 }
@@ -1241,14 +1241,14 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                   );
                 }
               }}
-              placeholder={isHumanServing ? "已接通人工坐席，客服正在查看您的上下文背景，可直接在此发送..." : "请输入您想咨询的问题（例如：申请退款、补开发票、物流查询）..."}
-              className="flex-1 min-w-0 px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              placeholder={isHumanServing ? "已接通人工坐席，客服正在查看您的上下文背景，可直接在此发送（Shift+Enter 换行，右下角可拖拽拉大）..." : "请输入您想咨询的问题（例如：申请退款、补开发票、物流查询；Shift+Enter 换行，右下角可拖拽拉大）..."}
+              className="flex-1 min-w-0 min-h-[76px] max-h-[280px] px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-y transition-colors leading-relaxed"
             />
             <button
               id="btn-send-message"
               type="submit"
               disabled={loading || !inputMessage.trim()}
-              className="flex-shrink-0 flex items-center justify-center gap-1.5 px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium rounded-xl transition-colors shadow-xs cursor-pointer disabled:cursor-not-allowed"
+              className="flex-shrink-0 h-[46px] flex items-center justify-center gap-1.5 px-5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium rounded-xl transition-colors shadow-xs cursor-pointer disabled:cursor-not-allowed"
             >
               <span>发送</span>
               <Send className="w-4 h-4" />

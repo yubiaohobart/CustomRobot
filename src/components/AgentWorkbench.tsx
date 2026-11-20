@@ -938,10 +938,10 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
 
             {/* Message Input Form */}
             <div className="p-4 bg-white border-t border-slate-200 shrink-0">
-              <div className="flex gap-2">
+              <div className="flex items-end gap-2.5">
                 <textarea
                   id="agent-chat-input"
-                  rows={2}
+                  rows={3}
                   value={agentInput}
                   onChange={(e) => {
                     setAgentInput(e.target.value);
@@ -958,22 +958,22 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
                       handleSendHumanMessage();
                     }
                   }}
                   placeholder={
                     activeSession.status === "HUMAN_INTERVENED"
-                      ? "以【人工客服坐席】身份向客户发送消息（按 Ctrl+Enter 快速发送）..."
-                      : "温馨提示：当前处于AI托管状态，发送消息将自动激活人工接管..."
+                      ? "以【人工客服坐席】身份向客户发送消息（按 Ctrl+Enter 快速发送，右下角可拖拽拉大）..."
+                      : "温馨提示：当前处于AI托管状态，发送消息将自动激活人工接管（右下角可拖拽拉大）..."
                   }
-                  className="flex-1 p-2.5 bg-slate-50 focus:bg-white text-xs text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-amber-500 focus:ring-2 focus:ring-amber-100 resize-none transition-all"
+                  className="flex-1 min-h-[84px] max-h-[280px] p-3 bg-slate-50 focus:bg-white text-xs text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-amber-500 focus:ring-2 focus:ring-amber-100 resize-y transition-colors leading-relaxed"
                 />
                 <button
                   id="btn-agent-send"
                   onClick={() => handleSendHumanMessage()}
                   disabled={sending || !agentInput.trim()}
-                  className="px-5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-semibold text-xs rounded-xl flex flex-col items-center justify-center gap-1 transition-colors shadow-xs cursor-pointer disabled:cursor-not-allowed"
+                  className="h-[54px] px-5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer disabled:cursor-not-allowed shrink-0"
                 >
                   <Send className="w-4 h-4" />
                   <span>发送回复</span>
@@ -1635,11 +1635,11 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
               <div className="space-y-1">
                 <label className="font-semibold text-slate-700">交接附言与重点提醒（写入审计快照）：</label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={reTransferNote}
                   onChange={(e) => setReTransferNote(e.target.value)}
                   placeholder="如：客户已核对顺丰单号，请直接协助办理增值税专票重开"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs resize-none"
+                  className="w-full min-h-[72px] max-h-[200px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs resize-y"
                 />
               </div>
             </div>
