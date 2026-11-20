@@ -555,7 +555,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   const activeTargetAgent = availableAgents.find((a) => a.id === reTransferAgentId) || availableAgents[0];
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-100 relative">
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-slate-100 relative">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="absolute top-4 right-8 z-50 flex items-center gap-2 px-4 py-2.5 bg-slate-900/95 text-white text-xs rounded-xl shadow-lg border border-slate-700 animate-in fade-in slide-in-from-top-2">

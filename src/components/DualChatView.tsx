@@ -700,11 +700,11 @@ export const DualChatView: React.FC = () => {
       </div>
 
       {/* Main Split Screen Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* ============================================================== */}
         {/* LEFT COLUMN: CUSTOMER CHAT CLIENT (客户侧对话端) */}
         {/* ============================================================== */}
-        <div className="w-1/2 flex flex-col h-full border-r border-slate-300 bg-white">
+        <div className="w-1/2 min-w-0 min-h-0 flex flex-col h-full border-r border-slate-300 bg-white">
           {/* Customer Header */}
           <div className="px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/40 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -1106,7 +1106,7 @@ export const DualChatView: React.FC = () => {
         {/* ============================================================== */}
         {/* RIGHT COLUMN: HUMAN AGENT WORKBENCH (人工客服工作台视窗) */}
         {/* ============================================================== */}
-        <div className="w-1/2 flex flex-col h-full bg-slate-50">
+        <div className="w-1/2 min-w-0 min-h-0 flex flex-col h-full bg-slate-50">
           {/* Agent Top Header */}
           <div className="px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50/50 flex items-center justify-between">
             <div className="flex items-center gap-2.5">

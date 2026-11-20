@@ -134,7 +134,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100 text-slate-800 font-sans">
       {/* Top Main Navigation Header */}
-      <header className="h-16 border-b border-slate-200 bg-white px-5 flex items-center justify-between z-30 shadow-2xs">
+      <header className="h-16 shrink-0 border-b border-slate-200 bg-white px-5 flex items-center justify-between z-30 shadow-2xs">
         {/* Brand Logo & Name */}
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-amber-500 text-white shadow-xs font-bold">
@@ -293,7 +293,7 @@ export default function App() {
       )}
 
       {/* Main Workspace Body */}
-      <main className="flex-1 w-full h-[calc(100vh-4rem)] overflow-hidden">
+      <main className="flex-1 min-h-0 w-full overflow-hidden">
         <ErrorBoundary>
           {activeTab === "dual" && <DualChatView />}
 

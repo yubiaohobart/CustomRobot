@@ -505,7 +505,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const activeSelectedAgent = availableAgents.find(a => a.id === selectedAgentId) || availableAgents[0];
 
   return (
-    <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-slate-50 relative">
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-slate-50 relative">
       {/* Toast Notification */}
       {transferSuccessToast && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl shadow-lg border border-emerald-500 animate-in fade-in slide-in-from-top-2">
@@ -516,9 +516,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       )}
 
       {/* Main Chat Box */}
-      <div className="flex flex-1 flex-col h-full bg-white border-r border-slate-200">
+      <div className="flex flex-1 flex-col h-full min-w-0 min-h-0 overflow-hidden bg-white border-r border-slate-200">
         {/* Chat Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
           <div className="flex items-center gap-3">
             <div className={`relative flex items-center justify-center w-10 h-10 rounded-xl font-semibold shadow-xs ${
               isHumanServing 
@@ -596,7 +596,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
         {/* Human Agent Serving Banner */}
         {isHumanServing && (
-          <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white px-6 py-2.5 flex items-center justify-between text-xs shadow-xs animate-in fade-in">
+          <div className="shrink-0 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white px-6 py-2.5 flex items-center justify-between text-xs shadow-xs animate-in fade-in">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center font-bold">
                 <Headphones className="w-4 h-4 text-white" />
@@ -628,7 +628,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
         {/* Needs Human Intervention Banner */}
         {needsIntervention && !isHumanServing && (
-          <div className="bg-gradient-to-r from-rose-500 via-rose-600 to-amber-600 text-white px-6 py-2.5 flex items-center justify-between text-xs shadow-xs animate-in fade-in">
+          <div className="shrink-0 bg-gradient-to-r from-rose-500 via-rose-600 to-amber-600 text-white px-6 py-2.5 flex items-center justify-between text-xs shadow-xs animate-in fade-in">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center font-bold">
                 <Headphones className="w-4 h-4 text-white animate-bounce" />
@@ -661,7 +661,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         <div
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
-          className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50"
+          className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4 bg-slate-50/50"
         >
           {/* Welcome Banner */}
           <div className="mx-auto max-w-2xl p-4 bg-white rounded-xl border border-slate-200/80 shadow-xs">
@@ -1195,7 +1195,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         </div>
 
         {/* Quick Prompts Bar */}
-        <div className="px-6 py-2 bg-white border-t border-slate-100 flex items-center gap-2 overflow-x-auto text-xs scrollbar-none">
+        <div className="shrink-0 px-6 py-2 bg-white border-t border-slate-100 flex items-center gap-2 overflow-x-auto text-xs scrollbar-none">
           <span className="text-slate-400 whitespace-nowrap text-xs">快捷问答测试:</span>
           {quickQuestions.map((q, idx) => (
             <button
@@ -1209,7 +1209,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         </div>
 
         {/* Input Bar */}
-        <div className="p-4 bg-white border-t border-slate-200">
+        <div className="shrink-0 p-4 bg-white border-t border-slate-200">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -1263,7 +1263,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
       {/* Right Collapsible Memory & LangGraph State Panel */}
       {showMemoryPanel && (
-        <div className="w-80 h-full border-l border-slate-200 bg-white flex flex-col overflow-y-auto">
+        <div className="w-80 shrink-0 h-full min-h-0 border-l border-slate-200 bg-white flex flex-col overflow-y-auto">
           <div className="p-4 border-b border-slate-200 bg-slate-50">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">

@@ -93,7 +93,7 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
   const humanServingList = sessions.filter((s) => s.status === "HUMAN_INTERVENED");
 
   return (
-    <div className="flex-1 h-[calc(100vh-4rem)] overflow-y-auto bg-slate-50 p-6 space-y-6">
+    <div className="flex-1 h-full overflow-y-auto bg-slate-50 p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
