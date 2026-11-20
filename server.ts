@@ -565,16 +565,6 @@ async function startServer() {
 
   // ==================== REST API 业务路由 ====================
 
-  app.get("/api/gateway/status", (req, res) => {
-    res.json({
-      gateway: "IntelliServe Smart Gateway",
-      architecture: "Full-Stack Node.js + FastAPI Hybrid",
-      pythonConnected: true,
-      pythonBackendUrl: "http://127.0.0.1:3000",
-      pythonWsUrl: "ws://127.0.0.1:3000/ws",
-    });
-  });
-
   app.get("/api/sessions", (req, res) => {
     res.json({ sessions: Object.values(sessions) });
   });

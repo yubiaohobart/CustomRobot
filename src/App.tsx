@@ -66,41 +66,6 @@ export default function App() {
 
   const [currentSessionId, setCurrentSessionId] = useState("session_user_001");
   const [needsInterventionCount, setNeedsInterventionCount] = useState(0);
-  const [pythonStatus, setPythonStatus] = useState<{
-    connected: boolean;
-    url: string;
-    wsUrl: string;
-    checked: boolean;
-  }>({
-    connected: false,
-    url: "http://127.0.0.1:5000",
-    wsUrl: "ws://127.0.0.1:5000/ws",
-    checked: false,
-  });
-
-  // 探测 Python FastAPI 及 WebSocket 后端状态
-  useEffect(() => {
-    const checkBackend = async () => {
-      try {
-        const res = await fetch("/api/gateway/status");
-        if (res.ok) {
-          const data = await res.json();
-          setPythonStatus({
-            connected: !!data.pythonConnected,
-            url: data.pythonBackendUrl || "http://127.0.0.1:5000",
-            wsUrl: data.pythonWsUrl || "ws://127.0.0.1:5000/ws",
-            checked: true,
-          });
-        }
-      } catch {
-        setPythonStatus(prev => ({ ...prev, connected: false, checked: true }));
-      }
-    };
-
-    checkBackend();
-    const interval = setInterval(checkBackend, 10000);
-    return () => clearInterval(interval);
-  }, []);
 
   // 实时轮询会话预警状态 (降低频率为 10 秒，避免刷屏)
   useEffect(() => {
@@ -229,30 +194,8 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Header Right: Backend Status & Session Switcher */}
+        {/* Header Right: Session Switcher */}
         <div className="flex items-center gap-2.5">
-          {/* Backend Status Badge */}
-          <div
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-all ${
-              pythonStatus.connected
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                : "bg-amber-50 text-amber-700 border-amber-200"
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                pythonStatus.connected
-                  ? "bg-emerald-500 animate-pulse"
-                  : "bg-amber-500 animate-ping"
-              }`}
-            />
-            <span>
-              {pythonStatus.connected ? "后端服务在线 (FastAPI + WS)" : "Python 后端待连接"}
-            </span>
-          </div>
-
-          <span className="text-[11px] text-slate-300 hidden md:inline">|</span>
-
           {/* Active Session Switcher Pill */}
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-slate-400 font-medium hidden lg:inline">体验会话:</span>
@@ -273,24 +216,6 @@ export default function App() {
           </div>
         </div>
       </header>
-
-      {/* Standby Banner when Python Backend is offline */}
-      {!pythonStatus.connected && (
-        <div className="bg-amber-50 border-b border-amber-200/80 px-5 py-2 flex items-center justify-between text-xs text-amber-900 shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
-            <span>
-              💡 <strong>应急热备模式运行中</strong>：前端会话、人工坐席接管与全双工 WebSocket 已全量可用。如需开启完整 AI 知识检索与 LangGraph 核心，请在本地终端运行：
-            </span>
-            <code className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-mono font-bold text-[11px] border border-amber-300">
-              npm run fastapi
-            </code>
-          </div>
-          <span className="text-[11px] text-amber-700 hidden lg:inline">
-            后端启动后，网关将自动秒级切换至 Python 引擎
-          </span>
-        </div>
-      )}
 
       {/* Main Workspace Body */}
       <main className="flex-1 min-h-0 w-full overflow-hidden">
