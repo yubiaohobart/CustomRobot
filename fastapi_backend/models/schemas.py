@@ -23,17 +23,7 @@ class ChatRequest(BaseModel):
     outRefundNo: Optional[str] = Field(default=None, description="商户退款申请单号 / 幂等流水号（防止重复提交）")
 
 class ChatResponse(BaseModel):
-    sessionId: str
-    reply: str
-    confidenceScore: float = 0.90
-    sentiment: str = "neutral"
-    intent: str = "售后服务咨询"
     escalatedToHuman: bool = False
-    escalationReason: Optional[str] = None
-    refundConfirmationPending: bool = False
-    refundOrderId: Optional[str] = None
-    outRefundNo: Optional[str] = None
-    latencyMs: int = 35
     userMessage: Optional[Dict[str, Any]] = None
     assistantMessage: Optional[Dict[str, Any]] = None
     sessionPatch: Optional[Dict[str, Any]] = None

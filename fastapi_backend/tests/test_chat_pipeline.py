@@ -20,32 +20,26 @@ def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dic
     assert response.status_code == 200, f"Expected 200, got: {response.text}"
     data = response.json()
 
-    assert data["sessionId"] == sample_chat_request["sessionId"]
-    assert "reply" in data and len(data["reply"]) > 0
-    assert "confidenceScore" in data
-    assert 0.0 <= data["confidenceScore"] <= 1.0
-    assert "sentiment" in data
-    assert "intent" in data
+    assert set(data.keys()) == {"escalatedToHuman", "userMessage", "assistantMessage", "sessionPatch"}
     assert data["escalatedToHuman"] is False
-    assert "latencyMs" in data and data["latencyMs"] >= 0
 
-    # 验证增量消息结构（无全量 session 冗余）
-    assert "session" not in data
-    assert "pendingRefundOrder" not in data
+    # 验证增量消息结构（无全量 session 与顶层冗余字段）
     assert data["userMessage"]["role"] == "user"
     assert data["userMessage"]["content"] == sample_chat_request["message"]
 
     assistant_msg = data["assistantMessage"]
     assert assistant_msg["role"] == "assistant"
-    assert assistant_msg["content"] == data["reply"]
+    assert len(assistant_msg["content"]) > 0
     ai_meta = assistant_msg.get("aiMeta") or {}
     assert "intent" not in ai_meta
     assert "sentiment" not in ai_meta
+    assert 0.0 <= ai_meta["confidenceScore"] <= 1.0
     assert isinstance(ai_meta.get("references"), list)
     assert isinstance(ai_meta.get("stepTrace"), list)
 
     patch = data["sessionPatch"]
     assert patch["status"] == "AI_HANDLING"
+    assert "intent" in patch and "sentiment" in patch
     assert "messages" not in patch
     assert "metrics" not in patch
     assert "pendingRefund" not in patch
@@ -68,9 +62,8 @@ def test_chat_explicit_human_request(client: TestClient):
     assert response.status_code == 200
     data = response.json()
 
-    assert data["sessionId"] == payload["sessionId"]
+    assert set(data.keys()) == {"escalatedToHuman", "userMessage", "assistantMessage", "sessionPatch"}
     assert data["escalatedToHuman"] is True
-    assert data["escalationReason"] is not None
     assert data["sessionPatch"]["status"] in ["NEEDS_INTERVENTION", "TRANSFERRED_TO_HUMAN"]
 
 

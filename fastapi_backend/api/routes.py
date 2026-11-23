@@ -59,21 +59,12 @@ async def _emit_message_event(session_id: str, message: Dict[str, Any], session:
 
 
 def _build_human_takeover_response(
-    session_id: str,
     session: Dict[str, Any],
     user_msg: Dict[str, Any],
-    t_start: float,
 ) -> ChatResponse:
     """会话处于人工接管状态时的早退增量响应"""
     return ChatResponse(
-        sessionId=session_id,
-        reply="您的消息已送达人工专员，坐席正在与您实时沟通中...",
-        confidenceScore=1.0,
-        sentiment="neutral",
-        intent="人工客服协同对话",
         escalatedToHuman=True,
-        escalationReason="会话处于人工坐席服务中",
-        latencyMs=int((time.time() - t_start) * 1000),
         userMessage=user_msg,
         assistantMessage=None,
         sessionPatch=memory_service.build_session_patch(session, include_context=True),
@@ -165,7 +156,7 @@ async def chat_endpoint(req: ChatRequest):
         # 2. 若当前会话已被人工接管，AI 暂停自主介入，直接返回坐席协同提示
         if session.get("status") in HUMAN_TAKEOVER_STATUSES:
             cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
-            return _build_human_takeover_response(req.sessionId, session, user_msg, t_start)
+            return _build_human_takeover_response(session, user_msg)
 
         # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
         pending_refund = session.get("pendingRefund") or {}
@@ -227,17 +218,7 @@ async def chat_endpoint(req: ChatRequest):
     await _emit_message_event(req.sessionId, assistant_msg, updated_session)
 
     return ChatResponse(
-        sessionId=req.sessionId,
-        reply=reply,
-        confidenceScore=conf_score,
-        sentiment=sentiment,
-        intent=intent,
         escalatedToHuman=handoff,
-        escalationReason=final_state.get("escalation_reason"),
-        refundConfirmationPending=refund_pending,
-        refundOrderId=refund_order_id if refund_pending else None,
-        outRefundNo=out_refund_no if refund_pending else None,
-        latencyMs=latency_ms,
         userMessage=user_msg,
         assistantMessage=assistant_msg,
         sessionPatch=memory_service.build_session_patch(updated_session, include_context=True),

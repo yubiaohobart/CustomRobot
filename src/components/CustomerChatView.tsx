@@ -322,11 +322,6 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         }
         if (data.sessionPatch) {
           setSession((prev) => (prev ? applySessionPatch(prev, data.sessionPatch) : prev));
-        } else if (data.session) {
-          setSession(data.session);
-          if (data.session.messages) {
-            setMessages((prev) => mergeServerMessages(prev, data.session.messages, true));
-          }
         } else if (deltaMessages.length === 0) {
           await fetchSession();
         }
