@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import datetime
 import re
 from services.storage_service import storage_service
-from config import settings, PROCESSED_REQUEST_IDS_LIMIT
+from config import settings, PROCESSED_OUT_REFUND_NOS_LIMIT
 
 
 class OrderNotFoundError(LookupError, ValueError):
@@ -57,7 +57,7 @@ def _calc_refund_amount_cents(order: Dict[str, Any], refund_amount: Optional[flo
 
 def _build_refund_outcome(
     order_id: str,
-    request_id: str,
+    out_refund_no: str,
     status: str,
     reply: str,
     *,
@@ -66,7 +66,7 @@ def _build_refund_outcome(
 ) -> Dict[str, Any]:
     return {
         "order_id": order_id,
-        "request_id": request_id,
+        "out_refund_no": out_refund_no,
         "status": status,
         "reply": reply,
         "handoff": handoff,
@@ -234,12 +234,12 @@ class OrderService:
         order: Dict[str, Any],
         reason: str,
         refund_amount: Optional[float],
-        request_id: Optional[str],
+        out_refund_no: Optional[str],
     ) -> Dict[str, Any]:
-        """在已加载且通过前置校验的订单对象上执行退款落盘与幂等流水记录"""
+        """在已加载且通过前置校验的订单对象上执行退款落盘与幂等单号记录"""
         after_sales = dict(order.get("afterSales") or {})
-        processed_ids = list(after_sales.get("processedRequestIds") or [])
-        if request_id and request_id in processed_ids:
+        processed_nos = list(after_sales.get("processedOutRefundNos") or [])
+        if out_refund_no and out_refund_no in processed_nos:
             return order
 
         amount, amount_cents = _calc_refund_amount_cents(order, refund_amount)
@@ -249,10 +249,10 @@ class OrderService:
 
         after_sales["refundAmount"] = amount
         after_sales["refundReason"] = reason
-        if request_id:
-            after_sales["lastRequestId"] = request_id
-            processed_ids.append(request_id)
-            after_sales["processedRequestIds"] = processed_ids[-PROCESSED_REQUEST_IDS_LIMIT:]
+        if out_refund_no:
+            after_sales["lastOutRefundNo"] = out_refund_no
+            processed_nos.append(out_refund_no)
+            after_sales["processedOutRefundNos"] = processed_nos[-PROCESSED_OUT_REFUND_NOS_LIMIT:]
 
         if amount_cents >= limit_cents:
             order["status"] = "REFUND_PENDING_AUDIT"
@@ -281,11 +281,11 @@ class OrderService:
         order_id: str,
         reason: str = "7天无理由退货",
         refund_amount: Optional[float] = None,
-        request_id: Optional[str] = None,
+        out_refund_no: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        处理客户订单退款申请（支持 request_id 幂等控制与重复提交状态拦截）：
-        - 若同一个 request_id 已处理过，直接返回当前订单状态
+        处理客户订单退款申请（支持 out_refund_no 幂等控制与重复提交状态拦截）：
+        - 若同一个 out_refund_no 已处理过，直接返回当前订单状态
         - 若订单已退款或待人工审核，拒绝重复覆写
         - 金额 < AUTO_REFUND_LIMIT_YUAN：自动秒退 (REFUNDED / AUTO_REFUNDED)
         - 金额 >= AUTO_REFUND_LIMIT_YUAN：转人工审核 (REFUND_PENDING_AUDIT / PENDING_HUMAN_AUDIT)
@@ -295,15 +295,15 @@ class OrderService:
             raise OrderNotFoundError(f"订单 {order_id} 不存在")
 
         after_sales = dict(order.get("afterSales") or {})
-        processed_ids = after_sales.get("processedRequestIds") or []
-        if request_id and request_id in processed_ids:
+        processed_nos = after_sales.get("processedOutRefundNos") or []
+        if out_refund_no and out_refund_no in processed_nos:
             return order
 
         current_status = order.get("status")
         if current_status in ("REFUNDED", "REFUND_PENDING_AUDIT"):
             raise ValueError(f"订单 {order_id} 当前状态为【{order.get('statusText') or current_status}】，不可重复提交退款")
 
-        return self._apply_refund_to_order(order, reason, refund_amount, request_id)
+        return self._apply_refund_to_order(order, reason, refund_amount, out_refund_no)
 
     def audit_refund(
         self,
@@ -383,37 +383,37 @@ class OrderService:
         self,
         order: Dict[str, Any],
         action: str,
-        request_id: str,
+        out_refund_no: str,
     ) -> Dict[str, Any]:
-        """执行退款确认/取消业务决策（含 request_id 幂等去重与动态审核阈值分流）"""
+        """执行退款确认/取消业务决策（含 out_refund_no 幂等去重与动态审核阈值分流）"""
         oid = order.get("orderId", "")
         amount, amount_cents = _calc_refund_amount_cents(order)
         limit_cents = settings.auto_refund_limit_cents
         limit_text = settings.auto_refund_limit_text
         current_status = order.get("status", "")
-        processed_ids = (order.get("afterSales") or {}).get("processedRequestIds") or []
+        processed_nos = (order.get("afterSales") or {}).get("processedOutRefundNos") or []
 
         if action == "cancel":
             return _build_refund_outcome(
                 oid,
-                request_id,
+                out_refund_no,
                 "CANCELED",
                 f"已为您取消退款申请，订单【{oid}】将保持正常签收状态。如需其他帮助，随时联系我！",
             )
 
-        if request_id and request_id in processed_ids:
+        if out_refund_no and out_refund_no in processed_nos:
             draft_status = "PENDING_AUDIT" if current_status == "REFUND_PENDING_AUDIT" else "SUBMITTED"
             return _build_refund_outcome(
                 oid,
-                request_id,
+                out_refund_no,
                 draft_status,
-                f"【幂等提示】您的本次退款申请（流水号：{request_id}）已成功受理，订单【{oid}】无需重复提交。",
+                f"【幂等提示】您的本次退款申请（退款单号：{out_refund_no}）已成功受理，订单【{oid}】无需重复提交。",
             )
 
         if current_status == "REFUNDED":
             return _build_refund_outcome(
                 oid,
-                request_id,
+                out_refund_no,
                 "SUBMITTED",
                 f"【温馨提示】订单【{oid}】此前已完成退款，款项已原路退回解冻，请您查收账户通知！",
             )
@@ -421,7 +421,7 @@ class OrderService:
         if current_status == "REFUND_PENDING_AUDIT":
             return _build_refund_outcome(
                 oid,
-                request_id,
+                out_refund_no,
                 "PENDING_AUDIT",
                 f"【温馨提示】订单【{oid}】的退款审核工单已在处理中，无需重复提交，专员正在加急核验！",
             )
@@ -431,11 +431,11 @@ class OrderService:
                 order,
                 reason="用户二次确认提交退款(自动秒退)",
                 refund_amount=amount,
-                request_id=request_id,
+                out_refund_no=out_refund_no,
             )
             return _build_refund_outcome(
                 oid,
-                request_id,
+                out_refund_no,
                 "SUBMITTED",
                 f"【智能客服秒退成功】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (< {limit_text} 元)，智能客服已为您直接原路退回解冻，请查收！",
             )
@@ -444,11 +444,11 @@ class OrderService:
             order,
             reason="用户二次确认提交退款(人工审核)",
             refund_amount=amount,
-            request_id=request_id,
+            out_refund_no=out_refund_no,
         )
         return _build_refund_outcome(
             oid,
-            request_id,
+            out_refund_no,
             "PENDING_AUDIT",
             f"【退款审核工单已提交】您已二次确认！订单【{oid}】实付金额为 ¥{amount:.2f} 元 (>= {limit_text} 元)，涉及商城资金安全，已自动为您无缝对接人工客服加急干涉与核验！",
             handoff=True,

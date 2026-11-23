@@ -78,7 +78,7 @@ class Settings(BaseModel):
 # 跨模块共享业务常量
 HUMAN_TAKEOVER_STATUSES = ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN")
 DETERMINISTIC_FLOW_CONFIDENCE = 0.95  # 确定性业务流（挂起确认/退款分流/转人工）默认置信度
-PROCESSED_REQUEST_IDS_LIMIT = 20      # 单订单保留的幂等流水号历史上限
+PROCESSED_OUT_REFUND_NOS_LIMIT = 20   # 单订单保留的商户退款单号 (outRefundNo) 历史上限
 
 # 会话滑动窗口摘要裁剪常量
 SUMMARY_USER_SNIPPET_LEN = 60

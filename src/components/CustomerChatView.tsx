@@ -277,7 +277,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   const handleSendMessage = async (
     textToSend?: string,
     actionParam?: string,
-    refundCtx?: { orderId?: string; requestId?: string }
+    refundCtx?: { orderId?: string; outRefundNo?: string }
   ) => {
     const text = (textToSend || inputMessage).trim();
     if (!text || loading) return;
@@ -307,7 +307,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
           message: text,
           refundConfirmationAction: actionParam || null,
           refundOrderId: refundCtx?.orderId || null,
-          refundRequestId: refundCtx?.requestId || null,
+          outRefundNo: refundCtx?.outRefundNo || null,
         }),
       });
 
@@ -1003,7 +1003,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                             <button
                               onClick={() => handleSendMessage("我确认提交退款申请", "confirm", {
                                 orderId: refundCard.orderId,
-                                requestId: refundCard.requestId,
+                                outRefundNo: refundCard.outRefundNo,
                               })}
                               disabled={loading}
                               className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1015,7 +1015,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                             <button
                               onClick={() => handleSendMessage("取消退款申请", "cancel", {
                                 orderId: refundCard.orderId,
-                                requestId: refundCard.requestId,
+                                outRefundNo: refundCard.outRefundNo,
                               })}
                               disabled={loading}
                               className="flex-1 py-2.5 px-3 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"

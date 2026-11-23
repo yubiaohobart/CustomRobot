@@ -309,7 +309,7 @@ class MemoryService:
         queried_order: Optional[Dict[str, Any]] = None,
         refund_confirmation_pending: Optional[bool] = None,
         refund_order_id: Optional[str] = None,
-        refund_request_id: Optional[str] = None,
+        out_refund_no: Optional[str] = None,
         clear_pending_refund: bool = False,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 挂起退款上下文 + 真实指标 + 统一结构 AI 消息落盘"""
@@ -318,8 +318,8 @@ class MemoryService:
         profile["intent"] = intent
         profile["sentiment"] = sentiment
 
-        if refund_confirmation_pending and refund_order_id and refund_request_id:
-            session["pendingRefund"] = {"orderId": refund_order_id, "requestId": refund_request_id}
+        if refund_confirmation_pending and refund_order_id and out_refund_no:
+            session["pendingRefund"] = {"orderId": refund_order_id, "outRefundNo": out_refund_no}
         elif clear_pending_refund:
             session["pendingRefund"] = None
 
@@ -348,11 +348,11 @@ class MemoryService:
             ai_meta["stepTrace"] = step_trace
 
         card: Optional[Dict[str, Any]] = None
-        if refund_confirmation_pending and refund_order_id and refund_request_id:
+        if refund_confirmation_pending and refund_order_id and out_refund_no:
             card = {
                 "type": "refund_confirm",
                 "orderId": refund_order_id,
-                "requestId": refund_request_id,
+                "outRefundNo": out_refund_no,
             }
             if queried_order:
                 card["order"] = queried_order

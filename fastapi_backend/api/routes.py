@@ -170,7 +170,7 @@ async def chat_endpoint(req: ChatRequest):
         # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
         pending_refund = session.get("pendingRefund") or {}
         req_refund_order_id = req.refundOrderId or pending_refund.get("orderId")
-        req_refund_request_id = req.refundRequestId or pending_refund.get("requestId")
+        req_out_refund_no = req.outRefundNo or pending_refund.get("outRefundNo")
 
         final_state = await run_customer_service_graph(
             session_id=req.sessionId,
@@ -178,7 +178,7 @@ async def chat_endpoint(req: ChatRequest):
             confirm_action=req.refundConfirmationAction,
             session=session,
             refund_order_id=req_refund_order_id,
-            refund_request_id=req_refund_request_id,
+            out_refund_no=req_out_refund_no,
             acquire_lock=False,
         )
 
@@ -192,7 +192,7 @@ async def chat_endpoint(req: ChatRequest):
         refund_draft = final_state.get("refund") or {}
         refund_pending = refund_draft.get("status") == "PENDING_CONFIRM"
         refund_order_id = order_id if refund_pending else None
-        refund_request_id = refund_draft.get("request_id")
+        out_refund_no = refund_draft.get("out_refund_no")
         handoff = bool(final_state.get("handoff", False))
 
         # 置信度：命中向量库取最高分；确定性业务流程（挂起/转人工/退款动作）给固定高置信度；其余无命中给 0.0
@@ -220,7 +220,7 @@ async def chat_endpoint(req: ChatRequest):
             queried_order=current_order,
             refund_confirmation_pending=refund_pending,
             refund_order_id=refund_order_id,
-            refund_request_id=refund_request_id,
+            out_refund_no=out_refund_no,
             clear_pending_refund=not refund_pending,
         )
 
@@ -236,7 +236,7 @@ async def chat_endpoint(req: ChatRequest):
         escalationReason=final_state.get("escalation_reason"),
         refundConfirmationPending=refund_pending,
         refundOrderId=refund_order_id if refund_pending else None,
-        refundRequestId=refund_request_id if refund_pending else None,
+        outRefundNo=out_refund_no if refund_pending else None,
         latencyMs=latency_ms,
         userMessage=user_msg,
         assistantMessage=assistant_msg,

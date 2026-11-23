@@ -115,7 +115,7 @@ export type MessageCard =
   | {
       type: "refund_confirm";
       orderId: string;
-      requestId: string;
+      outRefundNo: string;
       order?: OrderData;
     };
 
@@ -271,7 +271,7 @@ export interface ConversationSession {
   };
   pendingRefund?: {
     orderId: string;
-    requestId: string;
+    outRefundNo: string;
   } | null;
   unreadForAgent: boolean;
   createdAt: string;

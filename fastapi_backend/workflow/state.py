@@ -29,7 +29,7 @@ class Hit(TypedDict):
 
 class RefundDraft(TypedDict):
     """订单退款状态与幂等控制结构（所属订单号复用 OutputState.order_id）"""
-    request_id: str    # 单次退款申请的幂等唯一流水号，防止重复提交或并发重入
+    out_refund_no: str  # 单次退款申请的商户退款单号 (outRefundNo)，防止重复提交或并发重入
     status: Literal[
         "PENDING_CONFIRM",  # 已触发 interrupt 挂起，等待客户在确认卡片点击确认/取消
         "PENDING_AUDIT",    # 金额 >= 3.00 元，已提交人工资金安全审核队列

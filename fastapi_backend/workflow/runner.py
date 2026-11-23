@@ -79,7 +79,7 @@ def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = Non
 
 def _apply_interrupt_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    当图因 interrupt() 挂起返回时，从 __interrupt__ 提取退款确认卡片、提示文案与 request_id 写入本次输出状态。
+    当图因 interrupt() 挂起返回时，从 __interrupt__ 提取退款确认卡片、提示文案与 out_refund_no 写入本次输出状态。
     注：不再在外部调用 graph.aupdate_state()，避免生成 source='update' 新 checkpoint 覆盖原挂起任务的 interrupts。
     """
     interrupts = final_state.get("__interrupt__") or []
@@ -92,9 +92,9 @@ def _apply_interrupt_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
         return final_state
 
     intr_order_id = intr_val.get("order_id") or final_state.get("order_id") or ""
-    intr_request_id = intr_val.get("request_id", "")
+    intr_out_refund_no = intr_val.get("out_refund_no", "")
     refund_draft = {
-        "request_id": intr_request_id,
+        "out_refund_no": intr_out_refund_no,
         "status": "PENDING_CONFIRM",
     }
 
@@ -103,7 +103,7 @@ def _apply_interrupt_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
     final_state["intent"] = "退款申请与审批"
     final_state["refund"] = refund_draft
     final_state["trace"] = list(final_state.get("trace") or []) + [
-        f"order_refund: [LangGraph interrupt 挂起] 订单 {intr_order_id} (req={intr_request_id}) 等待客户交互确认"
+        f"order_refund: [LangGraph interrupt 挂起] 订单 {intr_order_id} (outRefundNo={intr_out_refund_no}) 等待客户交互确认"
     ]
     return final_state
 
@@ -112,7 +112,7 @@ async def _execute_graph(
     session_id: str,
     input_state: InputState,
     refund_order_id: Optional[str] = None,
-    refund_request_id: Optional[str] = None,
+    out_refund_no: Optional[str] = None,
 ) -> Dict[str, Any]:
     graph_config = {"configurable": {"thread_id": session_id}}
     t_graph = time.time()
@@ -127,10 +127,10 @@ async def _execute_graph(
             snapshot = await graph.aget_state(graph_config)
             pending_intr = _extract_pending_interrupt(snapshot, expected_order_id=refund_order_id)
             if pending_intr is not None:
-                resolved_request_id = refund_request_id or pending_intr.get("request_id")
+                resolved_out_refund_no = out_refund_no or pending_intr.get("out_refund_no")
                 invoke_payload = Command(resume={
                     "action": input_state["confirm_action"],
-                    "request_id": resolved_request_id,
+                    "out_refund_no": resolved_out_refund_no,
                 })
                 is_resumed = True
                 mode_label = f"断点恢复({input_state['confirm_action']})"
@@ -185,13 +185,13 @@ async def run_customer_service_graph(
     confirm_action: Optional[str],
     session: Dict[str, Any],
     refund_order_id: Optional[str] = None,
-    refund_request_id: Optional[str] = None,
+    out_refund_no: Optional[str] = None,
     acquire_lock: bool = True,
 ) -> Dict[str, Any]:
     """执行指定会话的 LangGraph 状态图，统一处理中断挂起与 Command 唤醒"""
     pending = session.get("pendingRefund") or {}
     target_order_id = refund_order_id or pending.get("orderId")
-    target_request_id = refund_request_id or pending.get("requestId")
+    target_out_refund_no = out_refund_no or pending.get("outRefundNo")
     input_state = build_input_state(session_id, message, confirm_action, session)
 
     lock_ctx = get_session_lock(session_id) if acquire_lock else nullcontext()
@@ -200,5 +200,5 @@ async def run_customer_service_graph(
             session_id,
             input_state,
             refund_order_id=target_order_id,
-            refund_request_id=target_request_id,
+            out_refund_no=target_out_refund_no,
         )

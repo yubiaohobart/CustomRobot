@@ -17,23 +17,23 @@ from config import settings
 from core.logger import cprint, trace_node
 
 
-def _resolve_refund_request_id(state: AgentState, oid: str) -> str:
-    """提取断点中已保存的流水号，若为全新申请则生成新流水号"""
+def _resolve_out_refund_no(state: AgentState, oid: str) -> str:
+    """提取断点中已保存的商户退款单号，若为全新申请则生成新退款单号"""
     state_refund = state.get("refund") or {}
-    if state_refund.get("request_id") and state.get("order_id") == oid:
-        return state_refund["request_id"]
+    if state_refund.get("out_refund_no") and state.get("order_id") == oid:
+        return state_refund["out_refund_no"]
     return f"ref_{oid}_{int(time.time() * 1000)}"
 
 
-def _parse_resume_payload(resume_data: Any, fallback_request_id: str) -> Tuple[Optional[str], str]:
-    """从 Command(resume=...) 载荷中提取确认动作与幂等流水号"""
+def _parse_resume_payload(resume_data: Any, fallback_out_refund_no: str) -> Tuple[Optional[str], str]:
+    """从 Command(resume=...) 载荷中提取确认动作与商户退款单号"""
     if isinstance(resume_data, dict):
         action = resume_data.get("action") or resume_data.get("confirm_action")
-        request_id = resume_data.get("request_id") or fallback_request_id
-        return action, request_id
+        out_refund_no = resume_data.get("out_refund_no") or fallback_out_refund_no
+        return action, out_refund_no
     if isinstance(resume_data, str) and resume_data in ("confirm", "cancel"):
-        return resume_data, fallback_request_id
-    return None, fallback_request_id
+        return resume_data, fallback_out_refund_no
+    return None, fallback_out_refund_no
 
 
 @trace_node("analyze_query", "意图分类、情绪识别与瞬态字段复位")
@@ -90,17 +90,17 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
 
     oid = order["orderId"]
     action = state.get("confirm_action")
-    request_id = _resolve_refund_request_id(state, oid)
+    out_refund_no = _resolve_out_refund_no(state, oid)
 
     # 首次发起退款申请：触发 LangGraph interrupt 挂起，等待 Command(resume=...) 唤醒
     if not action and state.get("intent") == "退款申请与审批":
         gate_reply = order_service.build_refund_gate_reply(order)
         resume_data = interrupt({
             "order_id": oid,
-            "request_id": request_id,
+            "out_refund_no": out_refund_no,
             "reply": gate_reply,
         })
-        action, request_id = _parse_resume_payload(resume_data, request_id)
+        action, out_refund_no = _parse_resume_payload(resume_data, out_refund_no)
 
     if action not in ("confirm", "cancel"):
         duration = int((time.time() - t0) * 1000)
@@ -112,9 +112,9 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
         }
 
     try:
-        outcome = order_service.execute_refund_decision(order, action, request_id)
+        outcome = order_service.execute_refund_decision(order, action, out_refund_no)
         duration = int((time.time() - t0) * 1000)
-        draft: RefundDraft = {"request_id": outcome["request_id"], "status": outcome["status"]}
+        draft: RefundDraft = {"out_refund_no": outcome["out_refund_no"], "status": outcome["status"]}
         res: Dict[str, Any] = {
             "order_id": outcome["order_id"],
             "refund": draft,
