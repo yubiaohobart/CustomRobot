@@ -684,7 +684,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
             const stepTrace = msg.aiMeta?.stepTrace;
             const orderCard = msg.card?.type === "order" ? msg.card.order : undefined;
             const refundCard = msg.card?.type === "refund_confirm" ? msg.card : undefined;
-            const refundOrder = refundCard?.order;
+            const refundAmount = refundCard?.paidAmount;
             const isLowConfidence = msg.role === "assistant" && confScore !== undefined && confScore < 0.65;
 
             return (
@@ -950,34 +950,36 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                         </div>
 
                         {/* Order Summary */}
-                        {refundOrder && (
-                          <div className="p-2.5 bg-white rounded-xl border border-amber-200/80 text-xs space-y-1">
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-500">待处理订单号:</span>
-                              <span className="font-mono font-bold text-amber-900">
-                                {refundOrder.orderId}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-500">实付金额:</span>
-                              <span className="font-bold text-rose-600 text-sm">
-                                ¥{refundOrder.paidAmount.toFixed(2)} 元
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-100">
-                              <span className="text-slate-500">退款执行路径:</span>
-                              <span className={`font-semibold px-2 py-0.5 rounded text-[10px] ${
-                                refundOrder.paidAmount < 3.00
-                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                                  : "bg-amber-100 text-amber-800 border border-amber-200"
-                              }`}>
-                                {refundOrder.paidAmount < 3.00
-                                  ? "< 3.00 元 · 智能客服直接秒级退款"
-                                  : "≥ 3.00 元 · 提交人工干涉审核队列"}
-                              </span>
-                            </div>
+                        <div className="p-2.5 bg-white rounded-xl border border-amber-200/80 text-xs space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-500">待处理订单号:</span>
+                            <span className="font-mono font-bold text-amber-900">
+                              {refundCard.orderId}
+                            </span>
                           </div>
-                        )}
+                          {refundAmount !== undefined && (
+                            <>
+                              <div className="flex justify-between items-center">
+                                <span className="text-slate-500">实付金额:</span>
+                                <span className="font-bold text-rose-600 text-sm">
+                                  ¥{refundAmount.toFixed(2)} 元
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-100">
+                                <span className="text-slate-500">退款执行路径:</span>
+                                <span className={`font-semibold px-2 py-0.5 rounded text-[10px] ${
+                                  refundAmount < 3.00
+                                    ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                                }`}>
+                                  {refundAmount < 3.00
+                                    ? "< 3.00 元 · 智能客服直接秒级退款"
+                                    : "≥ 3.00 元 · 提交人工干涉审核队列"}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                        </div>
 
                         {/* Notice Box */}
                         <div className="p-2.5 bg-white/80 rounded-xl border border-amber-200/60 space-y-1.5 text-[11px] text-slate-700">

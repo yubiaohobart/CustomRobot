@@ -217,7 +217,7 @@ export const DualChatView: React.FC = () => {
     const unsubscribe = subscribe((payload) => {
       if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
         const patch = payload.sessionPatch;
-        if (payload.message.card?.order) {
+        if (payload.message.card?.type === "order") {
           setCurrentOrder(payload.message.card.order);
         }
         setSession((prev) => {
@@ -355,7 +355,9 @@ export const DualChatView: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        const orderFromMsg = data.assistantMessage?.card?.order;
+        const orderFromMsg = data.assistantMessage?.card?.type === "order"
+          ? data.assistantMessage.card.order
+          : undefined;
         if (orderFromMsg) {
           setCurrentOrder(orderFromMsg);
         }
@@ -741,7 +743,11 @@ export const DualChatView: React.FC = () => {
               const isRefundCardActive = !(session?.messages || []).slice(msgIdx + 1).some((m) => m.role === "assistant" || m.role === "human_agent");
               const orderCard = msg.card?.type === "order" ? msg.card.order : undefined;
               const refundCard = msg.card?.type === "refund_confirm" ? msg.card : undefined;
-              const refundOrder = refundCard?.order;
+              const refundAmount = refundCard?.paidAmount ?? (
+                refundCard && currentOrder?.orderId === refundCard.orderId
+                  ? currentOrder.paidAmount
+                  : undefined
+              );
 
               if (isSystem) {
                 return (
@@ -890,27 +896,31 @@ export const DualChatView: React.FC = () => {
                             <div className="flex justify-between items-center text-[11px]">
                               <span className="text-slate-500">待处理订单号:</span>
                               <span className="font-mono font-bold text-amber-900">
-                                {refundCard.orderId || refundOrder?.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}
+                                {refundCard.orderId || session?.customerProfile?.orderId || "ORD-2026-88992"}
                               </span>
                             </div>
-                            <div className="flex justify-between items-center text-[11px]">
-                              <span className="text-slate-500">实付金额:</span>
-                              <span className="font-bold text-rose-600 text-xs">
-                                ¥{(refundOrder?.paidAmount ?? 2999.00).toFixed(2)} 元
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center text-[10px] pt-1 border-t border-slate-100">
-                              <span className="text-slate-500">退款执行路径:</span>
-                              <span className={`font-semibold px-1.5 py-0.2 rounded text-[10px] ${
-                                (refundOrder?.paidAmount ?? 2999.00) < 3.00
-                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                                  : "bg-amber-100 text-amber-800 border border-amber-200"
-                              }`}>
-                                {(refundOrder?.paidAmount ?? 2999.00) < 3.00
-                                  ? "< 3.00 元 · 智能客服直接秒级退款"
-                                  : "≥ 3.00 元 · 提交人工干涉审核队列"}
-                              </span>
-                            </div>
+                            {refundAmount !== undefined && (
+                              <>
+                                <div className="flex justify-between items-center text-[11px]">
+                                  <span className="text-slate-500">实付金额:</span>
+                                  <span className="font-bold text-rose-600 text-xs">
+                                    ¥{refundAmount.toFixed(2)} 元
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] pt-1 border-t border-slate-100">
+                                  <span className="text-slate-500">退款执行路径:</span>
+                                  <span className={`font-semibold px-1.5 py-0.2 rounded text-[10px] ${
+                                    refundAmount < 3.00
+                                      ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                      : "bg-amber-100 text-amber-800 border border-amber-200"
+                                  }`}>
+                                    {refundAmount < 3.00
+                                      ? "< 3.00 元 · 智能客服直接秒级退款"
+                                      : "≥ 3.00 元 · 提交人工干涉审核队列"}
+                                  </span>
+                                </div>
+                              </>
+                            )}
                           </div>
 
                           {/* Notice Box */}

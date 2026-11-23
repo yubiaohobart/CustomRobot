@@ -116,7 +116,7 @@ export type MessageCard =
       type: "refund_confirm";
       orderId: string;
       outRefundNo: string;
-      order?: OrderData;
+      paidAmount?: number;
     };
 
 export interface ChatMessage {

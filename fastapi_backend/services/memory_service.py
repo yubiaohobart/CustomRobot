@@ -354,8 +354,8 @@ class MemoryService:
                 "orderId": refund_order_id,
                 "outRefundNo": out_refund_no,
             }
-            if queried_order:
-                card["order"] = queried_order
+            if queried_order and queried_order.get("paidAmount") is not None:
+                card["paidAmount"] = round(float(queried_order["paidAmount"]), 2)
         elif queried_order:
             card = {
                 "type": "order",
