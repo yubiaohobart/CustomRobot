@@ -98,8 +98,6 @@ export interface OrderData {
 
 export interface MessageAiMeta {
   confidenceScore?: number;
-  sentiment?: "positive" | "neutral" | "negative" | "frustrated" | string;
-  intent?: string;
   references?: Array<{
     id: string;
     title: string;
@@ -280,27 +278,13 @@ export interface ConversationSession {
   updatedAt: string;
 }
 
-export interface SessionMeta {
-  id: string;
-  userName: string;
+export interface SessionPatch {
   status: SessionStatus;
   assignedAgent?: string | null;
   assignedAgentId?: string | null;
-  customerProfile: CustomerProfile;
-  summaryMemory: string;
-  metrics: {
-    totalTurns: number;
-    avgLatencyMs: number;
-    avgConfidence: number;
-    escalatedAt?: string | null;
-  };
-  pendingRefund?: {
-    orderId: string;
-    requestId: string;
-  } | null;
-  unreadForAgent: boolean;
-  createdAt: string;
-  updatedAt: string;
+  intent?: string;
+  sentiment?: CustomerProfile["sentiment"] | string;
+  summaryMemory?: string;
 }
 
 export type WsRole = "customer" | "agent" | "dual_observer" | "supervisor";
@@ -344,13 +328,13 @@ export type WsServerEvent =
       type: "message:new";
       sessionId: string;
       message: ChatMessage;
-      sessionMeta: SessionMeta | null;
+      sessionPatch: SessionPatch | null;
     }
   | {
       type: "session:update";
       sessionId: string;
       action: "message" | "transfer" | "takeover" | "release" | string;
-      sessionMeta: SessionMeta | null;
+      sessionPatch: SessionPatch | null;
       message?: ChatMessage;
     }
   | {

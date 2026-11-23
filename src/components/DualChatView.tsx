@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { ConversationSession, ChatMessage, OrderData } from "../types";
 import { useWebSocket } from "../contexts/WebSocketContext";
+import { applySessionPatch } from "../utils/sessionPatch";
 
 export const DualChatView: React.FC = () => {
   const [selectedSessionId, setSelectedSessionId] = useState("session_user_001");
@@ -215,26 +216,20 @@ export const DualChatView: React.FC = () => {
 
     const unsubscribe = subscribe((payload) => {
       if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
-        const meta = payload.sessionMeta;
+        const patch = payload.sessionPatch;
         if (payload.message.card?.order) {
           setCurrentOrder(payload.message.card.order);
         }
         setSession((prev) => {
-          if (!prev) {
-            return meta ? ({ ...meta, messages: [payload.message] } as ConversationSession) : null;
-          }
-          const prevMsgs = prev.messages || [];
-          const merged = mergeServerMessages(prevMsgs, [payload.message], false);
-          return {
-            ...prev,
-            ...(meta || {}),
-            messages: merged,
-            status: meta?.status || prev.status,
-            assignedAgent: meta?.assignedAgent ?? prev.assignedAgent,
-          };
+          if (!prev) return prev;
+          const merged = mergeServerMessages(prev.messages || [], [payload.message], false);
+          return applySessionPatch(prev, patch, merged);
         });
+        if (!sessionRef.current) {
+          loadSession(selectedSessionId, false);
+        }
         if (payload.message.role === "human_agent") {
-          showToast(`🎧 人工坐席【${payload.message.senderName || meta?.assignedAgent || "陈浩"}】已回复客户`);
+          showToast(`🎧 人工坐席【${payload.message.senderName || patch?.assignedAgent || "陈浩"}】已回复客户`);
         } else if (payload.message.role === "user") {
           showToast(`👤 收到客户【${sessionRef.current?.customerProfile?.name || "客户"}】新提问`);
         }
@@ -252,26 +247,16 @@ export const DualChatView: React.FC = () => {
             showToast(`✅ 订单【${payload.order.orderId}】退款审核通过，款项已原路退回！`);
           }
         }
-      } else if (
-        payload.type === "session:update" &&
-        (payload.sessionId === selectedSessionId || payload.sessionMeta?.id === selectedSessionId)
-      ) {
-        if (payload.sessionMeta) {
-          const meta = payload.sessionMeta;
-          const incomingMsgs = payload.message ? [payload.message] : [];
-          setSession((prev) => {
-            if (!prev) {
-              return { ...meta, messages: incomingMsgs } as ConversationSession;
-            }
-            return {
-              ...prev,
-              ...meta,
-              messages: incomingMsgs.length > 0
-                ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
-                : prev.messages || [],
-            };
-          });
-        }
+      } else if (payload.type === "session:update" && payload.sessionId === selectedSessionId) {
+        const patch = payload.sessionPatch;
+        const incomingMsgs = payload.message ? [payload.message] : [];
+        setSession((prev) => {
+          if (!prev) return prev;
+          const nextMsgs = incomingMsgs.length > 0
+            ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
+            : prev.messages || [];
+          return applySessionPatch(prev, patch, nextMsgs);
+        });
       } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
         if (payload.role === "agent") {
           setAgentTypingNotice(payload.isTyping ? "人工坐席正在输入..." : null);
@@ -378,21 +363,18 @@ export const DualChatView: React.FC = () => {
           ...(data.userMessage ? [data.userMessage] : []),
           ...(data.assistantMessage ? [data.assistantMessage] : []),
         ];
-        if (data.sessionMeta || deltaMessages.length > 0) {
+        if (data.sessionPatch || deltaMessages.length > 0) {
           setSession((prev) => {
-            const currentMsgs = prev?.messages || [];
+            if (!prev) return prev;
+            const currentMsgs = prev.messages || [];
             const merged = deltaMessages.length > 0
               ? mergeServerMessages(currentMsgs, deltaMessages, false)
               : currentMsgs;
-            if (!prev) {
-              return data.sessionMeta ? { ...data.sessionMeta, messages: merged } : null;
-            }
-            return {
-              ...prev,
-              ...(data.sessionMeta || {}),
-              messages: merged,
-            };
+            return applySessionPatch(prev, data.sessionPatch, merged);
           });
+          if (!sessionRef.current) {
+            await loadSession();
+          }
         } else {
           await loadSession();
         }

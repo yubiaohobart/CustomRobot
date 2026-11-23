@@ -43,6 +43,7 @@ import {
   CustomerRecord
 } from "../types";
 import { useWebSocket } from "../contexts/WebSocketContext";
+import { applySessionPatch } from "../utils/sessionPatch";
 
 interface AgentWorkbenchProps {
   currentSessionId: string;
@@ -227,29 +228,22 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
         if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
           setActiveSession((prev) => {
             if (!prev) return prev;
-            const meta = payload.sessionMeta;
             const hasMsg = prev.messages.some((m) => m.id === payload.message.id);
-            return {
-              ...prev,
-              ...(meta || {}),
-              messages: hasMsg ? prev.messages : [...prev.messages, payload.message],
-              status: meta?.status || prev.status,
-            };
+            const nextMsgs = hasMsg ? prev.messages : [...prev.messages, payload.message];
+            return applySessionPatch(prev, payload.sessionPatch, nextMsgs);
           });
         }
         fetchSessions();
       } else if (payload.type === "session:update") {
         if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
-          if (payload.sessionMeta) {
-            setActiveSession((prev) => {
-              if (!prev) return prev;
-              const nextMsgs =
-                payload.message && !prev.messages.some((m) => m.id === payload.message!.id)
-                  ? [...prev.messages, payload.message]
-                  : prev.messages;
-              return { ...prev, ...payload.sessionMeta, messages: nextMsgs };
-            });
-          }
+          setActiveSession((prev) => {
+            if (!prev) return prev;
+            const nextMsgs =
+              payload.message && !prev.messages.some((m) => m.id === payload.message!.id)
+                ? [...prev.messages, payload.message]
+                : prev.messages;
+            return applySessionPatch(prev, payload.sessionPatch, nextMsgs);
+          });
         }
         fetchSessions();
         if (payload.action === "transfer") {

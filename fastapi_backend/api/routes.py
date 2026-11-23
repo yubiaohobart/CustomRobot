@@ -34,14 +34,15 @@ _DURATION_RE = re.compile(r"\((\d+)ms\)")
 
 
 async def _emit_message_event(session_id: str, message: Dict[str, Any], session: Optional[Dict[str, Any]]) -> None:
-    """统一推送单会话新消息与全局轻量会话元信息更新事件（不携带全量历史消息，隔离 WS 异常以免影响 HTTP 主响应）"""
+    """统一推送单会话新消息与全局轻量会话补丁事件（隔离 WS 异常以免影响 HTTP 主响应）"""
     try:
-        session_meta = memory_service.build_session_meta(session) if session else None
+        room_patch = memory_service.build_session_patch(session, include_context=True) if session else None
+        role_patch = memory_service.build_session_patch(session, include_context=False) if session else None
         await ws_manager.broadcast_to_session(session_id, {
             "type": "message:new",
             "sessionId": session_id,
             "message": message,
-            "sessionMeta": session_meta,
+            "sessionPatch": room_patch,
         })
         await ws_manager.broadcast_to_roles(
             ("agent", "supervisor", "dual_observer"),
@@ -49,7 +50,7 @@ async def _emit_message_event(session_id: str, message: Dict[str, Any], session:
                 "type": "session:update",
                 "sessionId": session_id,
                 "action": "message",
-                "sessionMeta": session_meta,
+                "sessionPatch": role_patch,
             },
             exclude_session=session_id,
         )
@@ -75,7 +76,7 @@ def _build_human_takeover_response(
         latencyMs=int((time.time() - t_start) * 1000),
         userMessage=user_msg,
         assistantMessage=None,
-        sessionMeta=memory_service.build_session_meta(session),
+        sessionPatch=memory_service.build_session_patch(session, include_context=True),
     )
 
 
@@ -239,7 +240,7 @@ async def chat_endpoint(req: ChatRequest):
         latencyMs=latency_ms,
         userMessage=user_msg,
         assistantMessage=assistant_msg,
-        sessionMeta=memory_service.build_session_meta(updated_session),
+        sessionPatch=memory_service.build_session_patch(updated_session, include_context=True),
     )
 
 @router.get("/sessions")
@@ -265,14 +266,15 @@ async def transfer_session_endpoint(session_id: str, req: TransferRequest):
         operator_note=req.operatorNote or "",
         trigger_type=req.triggerType or "user_requested"
     )
-    # 实时 WebSocket 广播：房间内发送轻量元数据+新增系统消息，全局仅向其他坐席/主管端推送元数据
-    session_meta = memory_service.build_session_meta(session)
+    # 实时 WebSocket 广播：房间内发送完整补丁+新增系统消息，全局大厅仅推精简状态补丁
+    room_patch = memory_service.build_session_patch(session, include_context=True)
+    role_patch = memory_service.build_session_patch(session, include_context=False)
     last_msg = session["messages"][-1] if session.get("messages") else None
     room_payload: Dict[str, Any] = {
         "type": "session:update",
         "sessionId": session_id,
         "action": "transfer",
-        "sessionMeta": session_meta,
+        "sessionPatch": room_patch,
     }
     if last_msg:
         room_payload["message"] = last_msg
@@ -283,7 +285,7 @@ async def transfer_session_endpoint(session_id: str, req: TransferRequest):
             "type": "session:update",
             "sessionId": session_id,
             "action": "transfer",
-            "sessionMeta": session_meta,
+            "sessionPatch": role_patch,
         },
         exclude_session=session_id,
     )
@@ -303,14 +305,15 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
         agent_id=req.agentId or "agent_101",
         note=req.note or ""
     )
-    # 实时 WebSocket 广播状态流转（房间内附带新增系统消息，全局大厅仅推元数据）
-    session_meta = memory_service.build_session_meta(session)
+    # 实时 WebSocket 广播状态流转（房间内附带新增系统消息与上下文补丁，全局大厅仅推精简状态补丁）
+    room_patch = memory_service.build_session_patch(session, include_context=True)
+    role_patch = memory_service.build_session_patch(session, include_context=False)
     last_msg = session["messages"][-1] if session.get("messages") else None
     room_payload: Dict[str, Any] = {
         "type": "session:update",
         "sessionId": session_id,
         "action": req.action,
-        "sessionMeta": session_meta,
+        "sessionPatch": room_patch,
     }
     if last_msg:
         room_payload["message"] = last_msg
@@ -321,7 +324,7 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
             "type": "session:update",
             "sessionId": session_id,
             "action": req.action,
-            "sessionMeta": session_meta,
+            "sessionPatch": role_patch,
         },
         exclude_session=session_id,
     )

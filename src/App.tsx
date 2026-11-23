@@ -102,9 +102,8 @@ function AppContent() {
     checkAlerts();
     return subscribe((payload) => {
       if (payload.type === "session:update" || payload.type === "message:new") {
-        const meta = payload.sessionMeta;
-        const sid = payload.sessionId || meta?.id;
-        const status = meta?.status;
+        const sid = payload.sessionId;
+        const status = payload.sessionPatch?.status;
         if (sid && status) {
           statusMapRef.current.set(sid, status);
           updateCountFromMap();

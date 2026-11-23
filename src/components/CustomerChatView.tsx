@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { ChatMessage, ConversationSession, AvailableAgent, TransferTriggerType, TransferLog } from "../types";
 import { useWebSocket } from "../contexts/WebSocketContext";
+import { applySessionPatch } from "../utils/sessionPatch";
 
 interface CustomerChatViewProps {
   currentSessionId: string;
@@ -189,19 +190,18 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
       if (payload.type === "message:new" && payload.message) {
         if (!payload.sessionId || payload.sessionId === currentSessionId) {
           setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
-          if (payload.sessionMeta) {
-            const meta = payload.sessionMeta;
-            setSession((prev) => (prev ? { ...prev, ...meta } : prev));
+          if (payload.sessionPatch) {
+            const patch = payload.sessionPatch;
+            setSession((prev) => (prev ? applySessionPatch(prev, patch) : prev));
           }
         }
-      } else if (payload.type === "session:update" && payload.sessionMeta) {
-        const meta = payload.sessionMeta;
-        const targetId = payload.sessionId || meta.id;
-        if (targetId === currentSessionId) {
-          setSession((prev) => (prev ? { ...prev, ...meta } : prev));
-          if (payload.message) {
-            setMessages((prev) => mergeServerMessages(prev, [payload.message!], false));
-          }
+      } else if (payload.type === "session:update" && payload.sessionId === currentSessionId) {
+        if (payload.sessionPatch) {
+          const patch = payload.sessionPatch;
+          setSession((prev) => (prev ? applySessionPatch(prev, patch) : prev));
+        }
+        if (payload.message) {
+          setMessages((prev) => mergeServerMessages(prev, [payload.message!], false));
         }
       } else if (payload.type === "typing" && (!payload.sessionId || payload.sessionId === currentSessionId)) {
         if (payload.role === "agent") {
@@ -320,8 +320,8 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
         if (deltaMessages.length > 0) {
           setMessages((prev) => mergeServerMessages(prev, deltaMessages, false));
         }
-        if (data.sessionMeta) {
-          setSession((prev) => (prev ? { ...prev, ...data.sessionMeta } : { ...data.sessionMeta, messages: deltaMessages }));
+        if (data.sessionPatch) {
+          setSession((prev) => (prev ? applySessionPatch(prev, data.sessionPatch) : prev));
         } else if (data.session) {
           setSession(data.session);
           if (data.session.messages) {

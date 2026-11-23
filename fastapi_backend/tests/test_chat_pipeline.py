@@ -13,8 +13,8 @@ def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dic
     测试场景：客户发起常规售后政策咨询 POST /api/chat（增量返回模式）
     期望结果：
     1. 返回 HTTP 200 与增量 ChatResponse（不含全量历史 session.messages）
-    2. userMessage 与 assistantMessage 均完整返回，且 references / stepTrace 仅挂在 assistantMessage 上不重复
-    3. sessionMeta 包含轻量会话元信息与最新摘要
+    2. userMessage 与 assistantMessage 均完整返回，且 aiMeta 仅保留 confidenceScore / references / stepTrace
+    3. sessionPatch 仅包含实时同步所需轻量字段（不含冗余 metrics / pendingRefund / unreadForAgent）
     """
     response = client.post("/api/chat", json=sample_chat_request)
     assert response.status_code == 200, f"Expected 200, got: {response.text}"
@@ -39,13 +39,18 @@ def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dic
     assert assistant_msg["role"] == "assistant"
     assert assistant_msg["content"] == data["reply"]
     ai_meta = assistant_msg.get("aiMeta") or {}
+    assert "intent" not in ai_meta
+    assert "sentiment" not in ai_meta
     assert isinstance(ai_meta.get("references"), list)
     assert isinstance(ai_meta.get("stepTrace"), list)
 
-    meta = data["sessionMeta"]
-    assert meta["id"] == sample_chat_request["sessionId"]
-    assert "messages" not in meta
-    assert meta["metrics"]["totalTurns"] >= 2
+    patch = data["sessionPatch"]
+    assert patch["status"] == "AI_HANDLING"
+    assert "messages" not in patch
+    assert "metrics" not in patch
+    assert "pendingRefund" not in patch
+    assert "unreadForAgent" not in patch
+    assert isinstance(patch.get("summaryMemory"), str)
 
 
 def test_chat_explicit_human_request(client: TestClient):
@@ -53,7 +58,7 @@ def test_chat_explicit_human_request(client: TestClient):
     测试场景：客户明确要求转人工 ("请立刻帮我转人工客服")
     期望结果：
     1. escalatedToHuman 为 True
-    2. sessionMeta.status 标记为待人工接入 (NEEDS_INTERVENTION 或 TRANSFERRED_TO_HUMAN)
+    2. sessionPatch.status 标记为待人工接入 (NEEDS_INTERVENTION 或 TRANSFERRED_TO_HUMAN)
     """
     payload = {
         "sessionId": "test_human_escalate_001",
@@ -66,7 +71,7 @@ def test_chat_explicit_human_request(client: TestClient):
     assert data["sessionId"] == payload["sessionId"]
     assert data["escalatedToHuman"] is True
     assert data["escalationReason"] is not None
-    assert data["sessionMeta"]["status"] in ["NEEDS_INTERVENTION", "TRANSFERRED_TO_HUMAN"]
+    assert data["sessionPatch"]["status"] in ["NEEDS_INTERVENTION", "TRANSFERRED_TO_HUMAN"]
 
 
 def test_chat_multi_turn_continuity(client: TestClient):
@@ -85,7 +90,8 @@ def test_chat_multi_turn_continuity(client: TestClient):
     })
     assert resp1.status_code == 200
     data1 = resp1.json()
-    assert data1["sessionMeta"]["metrics"]["totalTurns"] == 2
+    assert data1["userMessage"]["role"] == "user"
+    assert data1["assistantMessage"]["role"] == "assistant"
 
     # 第二轮
     resp2 = client.post("/api/chat", json={
@@ -96,13 +102,14 @@ def test_chat_multi_turn_continuity(client: TestClient):
     data2 = resp2.json()
     assert data2["userMessage"]["content"] == "如果是拆封了未使用的电子产品可以退吗？"
     assert data2["assistantMessage"]["role"] == "assistant"
-    assert data2["sessionMeta"]["metrics"]["totalTurns"] == 4
 
-    # 核验持久化的完整会话包含 4 条消息
+    # 核验持久化的完整会话包含 4 条消息与 totalTurns=4
     detail = client.get(f"/api/sessions/{session_id}")
     assert detail.status_code == 200
-    msgs = detail.json()["session"]["messages"]
+    session_obj = detail.json()["session"]
+    msgs = session_obj["messages"]
     assert len(msgs) == 4
+    assert session_obj["metrics"]["totalTurns"] == 4
     assert msgs[2]["content"] == "如果是拆封了未使用的电子产品可以退吗？"
 
 
@@ -122,10 +129,11 @@ def test_chat_empty_message_validation(client: TestClient):
 def test_chat_with_order_context_in_profile(client: TestClient):
     """
     测试场景：附带订单上下文信息的 VIP 用户咨询
-    期望结果：成功响应，用户画像正确保留在 sessionMeta.customerProfile 中
+    期望结果：成功响应，用户画像正确持久化在会话 customerProfile 中
     """
+    session_id = "test_order_context_001"
     payload = {
-        "sessionId": "test_order_context_001",
+        "sessionId": session_id,
         "message": "我的空气炸锅到了3天了，怎么申请免费换新？",
         "userProfile": {
             "tier": "GOLD",
@@ -138,6 +146,9 @@ def test_chat_with_order_context_in_profile(client: TestClient):
     }
     response = client.post("/api/chat", json=payload)
     assert response.status_code == 200
-    data = response.json()
-    assert data["sessionMeta"]["customerProfile"]["tier"] == "GOLD"
-    assert "recentOrder" in data["sessionMeta"]["customerProfile"]
+
+    detail = client.get(f"/api/sessions/{session_id}")
+    assert detail.status_code == 200
+    profile = detail.json()["session"]["customerProfile"]
+    assert profile["tier"] == "GOLD"
+    assert "recentOrder" in profile

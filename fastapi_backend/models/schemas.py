@@ -36,7 +36,7 @@ class ChatResponse(BaseModel):
     latencyMs: int = 35
     userMessage: Optional[Dict[str, Any]] = None
     assistantMessage: Optional[Dict[str, Any]] = None
-    sessionMeta: Optional[Dict[str, Any]] = None
+    sessionPatch: Optional[Dict[str, Any]] = None
 
 class TransferRequest(BaseModel):
     targetAgentId: str = Field(default="agent_101", description="指派目标坐席工号")

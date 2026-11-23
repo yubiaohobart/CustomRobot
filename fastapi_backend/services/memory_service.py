@@ -341,8 +341,6 @@ class MemoryService:
 
         ai_meta: Dict[str, Any] = {
             "confidenceScore": confidence_score,
-            "intent": intent,
-            "sentiment": sentiment,
         }
         if references is not None:
             ai_meta["references"] = references
@@ -375,22 +373,23 @@ class MemoryService:
         return assistant_msg, session
 
     @staticmethod
-    def build_session_meta(session: Dict[str, Any]) -> Dict[str, Any]:
-        """提取轻量会话元信息（不含全量 messages 与 contextSnapshot），用于增量响应与 WS 广播"""
-        return {
-            "id": session.get("id"),
-            "userName": session.get("userName"),
+    def build_session_patch(
+        session: Dict[str, Any],
+        *,
+        include_context: bool = True,
+    ) -> Dict[str, Any]:
+        """提取轻量增量会话状态补丁（仅含实时对话同步所需字段）"""
+        patch: Dict[str, Any] = {
             "status": session.get("status"),
             "assignedAgent": session.get("assignedAgent"),
             "assignedAgentId": session.get("assignedAgentId"),
-            "customerProfile": session.get("customerProfile"),
-            "summaryMemory": session.get("summaryMemory", ""),
-            "metrics": session.get("metrics"),
-            "pendingRefund": session.get("pendingRefund"),
-            "unreadForAgent": session.get("unreadForAgent", False),
-            "createdAt": session.get("createdAt"),
-            "updatedAt": session.get("updatedAt"),
         }
+        if include_context:
+            profile = session.get("customerProfile") or {}
+            patch["intent"] = profile.get("intent")
+            patch["sentiment"] = profile.get("sentiment")
+            patch["summaryMemory"] = session.get("summaryMemory", "")
+        return patch
 
     def transfer_session(
         self,

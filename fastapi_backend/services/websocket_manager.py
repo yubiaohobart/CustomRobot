@@ -65,8 +65,8 @@ class WebSocketConnectionManager:
             content_len = len(str(msg.get("content") or ""))
             return f"新消息[{msg.get('role', 'unknown')}] ({content_len} 字符)"
         if m_type == "session:update":
-            meta = payload.get("sessionMeta") or {}
-            return f"状态变更[{payload.get('action', 'update')}] -> {meta.get('status', 'UPDATE')}"
+            patch = payload.get("sessionPatch") or {}
+            return f"状态变更[{payload.get('action', 'update')}] -> {patch.get('status', 'UPDATE')}"
         if m_type == "typing":
             return f"[{payload.get('role', 'unknown')}] 正在输入: {bool(payload.get('isTyping'))}"
         return f"事件: {m_type}"
