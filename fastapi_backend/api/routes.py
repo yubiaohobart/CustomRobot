@@ -160,17 +160,13 @@ async def chat_endpoint(req: ChatRequest):
             return _build_human_takeover_response(session, user_msg)
 
         # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
-        pending_refund = session.get("pendingRefund") or {}
-        req_refund_order_id = req.refundOrderId or pending_refund.get("orderId")
-        req_out_refund_no = req.outRefundNo or pending_refund.get("outRefundNo")
-
         final_state = await run_customer_service_graph(
             session_id=req.sessionId,
             message=message_text,
             confirm_action=req.refundConfirmationAction,
             session=session,
-            refund_order_id=req_refund_order_id,
-            out_refund_no=req_out_refund_no,
+            refund_order_id=req.refundOrderId,
+            out_refund_no=req.outRefundNo,
             acquire_lock=False,
         )
 
@@ -213,7 +209,6 @@ async def chat_endpoint(req: ChatRequest):
             refund_confirmation_pending=refund_pending,
             refund_order_id=refund_order_id,
             out_refund_no=out_refund_no,
-            clear_pending_refund=not refund_pending,
         )
 
     await _emit_message_event(req.sessionId, assistant_msg, updated_session)
@@ -227,8 +222,8 @@ async def chat_endpoint(req: ChatRequest):
 
 @router.get("/sessions")
 async def get_all_sessions():
-    """获取所有活跃客服会话列表"""
-    return {"sessions": memory_service.list_sessions()}
+    """获取所有活跃客服会话轻量摘要列表（完整消息流与交接快照由 /sessions/{session_id} 按需拉取）"""
+    return {"sessions": memory_service.list_session_summaries()}
 
 @router.get("/sessions/{session_id}")
 async def get_single_session(session_id: str):

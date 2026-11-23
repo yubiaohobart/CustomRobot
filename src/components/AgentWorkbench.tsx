@@ -168,20 +168,30 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  const fetchActiveSession = async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.session) {
+          setActiveSession(data.session);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const fetchSessions = async () => {
     try {
       const res = await fetch("/api/sessions");
       if (res.ok) {
         const data = await res.json();
-        setSessions(data.sessions || []);
-        
-        // Update active session if selected
-        if (currentSessionId) {
-          const current = data.sessions.find((s: ConversationSession) => s.id === currentSessionId);
-          if (current) setActiveSession(current);
-        } else if (data.sessions.length > 0) {
-          setActiveSession(data.sessions[0]);
-          onSelectSession(data.sessions[0].id);
+        const list: ConversationSession[] = data.sessions || [];
+        setSessions(list);
+
+        if (!currentSessionId && !activeSessionIdRef.current && list.length > 0) {
+          onSelectSession(list[0].id);
         }
       }
     } catch (e) {
@@ -267,6 +277,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   useEffect(() => {
     fetchSessions();
     fetchTransferData();
+    if (currentSessionId) {
+      fetchActiveSession(currentSessionId);
+    }
   }, [currentSessionId]);
 
   useEffect(() => {
@@ -275,6 +288,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     const interval = setInterval(() => {
       fetchSessions();
       fetchTransferData();
+      if (currentSessionId) {
+        fetchActiveSession(currentSessionId);
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [currentSessionId, isConnected]);
@@ -625,14 +641,17 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
             const isNeedIntervention = s.status === "NEEDS_INTERVENTION";
             const isHumanServing = s.status === "HUMAN_INTERVENED";
             const lastMsg = s.messages[s.messages.length - 1];
-            const hasTransfer = Boolean(s.latestTransfer || (s.transferLogs && s.transferLogs.length > 0));
+            const hasTransfer = Boolean(s.latestTransfer);
 
             return (
               <div
                 key={s.id}
                 onClick={() => {
-                  setActiveSession(s);
-                  onSelectSession(s.id);
+                  if (s.id === currentSessionId) {
+                    fetchActiveSession(s.id);
+                  } else {
+                    onSelectSession(s.id);
+                  }
                   setCopilotSuggestion(null);
                 }}
                 className={`p-3.5 cursor-pointer transition-colors relative ${

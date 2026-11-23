@@ -58,8 +58,19 @@ def test_session_lifecycle_and_details(client: TestClient):
     session = data["session"]
     assert session["id"] == session_id
     assert session["status"] == "AI_HANDLING"
+    assert "contextSnapshot" not in session
+    assert "pendingRefund" not in session
+    assert "unreadForAgent" not in session
     assert len(session["messages"]) == 1
     assert session["messages"][0]["content"] == "我想查询退款进度"
+
+    # 校验列表摘要接口仅返回最后 1 条消息预览
+    memory_service.add_message(session_id, "assistant", "退款一般在1-3个工作日原路退回。")
+    list_resp = client.get("/api/sessions")
+    assert list_resp.status_code == 200
+    summary_item = next(s for s in list_resp.json()["sessions"] if s["id"] == session_id)
+    assert len(summary_item["messages"]) == 1
+    assert summary_item["messages"][0]["role"] == "assistant"
 
 
 def test_transfer_session_to_human(client: TestClient):
@@ -155,7 +166,7 @@ def test_send_human_agent_message(client: TestClient):
     assert detail.status_code == 200
     session_obj = detail.json()["session"]
     assert len(session_obj["messages"]) == 1
-    assert session_obj["unreadForAgent"] is False
+    assert "unreadForAgent" not in session_obj
 
 
 def test_get_agents_roster(client: TestClient):

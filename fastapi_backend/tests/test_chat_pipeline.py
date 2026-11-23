@@ -14,7 +14,7 @@ def test_chat_normal_refund_inquiry(client: TestClient, sample_chat_request: dic
     期望结果：
     1. 返回 HTTP 200 与增量 ChatResponse（不含全量历史 session.messages）
     2. userMessage 与 assistantMessage 均完整返回，且 aiMeta 仅保留 confidenceScore / references / stepTrace
-    3. sessionPatch 仅包含实时同步所需轻量字段（不含冗余 metrics / pendingRefund / unreadForAgent）
+    3. sessionPatch 仅包含实时同步所需轻量字段（不含冗余 metrics）
     """
     response = client.post("/api/chat", json=sample_chat_request)
     assert response.status_code == 200, f"Expected 200, got: {response.text}"

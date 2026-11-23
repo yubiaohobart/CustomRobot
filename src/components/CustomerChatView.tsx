@@ -1353,28 +1353,6 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
                 {session?.summaryMemory || "新会话建立，尚无摘要。"}
               </p>
             </div>
-
-            {/* LangGraph Checkpoints History */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-              <div className="text-slate-500 text-[11px]">LangGraph 检查点快照 (Checkpoints)</div>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {session?.checkpoints && session.checkpoints.length > 0 ? (
-                  session.checkpoints.map((cp, idx) => (
-                    <div key={idx} className="p-2 bg-white rounded border border-slate-100 text-[10px] font-mono">
-                      <div className="flex justify-between text-slate-400 mb-0.5">
-                        <span className="text-indigo-600 font-semibold">{cp.node}</span>
-                        <span>{cp.timestamp}</span>
-                      </div>
-                      <div className="text-slate-600 truncate">
-                        {JSON.stringify(cp.stateData)}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-slate-400 text-[10px] py-1">暂无持久化检查点数据</div>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       )}

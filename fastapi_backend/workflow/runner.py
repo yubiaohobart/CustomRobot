@@ -189,9 +189,6 @@ async def run_customer_service_graph(
     acquire_lock: bool = True,
 ) -> Dict[str, Any]:
     """执行指定会话的 LangGraph 状态图，统一处理中断挂起与 Command 唤醒"""
-    pending = session.get("pendingRefund") or {}
-    target_order_id = refund_order_id or pending.get("orderId")
-    target_out_refund_no = out_refund_no or pending.get("outRefundNo")
     input_state = build_input_state(session_id, message, confirm_action, session)
 
     lock_ctx = get_session_lock(session_id) if acquire_lock else nullcontext()
@@ -199,6 +196,6 @@ async def run_customer_service_graph(
         return await _execute_graph(
             session_id,
             input_state,
-            refund_order_id=target_order_id,
-            out_refund_no=target_out_refund_no,
+            refund_order_id=refund_order_id,
+            out_refund_no=out_refund_no,
         )

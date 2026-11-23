@@ -90,14 +90,20 @@ class MemoryService:
                 if v is not None and v != "" and profile.get(k) != v:
                     profile[k] = v
                     changed = True
-            resolved_name = user_profile.get("name") or user_profile.get("userName")
-            if resolved_name and profile.get("name") != resolved_name:
-                profile["name"] = resolved_name
-                session["userName"] = resolved_name
-                changed = True
-            resolved_vip = user_profile.get("vipLevel") or user_profile.get("tier")
+            resolved_name = (user_profile.get("name") or user_profile.get("userName") or "").strip()
+            if resolved_name:
+                if profile.get("name") != resolved_name:
+                    profile["name"] = resolved_name
+                    changed = True
+                if session.get("userName") != resolved_name:
+                    session["userName"] = resolved_name
+                    changed = True
+            resolved_vip = (user_profile.get("vipLevel") or user_profile.get("tier") or "").strip()
             if resolved_vip and profile.get("vipLevel") != resolved_vip:
                 profile["vipLevel"] = resolved_vip
+                changed = True
+            if not profile.get("tags"):
+                profile["tags"] = [profile.get("vipLevel") or "普通会员"]
                 changed = True
 
         return changed
@@ -114,32 +120,33 @@ class MemoryService:
         self,
         session_id: str,
         user_profile: Optional[Dict[str, Any]] = None,
+        *,
+        persist: bool = True,
     ) -> Dict[str, Any]:
+        """
+        查询或初始化会话：
+        - 存在时：复用 _ensure_session_defaults 增量合并画像，仅在发生变更且 persist=True 时写库
+        - 不存在时：构建标准会话并复用 _ensure_session_defaults；后续还要追加消息的调用方可传 persist=False 合并为单次落盘
+        """
         session = storage_service.get_session(session_id)
         if session:
-            if self._ensure_session_defaults(session, user_profile):
+            if self._ensure_session_defaults(session, user_profile) and persist:
                 session["updatedAt"] = _now_str()
-                storage_service.save_session(session)
+                return storage_service.save_session(session)
             return session
 
         up = user_profile or {}
-        name = up.get("name") or up.get("userName") or "客户"
-        vip = up.get("vipLevel") or up.get("tier") or "普通会员"
+        name = (up.get("name") or up.get("userName") or "").strip() or "客户"
+        vip = (up.get("vipLevel") or up.get("tier") or "").strip() or "普通会员"
         now_str = _now_str()
 
         profile = _default_customer_profile(name)
         profile.update({
-            "phone": up.get("phone", ""),
+            "phone": up.get("phone") or "",
             "vipLevel": vip,
-            "sentiment": up.get("sentiment", "neutral"),
-            "urgency": up.get("urgency", "中"),
-            "intent": up.get("intent", "售后咨询"),
-            "tags": up.get("tags", [vip]),
-            "orderId": up.get("orderId", f"ORD-2026-{uuid.uuid4().hex[:6].upper()}"),
+            "intent": up.get("intent") or "售后咨询",
+            "tags": up.get("tags") or [vip],
         })
-        for k, v in up.items():
-            if k not in profile and v is not None:
-                profile[k] = v
 
         new_session = {
             "id": session_id,
@@ -151,14 +158,12 @@ class MemoryService:
             "summaryMemory": f"{name}（{vip}）于今日建立咨询连接。",
             "messages": [],
             "metrics": _default_metrics(0),
-            "contextSnapshot": None,
             "latestTransfer": None,
-            "unreadForAgent": False,
             "createdAt": now_str,
             "updatedAt": now_str,
         }
-        storage_service.save_session(new_session)
-        return new_session
+        self._ensure_session_defaults(new_session, user_profile)
+        return storage_service.save_session(new_session) if persist else new_session
 
     @staticmethod
     def _update_summary_memory(current_summary: str, role: str, content: str) -> str:
@@ -265,7 +270,7 @@ class MemoryService:
         ai_meta: Optional[Dict[str, Any]] = None,
         card: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        session = self.get_or_create_session(session_id)
+        session = self.get_or_create_session(session_id, persist=False)
         msg = self._append_message_in_place(
             session,
             role,
@@ -284,15 +289,11 @@ class MemoryService:
         user_profile: Optional[Dict[str, Any]] = None,
         human_takeover_statuses: Tuple[str, ...] = HUMAN_TAKEOVER_STATUSES,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """单次读写完成：获取/创建会话 + 合并最新画像 + 写入用户消息 + 人工模式未读标记 + 落盘"""
-        session = self.get_or_create_session(session_id, user_profile)
-
-        if session.get("status") in human_takeover_statuses:
-            session["unreadForAgent"] = True
-
+        """单次读写完成：获取/创建会话 + 合并最新画像 + 写入用户消息 + 落盘"""
+        session = self.get_or_create_session(session_id, user_profile, persist=False)
         user_msg = self._append_message_in_place(session, "user", content)
-        storage_service.save_session(session)
-        return user_msg, session
+        saved_session = storage_service.save_session(session)
+        return user_msg, saved_session
 
     def record_human_turn(
         self,
@@ -301,10 +302,9 @@ class MemoryService:
         *,
         agent_name: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """单次读写完成：获取/创建会话 + 写入人工坐席消息 + 清除未读标记 + 落盘"""
-        session = self.get_or_create_session(session_id)
+        """单次读写完成：获取/创建会话 + 写入人工坐席消息 + 落盘"""
+        session = self.get_or_create_session(session_id, persist=False)
         resolved_name = (agent_name or "").strip() or session.get("assignedAgent") or "人工客服"
-        session["unreadForAgent"] = False
         human_msg = self._append_message_in_place(
             session,
             "human_agent",
@@ -330,18 +330,12 @@ class MemoryService:
         refund_confirmation_pending: Optional[bool] = None,
         refund_order_id: Optional[str] = None,
         out_refund_no: Optional[str] = None,
-        clear_pending_refund: bool = False,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 挂起退款上下文 + 真实指标 + 统一结构 AI 消息落盘"""
-        session = self.get_or_create_session(session_id)
+        """单次读写完成：同步意图/情绪画像 + 人工升级状态 + 真实指标 + 统一结构 AI 消息落盘"""
+        session = self.get_or_create_session(session_id, persist=False)
         profile = session["customerProfile"]
         profile["intent"] = intent
         profile["sentiment"] = sentiment
-
-        if refund_confirmation_pending and refund_order_id and out_refund_no:
-            session["pendingRefund"] = {"orderId": refund_order_id, "outRefundNo": out_refund_no}
-        elif clear_pending_refund:
-            session["pendingRefund"] = None
 
         metrics = session["metrics"]
         ai_count = sum(1 for m in session.get("messages", []) if m.get("role") == "assistant")
@@ -355,7 +349,6 @@ class MemoryService:
         if handoff:
             if session.get("status") == "AI_HANDLING":
                 session["status"] = "NEEDS_INTERVENTION"
-            session["unreadForAgent"] = True
             if not metrics.get("escalatedAt"):
                 metrics["escalatedAt"] = _now_str()
 
@@ -389,8 +382,8 @@ class MemoryService:
             ai_meta=ai_meta,
             card=card,
         )
-        storage_service.save_session(session)
-        return assistant_msg, session
+        saved_session = storage_service.save_session(session)
+        return assistant_msg, saved_session
 
     @staticmethod
     def build_session_patch(
@@ -419,7 +412,7 @@ class MemoryService:
         operator_note: str = "",
         trigger_type: str = "user_requested",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        session = self.get_or_create_session(session_id)
+        session = self.get_or_create_session(session_id, persist=False)
         agent = _resolve_agent(target_agent_id)
         profile = session["customerProfile"]
 
@@ -475,13 +468,11 @@ class MemoryService:
         session["status"] = "HUMAN_INTERVENED"
         session["assignedAgent"] = agent["name"]
         session["assignedAgentId"] = agent["id"]
-        session["contextSnapshot"] = snapshot
         session["latestTransfer"] = transfer_log
-        session["unreadForAgent"] = False
 
         cprint.transfer(session_id, f"{agent['name']} ({agent['id']})", reason)
 
-        # 原地追加系统通知后再单次落盘，避免二次读取覆盖 status 与 contextSnapshot
+        # 原地追加系统通知后再单次落盘，避免二次读取覆盖 status 与 latestTransfer
         self._append_message_in_place(
             session,
             "system",
@@ -497,7 +488,7 @@ class MemoryService:
         agent_id: str = "agent_101",
         note: str = "",
     ) -> Dict[str, Any]:
-        session = self.get_or_create_session(session_id)
+        session = self.get_or_create_session(session_id, persist=False)
         note_suffix = f"（备注：{note.strip()}）" if note and note.strip() else ""
 
         if action in ("takeover", "intervene"):
@@ -511,7 +502,6 @@ class MemoryService:
             session["status"] = "HUMAN_INTERVENED"
             session["assignedAgent"] = agent["name"]
             session["assignedAgentId"] = agent["id"]
-            session["unreadForAgent"] = False
             self._append_message_in_place(
                 session,
                 "system",
@@ -524,7 +514,6 @@ class MemoryService:
             session["status"] = "AI_HANDLING"
             session["assignedAgent"] = None
             session["assignedAgentId"] = None
-            session["unreadForAgent"] = False
             self._append_message_in_place(
                 session,
                 "system",
@@ -535,7 +524,7 @@ class MemoryService:
 
     def update_session_status(self, session_id: str, new_status: str) -> Dict[str, Any]:
         """更新并持久化会话状态（如 AI_HANDLING -> NEEDS_INTERVENTION）"""
-        session = self.get_or_create_session(session_id)
+        session = self.get_or_create_session(session_id, persist=False)
         session["status"] = new_status
         session["updatedAt"] = _now_str()
         return storage_service.save_session(session)
@@ -547,7 +536,6 @@ class MemoryService:
             return None
         session["messages"] = []
         session["metrics"]["totalTurns"] = 0
-        session["pendingRefund"] = None
         session["updatedAt"] = _now_str()
         return storage_service.save_session(session)
 
@@ -557,6 +545,33 @@ class MemoryService:
             self._ensure_session_defaults(s)
             s["metrics"]["totalTurns"] = len(s["messages"])
         return list(sessions_map.values())
+
+    def list_session_summaries(self) -> List[Dict[str, Any]]:
+        """返回会话列表所需的轻量摘要（仅保留最后一条消息预览，剥离历史全量消息与交接大快照）"""
+        summaries: List[Dict[str, Any]] = []
+        for s in self.list_sessions():
+            messages = s.get("messages") or []
+            latest_transfer = s.get("latestTransfer")
+            transfer_brief = (
+                {k: v for k, v in latest_transfer.items() if k != "contextSnapshot"}
+                if isinstance(latest_transfer, dict)
+                else None
+            )
+            summaries.append({
+                "id": s.get("id"),
+                "userName": s.get("userName", "客户"),
+                "status": s.get("status", "AI_HANDLING"),
+                "assignedAgent": s.get("assignedAgent"),
+                "assignedAgentId": s.get("assignedAgentId"),
+                "customerProfile": s.get("customerProfile") or {},
+                "summaryMemory": s.get("summaryMemory", ""),
+                "messages": messages[-1:] if messages else [],
+                "metrics": s.get("metrics") or {},
+                "latestTransfer": transfer_brief,
+                "createdAt": s.get("createdAt"),
+                "updatedAt": s.get("updatedAt"),
+            })
+        return summaries
 
 
 # 全局单例记忆服务

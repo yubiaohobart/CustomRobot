@@ -308,7 +308,6 @@ class StorageService:
             entity.assigned_agent = session_data.get("assignedAgent", entity.assigned_agent)
             entity.assigned_agent_id = session_data.get("assignedAgentId", entity.assigned_agent_id)
             entity.summary_memory = _non_null(session_data, "summaryMemory", entity.summary_memory or "")
-            entity.unread_for_agent = 1 if session_data.get("unreadForAgent") else 0
 
             entity.customer_profile_json = (
                 json.dumps(session_data["customerProfile"] or {}, ensure_ascii=False)
@@ -325,12 +324,6 @@ class StorageService:
                 if "metrics" in session_data
                 else (entity.metrics_json or "{}")
             )
-            if "contextSnapshot" in session_data:
-                entity.context_snapshot_json = (
-                    json.dumps(session_data["contextSnapshot"], ensure_ascii=False)
-                    if session_data["contextSnapshot"] is not None
-                    else None
-                )
             if "latestTransfer" in session_data:
                 entity.latest_transfer_json = (
                     json.dumps(session_data["latestTransfer"], ensure_ascii=False)

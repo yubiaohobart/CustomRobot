@@ -184,13 +184,6 @@ export interface StorageStatus {
   lastQueryAt?: string;
 }
 
-export interface CheckpointItem {
-  id: string;
-  timestamp: string;
-  node: string;
-  stateData: Record<string, any>;
-}
-
 export type TransferTriggerType = 
   | "ai_fallback"        // 智能客服无法回答 / 置信度不足
   | "user_requested"      // 用户主动要求转人工
@@ -234,7 +227,7 @@ export interface TransferLog {
   vipLevel: string;
   status: "SUCCESS" | "TRANSFERRED" | "CANCELLED";
   transferredAt: string;
-  contextSnapshot: TransferContextSnapshot;
+  contextSnapshot?: TransferContextSnapshot;
   operatorNote?: string;
 }
 
@@ -257,23 +250,16 @@ export interface ConversationSession {
   status: SessionStatus;
   assignedAgent?: string | null;
   assignedAgentId?: string | null;
-  transferLogs?: TransferLog[];
-  latestTransfer?: TransferLog;
+  latestTransfer?: TransferLog | null;
   messages: ChatMessage[];
   summaryMemory: string;
   customerProfile: CustomerProfile;
-  checkpoints: CheckpointItem[];
   metrics: {
     totalTurns: number;
     avgLatencyMs: number;
     avgConfidence: number;
     escalatedAt?: string | null;
   };
-  pendingRefund?: {
-    orderId: string;
-    outRefundNo: string;
-  } | null;
-  unreadForAgent: boolean;
   createdAt: string;
   updatedAt: string;
 }

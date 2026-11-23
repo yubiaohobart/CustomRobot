@@ -150,9 +150,7 @@ class SessionModel(BaseModel):
     summaryMemory: str = Field(default="", description="长期工作记忆摘要")
     messages: List[ChatMessageModel] = Field(default_factory=list, description="全量消息时序流")
     metrics: SessionMetricsModel = Field(default_factory=SessionMetricsModel, description="会话指标快照")
-    contextSnapshot: Optional[Dict[str, Any]] = Field(default=None, description="转交工单快照")
     latestTransfer: Optional[Dict[str, Any]] = Field(default=None, description="最新一次转人工记录")
-    unreadForAgent: bool = Field(default=False, description="人工坐席未读标红")
     createdAt: str = Field(default_factory=lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     updatedAt: str = Field(default_factory=lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 

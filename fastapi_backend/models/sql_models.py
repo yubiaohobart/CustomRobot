@@ -200,9 +200,7 @@ class SessionEntity(Base):
             "summaryMemory": self.summary_memory or "",
             "messages": json.loads(self.messages_json) if self.messages_json else [],
             "metrics": json.loads(self.metrics_json) if self.metrics_json else {},
-            "contextSnapshot": json.loads(self.context_snapshot_json) if self.context_snapshot_json else None,
             "latestTransfer": json.loads(self.latest_transfer_json) if self.latest_transfer_json else None,
-            "unreadForAgent": bool(self.unread_for_agent),
             "createdAt": self.created_at,
             "updatedAt": self.updated_at
         }
