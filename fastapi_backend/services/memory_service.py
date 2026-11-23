@@ -4,6 +4,7 @@
 通过 storage_service 统一持久化至 PostgreSQL 关系型数据库。
 """
 
+import re
 import time
 import uuid
 import datetime
@@ -17,6 +18,14 @@ from config import (
     SUMMARY_MAX_CHARS,
 )
 from services.storage_service import storage_service
+
+_SUMMARY_ROLE_SPEC: Dict[str, Tuple[str, int]] = {
+    "user": ("客户提问", SUMMARY_USER_SNIPPET_LEN),
+    "assistant": ("AI答复", SUMMARY_REPLY_SNIPPET_LEN),
+    "human_agent": ("人工坐席答复", SUMMARY_REPLY_SNIPPET_LEN),
+}
+_SUMMARY_VALID_PREFIXES = tuple(f"{label}：" for label, _ in _SUMMARY_ROLE_SPEC.values())
+_SUMMARY_REPEAT_RE = re.compile(r"^(.*?) \(×(\d+)\)$")
 
 
 def _now_str() -> str:
@@ -168,64 +177,56 @@ class MemoryService:
     def _update_summary_memory(current_summary: str, role: str, content: str) -> str:
         """
         按完整语义片段维护去重后的滑动窗口摘要：
-        - 过滤旧版字符硬截断留下的开头残片
-        - 对相邻同角色重复发言合并计数 (×N)，避免重试刷爆上下文
-        - 按完整片段与最大字符上限从头部淘汰，不截断半句话
+        - 正文中的中文分号归一化为英文分号，防止破坏片段分隔
+        - 保留完整的初始/背景摘要（以句号结尾），仅过滤旧版硬截断残片
+        - 合并同角色重复发言计数 (×N) 并置尾，既防刷屏又保持最新时序
+        - 按片段数与字符上限从头部淘汰，不截断半句话
         """
-        text = " ".join((content or "").split())
+        spec = _SUMMARY_ROLE_SPEC.get(role)
+        if not spec:
+            return current_summary
+
+        text = " ".join((content or "").split()).replace("；", ";")
         if not text:
             return current_summary
 
-        if role == "user":
-            snippet = f"{text[:SUMMARY_USER_SNIPPET_LEN]}..." if len(text) > SUMMARY_USER_SNIPPET_LEN else text
-            entry = f"客户提问：'{snippet}'"
-        elif role in ("assistant", "human_agent"):
-            prefix = "AI答复" if role == "assistant" else "人工坐席答复"
-            snippet = f"{text[:SUMMARY_REPLY_SNIPPET_LEN]}..." if len(text) > SUMMARY_REPLY_SNIPPET_LEN else text
-            entry = f"{prefix}：'{snippet}'"
-        else:
-            return current_summary
+        label, max_len = spec
+        snippet = f"{text[:max_len]}..." if len(text) > max_len else text
+        entry = f"{label}：'{snippet}'"
 
-        valid_prefixes = ("客户提问：", "AI答复：", "人工坐席答复：")
-        segments = []
+        segments: List[str] = []
         for raw_seg in (current_summary or "").split("；"):
             seg = raw_seg.strip()
             if not seg:
                 continue
-            if not segments and "建立咨询连接" not in seg and not seg.startswith(valid_prefixes):
+            if not segments and not seg.startswith(_SUMMARY_VALID_PREFIXES) and not seg.endswith("。"):
                 continue
             segments.append(seg)
 
-        def _split_repeat(seg: str) -> Tuple[str, int]:
-            idx = seg.rfind(" (×")
-            if idx != -1 and seg.endswith(")"):
-                num_str = seg[idx + 3:-1]
-                if num_str.isdigit():
-                    return seg[:idx], int(num_str)
-            return seg, 1
-
-        # 倒序查找最近一条同角色片段，若内容一致则原地合并计数 (×N)
-        merged = False
-        entry_prefix = entry.split("：", 1)[0] + "："
-        for check_idx in range(len(segments) - 1, -1, -1):
-            seg = segments[check_idx]
+        entry_prefix = f"{label}："
+        for idx in range(len(segments) - 1, -1, -1):
+            seg = segments[idx]
             if not seg.startswith(entry_prefix):
                 continue
-            base_seg, count = _split_repeat(seg)
+            match = _SUMMARY_REPEAT_RE.match(seg)
+            base_seg = match.group(1) if match else seg
+            count = int(match.group(2)) if match else 1
             if base_seg == entry:
-                segments[check_idx] = f"{entry} (×{count + 1})"
-                merged = True
+                segments.pop(idx)
+                entry = f"{entry} (×{count + 1})"
             break
 
-        if not merged:
-            segments.append(entry)
+        segments.append(entry)
 
         if len(segments) > SUMMARY_MAX_SEGMENTS:
             segments = segments[-SUMMARY_MAX_SEGMENTS:]
-        while len(segments) > 1 and len("；".join(segments) + "；") > SUMMARY_MAX_CHARS:
-            segments.pop(0)
 
-        return "；".join(segments) + "；"
+        summary = "；".join(segments)
+        while len(segments) > 1 and len(summary) > SUMMARY_MAX_CHARS:
+            segments.pop(0)
+            summary = "；".join(segments)
+
+        return summary
 
     def _append_message_in_place(
         self,
