@@ -146,11 +146,16 @@ def test_send_human_agent_message(client: TestClient):
     response = client.post(f"/api/sessions/{session_id}/human-message", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["success"] is True
-    assert "message" in data
+    assert set(data.keys()) == {"message", "sessionPatch"}
     assert data["message"]["role"] == "human_agent"
     assert data["message"]["content"] == payload["message"]
-    assert len(data["session"]["messages"]) == 1
+    assert "messages" not in (data["sessionPatch"] or {})
+
+    detail = client.get(f"/api/sessions/{session_id}")
+    assert detail.status_code == 200
+    session_obj = detail.json()["session"]
+    assert len(session_obj["messages"]) == 1
+    assert session_obj["unreadForAgent"] is False
 
 
 def test_get_agents_roster(client: TestClient):

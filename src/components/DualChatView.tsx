@@ -408,7 +408,14 @@ export const DualChatView: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setSession(data.session);
+        setSession((prev) => {
+          if (!prev) return prev;
+          const currentMsgs = prev.messages || [];
+          const nextMsgs = data.message
+            ? mergeServerMessages(currentMsgs, [data.message], false)
+            : currentMsgs;
+          return applySessionPatch(prev, data.sessionPatch, nextMsgs);
+        });
         setAgentInput("");
         setCopilotDraft(null);
         showToast("已成功向客户发送人工答复！");

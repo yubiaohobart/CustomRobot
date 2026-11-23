@@ -14,6 +14,7 @@ from models.schemas import (
     TransferRequest,
     InterveneRequest,
     HumanMessageRequest,
+    HumanMessageResponse,
     KnowledgeSearchRequest,
     GenerateSuggestionRequest,
     TestRequest
@@ -311,18 +312,23 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
     )
     return {"success": True, "session": session}
 
-@router.post("/sessions/{session_id}/human-message")
+@router.post("/sessions/{session_id}/human-message", response_model=HumanMessageResponse)
 async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
-    """人工坐席在工作台发送回复"""
-    text = req.message or req.content or ""
+    """人工坐席在工作台发送回复（加会话锁 + 单次落盘 + 增量 O(1) 返回）"""
+    text = (req.message or req.content or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
-    existing = memory_service.get_session(session_id)
-    agent_name = req.agentName or (existing or {}).get("assignedAgent") or "人工客服"
-    msg = memory_service.add_message(session_id, "human_agent", text, sender_name=agent_name)
-    session = memory_service.get_session(session_id)
+    async with get_session_lock(session_id):
+        msg, session = memory_service.record_human_turn(
+            session_id,
+            text,
+            agent_name=req.agentName,
+        )
     await _emit_message_event(session_id, msg, session)
-    return {"success": True, "message": msg, "session": session}
+    return HumanMessageResponse(
+        message=msg,
+        sessionPatch=memory_service.build_session_patch(session, include_context=True),
+    )
 
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):

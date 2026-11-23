@@ -399,7 +399,15 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       });
       if (res.ok) {
         const data = await res.json();
-        setActiveSession(data.session);
+        setActiveSession((prev) => {
+          if (!prev) return prev;
+          const currentMsgs = prev.messages || [];
+          const nextMsgs =
+            data.message && !currentMsgs.some((m) => m.id === data.message.id)
+              ? [...currentMsgs, data.message]
+              : currentMsgs;
+          return applySessionPatch(prev, data.sessionPatch, nextMsgs);
+        });
         setAgentInput("");
         setCopilotSuggestion(null);
         fetchSessions();

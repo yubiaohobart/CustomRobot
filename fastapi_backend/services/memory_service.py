@@ -294,6 +294,26 @@ class MemoryService:
         storage_service.save_session(session)
         return user_msg, session
 
+    def record_human_turn(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        agent_name: Optional[str] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """单次读写完成：获取/创建会话 + 写入人工坐席消息 + 清除未读标记 + 落盘"""
+        session = self.get_or_create_session(session_id)
+        resolved_name = (agent_name or "").strip() or session.get("assignedAgent") or "人工客服"
+        session["unreadForAgent"] = False
+        human_msg = self._append_message_in_place(
+            session,
+            "human_agent",
+            content,
+            sender_name=resolved_name,
+        )
+        saved_session = storage_service.save_session(session)
+        return human_msg, saved_session
+
     def record_ai_turn(
         self,
         session_id: str,

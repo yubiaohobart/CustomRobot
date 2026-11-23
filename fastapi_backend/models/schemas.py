@@ -45,6 +45,10 @@ class HumanMessageRequest(BaseModel):
     agentId: Optional[str] = Field(default="agent_101")
     agentName: Optional[str] = None
 
+class HumanMessageResponse(BaseModel):
+    message: Dict[str, Any]
+    sessionPatch: Optional[Dict[str, Any]] = None
+
 class KnowledgeSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="检索文本")
     topK: int = Field(default=3, ge=1, le=10, description="召回 Top-K 数量")
