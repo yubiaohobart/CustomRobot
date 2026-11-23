@@ -180,9 +180,9 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     joinSession({
       sessionId: currentSessionId,
       role: "customer",
-      name: session?.customerProfile?.name || "客户",
+      name: "客户",
     });
-  }, [currentSessionId, session?.customerProfile?.name, joinSession]);
+  }, [currentSessionId, joinSession]);
 
   useEffect(() => {
     let typingTimer: any = null;

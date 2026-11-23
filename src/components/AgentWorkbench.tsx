@@ -216,9 +216,9 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
     joinSession({
       sessionId: currentSessionId || "__global__",
       role: "agent",
-      name: activeSession?.assignedAgent || "人工坐席",
+      name: "人工坐席",
     });
-  }, [currentSessionId, activeSession?.assignedAgent, joinSession]);
+  }, [currentSessionId, joinSession]);
 
   useEffect(() => {
     let typingTimer: any = null;

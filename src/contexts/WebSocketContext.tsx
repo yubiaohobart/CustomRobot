@@ -42,7 +42,7 @@ function getWsUrl(): string {
 
 function sendJoinIfNeeded(force = false) {
   if (!sharedSocket || sharedSocket.readyState !== WebSocket.OPEN || !desiredJoin) return;
-  const key = `${desiredJoin.sessionId}::${desiredJoin.role}::${desiredJoin.name || ""}`;
+  const key = `${desiredJoin.sessionId}::${desiredJoin.role}`;
   if (!force && key === lastSentJoinKey) return;
   lastSentJoinKey = key;
   sharedSocket.send(
