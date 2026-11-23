@@ -11,7 +11,6 @@ from typing import Dict, Any, List, Optional, Tuple
 from core.logger import cprint
 from config import (
     DETERMINISTIC_FLOW_CONFIDENCE,
-    HUMAN_TAKEOVER_STATUSES,
     SUMMARY_USER_SNIPPET_LEN,
     SUMMARY_REPLY_SNIPPET_LEN,
     SUMMARY_MAX_SEGMENTS,
@@ -287,7 +286,6 @@ class MemoryService:
         session_id: str,
         content: str,
         user_profile: Optional[Dict[str, Any]] = None,
-        human_takeover_statuses: Tuple[str, ...] = HUMAN_TAKEOVER_STATUSES,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """单次读写完成：获取/创建会话 + 合并最新画像 + 写入用户消息 + 落盘"""
         session = self.get_or_create_session(session_id, user_profile, persist=False)

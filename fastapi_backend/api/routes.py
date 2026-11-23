@@ -150,7 +150,6 @@ async def chat_endpoint(req: ChatRequest):
             req.sessionId,
             message_text,
             user_profile=req.userProfile,
-            human_takeover_statuses=HUMAN_TAKEOVER_STATUSES,
         )
         await _emit_message_event(req.sessionId, user_msg, session)
 
