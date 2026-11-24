@@ -639,11 +639,7 @@ async def generate_suggestion(req: GenerateSuggestionRequest):
     docs = [h["doc"] for h in hits]
     profile = session.get("customerProfile") if session else None
     order_id = (profile or {}).get("orderId")
-    business_facts = ""
-    if order_id:
-        target_order = order_service.get_owned_order(order_id, profile)
-        if target_order:
-            business_facts = order_service.format_order_summary_text(target_order)
+    business_facts = order_service.build_business_facts(order_id, profile)
 
     llm_result = await deepseek_client.generate_completion(
         user_message=last_user_msg,

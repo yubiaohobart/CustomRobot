@@ -42,7 +42,7 @@ def run_standalone_test_suite():
     """
     from fastapi.testclient import TestClient
     from app import app
-    from services.memory_service import memory_service
+    from services.storage_service import storage_service
     from core.qdrant_store import qdrant_store
 
     import test_health_and_root
@@ -102,8 +102,7 @@ def run_standalone_test_suite():
                 doc = (func.__doc__ or "").strip().split("\n")[0]
                 
                 # 重置会话与转接状态保证独立
-                memory_service.sessions.clear()
-                memory_service.transfer_logs.clear()
+                storage_service.clear_sessions_and_transfers()
 
                 t0 = time.time()
                 try:

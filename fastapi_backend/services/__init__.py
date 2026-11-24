@@ -1,6 +1,6 @@
 from .memory_service import memory_service, MemoryService
 from .order_service import order_service, OrderService
-from .intent_service import intent_service, IntentService
+from .intent_service import intent_service, IntentService, IntentAnalysisResult
 
 __all__ = [
     "memory_service",
@@ -9,4 +9,5 @@ __all__ = [
     "OrderService",
     "intent_service",
     "IntentService",
+    "IntentAnalysisResult",
 ]

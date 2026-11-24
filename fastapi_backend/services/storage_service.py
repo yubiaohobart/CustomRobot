@@ -20,7 +20,6 @@ from data.seed_data import (
 )
 from core.database import (
     get_engine,
-    get_active_dialect,
     db_session_scope,
     Base,
     POSTGRES_URL,
@@ -70,8 +69,7 @@ class StorageService:
                 return
 
             Base.metadata.create_all(bind=engine)
-            dialect = get_active_dialect()
-            cprint(f"[StorageService] SQLAlchemy ORM 架构初始化完毕，当前方言引擎: {dialect}", LogColor.GREEN)
+            cprint("[StorageService] SQLAlchemy ORM 架构初始化完毕，当前方言引擎: postgresql", LogColor.GREEN)
             self._seed_initial_data()
             self._initialized = True
 
@@ -371,11 +369,20 @@ class StorageService:
             session.flush()
             return entity.to_dict()
 
+    def clear_sessions_and_transfers(self) -> None:
+        """清空会话与转接日志表（专供测试夹具在用例前后重置持久化状态）"""
+        engine = get_engine()
+        if engine is None:
+            return
+        Base.metadata.create_all(bind=engine)
+        with db_session_scope() as session:
+            session.query(TransferLogEntity).delete()
+            session.query(SessionEntity).delete()
+
     # ==================== 6. 存储引擎状态探测 ====================
     def get_storage_status(self) -> Dict[str, Any]:
         """返回当前关系型数据库与 SQLAlchemy ORM 运行状态指标（单次聚合统计 5 张表）"""
         with db_session_scope() as session:
-            dialect = get_active_dialect()
             target_pg = POSTGRES_URL.split("@")[-1] if "@" in POSTGRES_URL else POSTGRES_URL
 
             counts_row = session.execute(
@@ -391,7 +398,7 @@ class StorageService:
             return {
                 "storageType": "PostgreSQL 关系型数据库 (SQLAlchemy ORM 架构)",
                 "orm": "SQLAlchemy 2.0 (DeclarativeBase & Session)",
-                "databaseDialect": dialect,
+                "databaseDialect": "postgresql",
                 "databaseUrlTarget": target_pg,
                 "poolConfig": {
                     "poolSize": getattr(settings, "DB_POOL_SIZE", 10),

@@ -106,6 +106,6 @@ pytest tests/ -k "test_chat" -v
    - 知识库采用 Qdrant 纯内存 `:memory:` 模式，测试无需事先启动 Qdrant 容器；
    - 嵌入引擎与大语言模型已内置高质量 Mock 与高保真离线降级兜底逻辑，无须启动 Ollama 或购买付费 API Key 也能 100% 通过测试。
 2. **测试用例强隔离（Fixture Autouse）**：
-   - 每个用例执行前由 `conftest.py` 中的 `reset_memory_state` 钩子清理 `memory_service.sessions` 与 `transfer_logs`，防止测试用例之间互相污染状态。
+   - 每个用例执行前由 `conftest.py` 中的 `reset_memory_state` 钩子调用 `storage_service.clear_sessions_and_transfers()` 清理会话与转接日志，防止测试用例之间互相污染状态。
 3. **Pydantic 异常边界拦截校验**：
    - 包含了空 query、非法字段长度、超出范围的数值等边界参数校验测试（HTTP 422 预期断言）。

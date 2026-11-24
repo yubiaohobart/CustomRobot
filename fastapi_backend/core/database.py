@@ -91,11 +91,6 @@ def dispose_engine() -> None:
             _SessionLocal = None
 
 
-def get_active_dialect() -> str:
-    """返回当前数据库方言"""
-    return "postgresql"
-
-
 @contextmanager
 def db_session_scope() -> Generator[Session, None, None]:
     """提供线程安全的事务性会话上下文管理器"""
@@ -109,16 +104,3 @@ def db_session_scope() -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
-
-
-def get_db() -> Generator[Session, None, None]:
-    """FastAPI 依赖注入 (Depends) 会话生成器"""
-    SessionLocal = get_session_factory()
-    db: Session = SessionLocal()
-    try:
-        yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()

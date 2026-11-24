@@ -521,13 +521,6 @@ class MemoryService:
 
         return storage_service.save_session(session)
 
-    def update_session_status(self, session_id: str, new_status: str) -> Dict[str, Any]:
-        """更新并持久化会话状态（如 AI_HANDLING -> NEEDS_INTERVENTION）"""
-        session = self.get_or_create_session(session_id, persist=False)
-        session["status"] = new_status
-        session["updatedAt"] = _now_str()
-        return storage_service.save_session(session)
-
     def clear_session_messages(self, session_id: str) -> Optional[Dict[str, Any]]:
         """清空指定会话的消息历史并持久化"""
         session = self.get_session(session_id)

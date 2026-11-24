@@ -533,7 +533,6 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
 
   const handleGenerateAwarenessGreeting = () => {
     if (!activeSession) return;
-    const latest = activeSession.latestTransfer?.contextSnapshot;
     const customer = activeSession.userName;
     const intent = activeSession.customerProfile?.intent || "常规业务咨询";
     const orderId = activeSession.customerProfile?.orderId;

@@ -14,7 +14,7 @@ if BACKEND_DIR not in sys.path:
 
 from app import app
 from fastapi.testclient import TestClient
-from services.memory_service import memory_service
+from services.storage_service import storage_service
 from core.qdrant_store import qdrant_store
 
 
@@ -27,12 +27,10 @@ def setup_qdrant_knowledge():
 
 @pytest.fixture(autouse=True)
 def reset_memory_state():
-    """用例级别：每个测试用例执行前后重置会话内存与转接记录，保证用例相互独立隔离"""
-    memory_service.sessions.clear()
-    memory_service.transfer_logs.clear()
+    """用例级别：每个测试用例执行前后重置会话与转接表，保证用例相互独立隔离"""
+    storage_service.clear_sessions_and_transfers()
     yield
-    memory_service.sessions.clear()
-    memory_service.transfer_logs.clear()
+    storage_service.clear_sessions_and_transfers()
 
 
 @pytest.fixture

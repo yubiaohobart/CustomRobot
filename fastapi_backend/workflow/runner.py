@@ -72,11 +72,6 @@ def _extract_pending_interrupt(
     return None
 
 
-def _has_pending_interrupt(snapshot: Any, expected_order_id: Optional[str] = None) -> bool:
-    """仅当 checkpoint 中存在与目标订单匹配的挂起 interrupt 时返回 True"""
-    return _extract_pending_interrupt(snapshot, expected_order_id=expected_order_id) is not None
-
-
 def _apply_interrupt_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
     """
     当图因 interrupt() 挂起返回时，从 __interrupt__ 提取退款确认卡片、提示文案与 out_refund_no 写入本次输出状态。

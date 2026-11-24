@@ -36,33 +36,54 @@ def _parse_resume_payload(resume_data: Any, fallback_out_refund_no: str) -> Tupl
     return None, fallback_out_refund_no
 
 
-@trace_node("analyze_query", "意图分类、情绪识别与瞬态字段复位")
-def analyze_query_node(state: AgentState) -> Dict[str, Any]:
-    """1. 意图分类、情绪识别与单轮瞬态字段复位"""
+@trace_node("analyze_query", "三级漏斗意图识别、情绪分析与语境改写")
+async def analyze_query_node(state: AgentState) -> Dict[str, Any]:
+    """1. 三级漏斗 NLU（L0 护栏 -> L1 语义路由 -> L2 LLM 结构化改写）与单轮瞬态字段复位"""
     t0 = time.time()
-    intent, sentiment = intent_service.classify_query(state.get("user_message", ""))
+    session_id = state.get("session_id")
+    session_data = storage_service.get_session(session_id) if session_id else None
+    raw_message = state.get("user_message", "")
+
+    nlu_res = await intent_service.analyze_query(
+        raw_message,
+        confirm_action=state.get("confirm_action"),
+        recent_messages=(session_data or {}).get("messages", []),
+        memory_summary=(session_data or {}).get("summaryMemory", ""),
+        user_profile=state.get("user_profile"),
+    )
     duration = int((time.time() - t0) * 1000)
+    rewrite_note = (
+        f", 改写={nlu_res.rewritten_query}"
+        if nlu_res.rewritten_query and nlu_res.rewritten_query != raw_message.strip()
+        else ""
+    )
 
     # PostgreSQL Checkpointer 会持久化同 thread_id 的历史状态，每轮入口复位瞬态输出字段以防跨轮污染
     return {
-        "intent": intent,
-        "sentiment": sentiment,
+        "intent": nlu_res.intent,
+        "sentiment": nlu_res.sentiment,
+        "rewritten_query": nlu_res.rewritten_query,
         "order_id": None,
         "refund": None,
         "reply": None,
         "handoff": False,
         "escalation_reason": None,
         "hits": [],
-        "trace": ["__RESET__", f"analyze_query: 意图={intent}, 情绪={sentiment} ({duration}ms)"],
+        "trace": [
+            "__RESET__",
+            f"analyze_query: [{nlu_res.route_source}] 意图={nlu_res.intent} (置信度={nlu_res.confidence:.2f}), "
+            f"情绪={nlu_res.sentiment}{rewrite_note} ({duration}ms)",
+        ],
     }
 
 
 @trace_node("order_query", "订单与物流中台检索")
 def order_query_node(state: AgentState) -> Dict[str, Any]:
-    """2. 订单与物流中台检索"""
+    """2. 订单与物流中台检索（优先消费上下文改写后的 query）"""
     t0 = time.time()
+    effective_query = state.get("rewritten_query") or state.get("user_message", "")
     order = order_service.detect_and_query_order(
-        state.get("user_message", ""),
+        effective_query,
         state.get("user_profile", {}),
     )
     order_id = order["orderId"] if order else None
@@ -140,9 +161,9 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
 
 @trace_node("qdrant_retrieve", "BGE-M3 向量编码与 Qdrant FAQ 检索")
 def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
-    """4. 基于 BGE-M3 向量嵌入检索 FAQ 条款（保留完整切片）"""
+    """4. 基于 BGE-M3 向量嵌入检索 FAQ 条款（优先消费上下文改写 query，保留完整切片）"""
     t0 = time.time()
-    query = state.get("user_message", "")
+    query = state.get("rewritten_query") or state.get("user_message", "")
     hits = qdrant_store.similarity_search(query, k=settings.TOP_K_RETRIEVAL)
     top_score = hits[0]["score"] if hits else 0.0
     top_title = hits[0]["doc"].get("title", "无直接匹配") if hits else "无"
@@ -177,17 +198,14 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     recent_messages = (session_data or {}).get("messages", [])
 
     order_id = state.get("order_id")
-    business_facts = ""
-    if order_id:
-        target_order = order_service.get_owned_order(order_id, state.get("user_profile"))
-        if target_order:
-            business_facts = order_service.format_order_summary_text(target_order)
+    user_profile = state.get("user_profile", {})
+    business_facts = order_service.build_business_facts(order_id, user_profile)
 
     llm_result = await deepseek_client.generate_completion(
         user_message=state.get("user_message", ""),
         hits=state.get("hits", []),
         memory_summary=memory_summary,
-        user_profile=state.get("user_profile", {}),
+        user_profile=user_profile,
         business_facts=business_facts,
         order_id=order_id,
         recent_messages=recent_messages,
@@ -253,11 +271,12 @@ def router_after_retrieval(state: AgentState) -> str:
     sentiment = state.get("sentiment", "neutral")
     if top_score < settings.SIMILARITY_THRESHOLD and sentiment in ("frustrated", "angry"):
         return "human_escalation"
+    effective_query = state.get("rewritten_query") or state.get("user_message", "")
     if (
         state.get("intent") == "常规售后咨询"
         and not hits
         and not state.get("order_id")
-        and not intent_service.is_chitchat(state.get("user_message", ""))
+        and not intent_service.is_chitchat(effective_query)
     ):
         return "human_escalation"
     return "deepseek_generate"

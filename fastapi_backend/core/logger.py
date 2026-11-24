@@ -225,13 +225,6 @@ class ColorPrinter:
         )
 
     @staticmethod
-    def node_enter(node_name: str, description: Optional[str] = None):
-        """LangGraph 进入节点打印（保留兼容方法）"""
-        reset = _c(LogColor.RESET)
-        desc = f" {_c(LogColor.DIM)}({description}){reset}" if description else ""
-        print(f"  {_c(LogColor.BRIGHT_MAGENTA)}▶{reset} {_c(LogColor.BRIGHT_CYAN)}{node_name}{reset}{desc}")
-
-    @staticmethod
     def node(node_name: str, action: str, details: Optional[str] = None):
         """LangGraph 节点执行完成单行日志"""
         reset = _c(LogColor.RESET)
@@ -334,17 +327,6 @@ class ColorPrinter:
         )
 
     @staticmethod
-    def rag(query: str, hits: int, top_score: float, matched_title: Optional[str] = None):
-        """Qdrant 向量召回单行日志"""
-        reset = _c(LogColor.RESET)
-        score_color = _c(LogColor.BRIGHT_GREEN if top_score >= 0.70 else LogColor.BRIGHT_YELLOW)
-        print(
-            f"    {_c(LogColor.DIM)}│{reset} 🔍 RAG: 命中 {hits} 条 | "
-            f"Top={score_color}{top_score:.3f}{reset} | "
-            f"最佳={_c(LogColor.CYAN)}{matched_title or 'N/A'}{reset}"
-        )
-
-    @staticmethod
     def llm(model: str, prompt_len: int, token_latency: float, is_fallback: bool = False):
         """DeepSeek 大模型调用单行日志"""
         reset = _c(LogColor.RESET)
@@ -436,20 +418,5 @@ def trace_node(node_name: str, description: Optional[str] = None) -> Callable:
                 raise
 
         return sync_wrapper
-
-    return decorator
-
-
-def trace_route(from_node: str) -> Callable:
-    """LangGraph 条件路由追踪装饰器（在路由函数外层统一打印跳转方向，不侵入分支判断）"""
-
-    def decorator(fn: Callable) -> Callable:
-        @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> str:
-            target = fn(*args, **kwargs)
-            cprint.route(from_node, str(target))
-            return target
-
-        return wrapper
 
     return decorator

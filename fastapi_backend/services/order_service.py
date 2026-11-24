@@ -130,15 +130,6 @@ class OrderService:
             return None
         return persisted if self._is_owned_by_profile(persisted, user_profile) else None
 
-    def find_orders_for_user(self, user_name: str, phone: Optional[str] = None) -> List[Dict[str, Any]]:
-        """根据客户姓名或手机号拉取该客户的所有订单"""
-        orders = storage_service.list_orders()
-        return [
-            o for o in orders
-            if (user_name and user_name in (o.get("userName") or ""))
-            or (phone and phone in (o.get("userPhone") or ""))
-        ]
-
     def save_order(self, order_dict: Dict[str, Any]) -> Dict[str, Any]:
         """保存并固化订单到数据库"""
         return storage_service.save_order(order_dict)
@@ -493,6 +484,17 @@ class OrderService:
   * 7天无理由退货：{'支持（签收第' + str(after_sale.get('signedDays', 0)) + '天，剩余' + str(after_sale.get('returnDaysRemaining', 0)) + '天）' if after_sale.get('canReturn7Days') else '不支持（' + after_sale.get('returnPolicy', '') + '）'}
   * 运费权益：{after_sale.get('shippingSubsidy', '按商城规则')}
   * 保修政策：{after_sale.get('warrantyPolicy', '1年全国联保')}"""
+
+    def build_business_facts(
+        self,
+        order_id: Optional[str],
+        user_profile: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """校验订单归属并生成提示词注入的订单事实摘要（未命中返回空串）"""
+        if not order_id:
+            return ""
+        target_order = self.get_owned_order(order_id, user_profile)
+        return self.format_order_summary_text(target_order) if target_order else ""
 
 
 # 全局单例
