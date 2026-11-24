@@ -168,12 +168,13 @@ export interface StorageTableInfo {
 export interface StorageStatus {
   storageType: string;
   orm?: string;
-  databaseTarget?: string;
+  databaseUrlTarget?: string;
   databaseDialect?: string;
-  databasePath?: string;
-  storageDir?: string;
-  engine?: string;
-  fileSizeBytes?: number;
+  poolConfig?: {
+    poolSize: number;
+    maxOverflow: number;
+    prePing: boolean;
+  };
   tables?: {
     orders: StorageTableInfo;
     customers: StorageTableInfo;
@@ -275,59 +276,68 @@ export interface SessionPatch {
 
 export type WsRole = "customer" | "agent" | "dual_observer" | "supervisor";
 
+export interface WsEnvelope<TType extends string, TData> {
+  type: TType;
+  sessionId?: string;
+  timestamp: string;
+  data: TData;
+}
+
+export type SessionUpdateAction = "message" | "transfer" | "takeover" | "release" | "clear" | string;
+export type OrderUpdateAction = "refund" | "audit" | "reset" | "status" | "chat_refund" | string;
+
+export interface WsTransferSummary {
+  id: string;
+  triggerType: TransferTriggerType;
+  reason: string;
+  assignedDepartment: string;
+  status: TransferLog["status"];
+  transferredAt: string;
+  operatorNote?: string;
+}
+
+export interface SessionUpdateData {
+  action: SessionUpdateAction;
+  sessionPatch: SessionPatch | null;
+  message?: ChatMessage;
+  latestTransfer?: WsTransferSummary | null;
+}
+
+export interface OrderUpdateData {
+  orderId: string;
+  action: OrderUpdateAction;
+  order: OrderData;
+}
+
 export type WsClientEvent =
   | {
       type: "join";
       sessionId: string;
-      role: WsRole;
-      name?: string;
+      data: {
+        role: WsRole;
+        name?: string;
+      };
     }
   | {
       type: "typing";
-      sessionId: string;
-      role: "customer" | "agent";
-      name?: string;
-      isTyping: boolean;
+      sessionId?: string;
+      data: {
+        isTyping: boolean;
+        role?: "customer" | "agent";
+        name?: string;
+      };
     }
   | {
       type: "ping";
+      data?: Record<string, never>;
     };
 
 export type WsServerEvent =
-  | {
-      type: "subscribed";
-      sessionId: string;
-      role: WsRole;
-      name: string;
-    }
-  | {
-      type: "pong";
-    }
-  | {
-      type: "typing";
-      sessionId: string;
-      role: "customer" | "agent" | string;
-      name?: string;
-      isTyping: boolean;
-    }
-  | {
-      type: "message:new";
-      sessionId: string;
-      message: ChatMessage;
-      sessionPatch: SessionPatch | null;
-    }
-  | {
-      type: "session:update";
-      sessionId: string;
-      action: "message" | "transfer" | "takeover" | "release" | string;
-      sessionPatch: SessionPatch | null;
-      message?: ChatMessage;
-    }
-  | {
-      type: "order:update";
-      orderId: string;
-      order: OrderData;
-    };
+  | WsEnvelope<"joined", { role: WsRole; name: string }>
+  | WsEnvelope<"pong", Record<string, never>>
+  | WsEnvelope<"typing", { role: "customer" | "agent" | string; name?: string; isTyping: boolean }>
+  | WsEnvelope<"session:update", SessionUpdateData>
+  | WsEnvelope<"order:update", OrderUpdateData>;
 
 export interface MetricsData {
   totalSessions: number;
@@ -335,10 +345,12 @@ export interface MetricsData {
   humanIntervened: number;
   aiHandling: number;
   totalTurns: number;
+  totalMessages?: number;
   avgLatencyMs: number;
   avgConfidence: number;
   humanInterventionRate: number;
   aiResolutionRate: number;
+  aiResolvedRate?: string;
   sentimentCounts: {
     positive: number;
     neutral: number;
@@ -347,4 +359,7 @@ export interface MetricsData {
   };
   kbDocCount: number;
   timestamp: string;
+  llmModel?: string;
+  embeddingModel?: string;
+  vectorDatabase?: string;
 }

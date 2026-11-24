@@ -2,10 +2,11 @@
 FastAPI 核心业务路由分发器 (API Routes)
 """
 
+import asyncio
 import re
 import time
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException
 
 from config import settings, HUMAN_TAKEOVER_STATUSES, DETERMINISTIC_FLOW_CONFIDENCE
 from models.schemas import (
@@ -15,6 +16,9 @@ from models.schemas import (
     InterveneRequest,
     HumanMessageRequest,
     HumanMessageResponse,
+    OrderStatusUpdateRequest,
+    OrderRefundRequest,
+    OrderRefundAuditRequest,
     KnowledgeSearchRequest,
     GenerateSuggestionRequest,
     TestRequest
@@ -24,7 +28,7 @@ from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
 from services.memory_service import memory_service
 from services.order_service import order_service
-from services.websocket_manager import ws_manager
+from services.websocket_manager import ws_manager, build_ws_event
 from workflow.runner import run_customer_service_graph, get_session_lock
 from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
@@ -34,29 +38,108 @@ router = APIRouter(prefix="/api")
 _DURATION_RE = re.compile(r"\((\d+)ms\)")
 
 
-async def _emit_message_event(session_id: str, message: Dict[str, Any], session: Optional[Dict[str, Any]]) -> None:
-    """统一推送单会话新消息与全局轻量会话补丁事件（隔离 WS 异常以免影响 HTTP 主响应）"""
+def _build_lobby_message_preview(message: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """构造大厅列表预览用的精简消息对象（剥离 aiMeta 与 card 等大载荷）"""
+    if not isinstance(message, dict) or not message:
+        return None
+    preview: Dict[str, Any] = {
+        "id": message.get("id"),
+        "role": message.get("role"),
+        "content": message.get("content", ""),
+        "timestamp": message.get("timestamp", ""),
+    }
+    if message.get("senderName"):
+        preview["senderName"] = message["senderName"]
+    return preview
+
+
+def _build_ws_transfer_brief(latest_transfer: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """构造 WebSocket 精简交接摘要（剥离 contextSnapshot 及与信封/sessionPatch 重复的字段）"""
+    if not isinstance(latest_transfer, dict) or not latest_transfer:
+        return None
+    brief: Dict[str, Any] = {
+        "id": latest_transfer.get("id"),
+        "triggerType": latest_transfer.get("triggerType"),
+        "reason": latest_transfer.get("reason", ""),
+        "assignedDepartment": latest_transfer.get("assignedDepartment", ""),
+        "status": latest_transfer.get("status", "SUCCESS"),
+        "transferredAt": latest_transfer.get("transferredAt", ""),
+    }
+    if latest_transfer.get("operatorNote"):
+        brief["operatorNote"] = latest_transfer["operatorNote"]
+    return brief
+
+
+async def _emit_session_event(
+    session_id: str,
+    action: str,
+    session: Optional[Dict[str, Any]],
+    *,
+    message: Optional[Dict[str, Any]] = None,
+    latest_transfer: Optional[Dict[str, Any]] = None,
+) -> None:
+    """统一推送会话变更事件 (session:update)：房间内推送完整消息/补丁，大厅推送轻量预览"""
     try:
         room_patch = memory_service.build_session_patch(session, include_context=True) if session else None
         role_patch = memory_service.build_session_patch(session, include_context=False) if session else None
-        await ws_manager.broadcast_to_session(session_id, {
-            "type": "message:new",
-            "sessionId": session_id,
-            "message": message,
+        if role_patch is not None and session:
+            intent_val = (session.get("customerProfile") or {}).get("intent")
+            if intent_val is not None:
+                role_patch["intent"] = intent_val
+
+        transfer_brief = _build_ws_transfer_brief(latest_transfer)
+
+        room_data: Dict[str, Any] = {
+            "action": action,
             "sessionPatch": room_patch,
-        })
+        }
+        if message is not None:
+            room_data["message"] = message
+        if transfer_brief is not None:
+            room_data["latestTransfer"] = transfer_brief
+
+        lobby_data: Dict[str, Any] = {
+            "action": action,
+            "sessionPatch": role_patch,
+        }
+        preview = _build_lobby_message_preview(message)
+        if preview is not None:
+            lobby_data["message"] = preview
+        if transfer_brief is not None:
+            lobby_data["latestTransfer"] = transfer_brief
+
+        await ws_manager.broadcast_to_session(
+            session_id,
+            build_ws_event("session:update", room_data, session_id=session_id),
+        )
         await ws_manager.broadcast_to_roles(
             ("agent", "supervisor", "dual_observer"),
-            {
-                "type": "session:update",
-                "sessionId": session_id,
-                "action": "message",
-                "sessionPatch": role_patch,
-            },
+            build_ws_event("session:update", lobby_data, session_id=session_id),
             exclude_session=session_id,
         )
     except Exception as e:
-        cprint.warning(f"WebSocket 广播失败 (已忽略，不影响主请求): {e}")
+        cprint.warning(f"WebSocket 会话事件广播失败 (已忽略，不影响主请求): {e}")
+
+
+async def _emit_order_event(
+    order_id: str,
+    action: str,
+    order: Dict[str, Any],
+    *,
+    session_id: Optional[str] = None,
+) -> None:
+    """统一推送订单状态变更事件 (order:update)"""
+    try:
+        await ws_manager.broadcast_to_roles(
+            ("agent", "supervisor", "dual_observer"),
+            build_ws_event(
+                "order:update",
+                {"orderId": order_id, "action": action, "order": order},
+                session_id=session_id,
+            ),
+        )
+    except Exception as e:
+        cprint.warning(f"WebSocket 订单事件广播失败 (已忽略，不影响主请求): {e}")
 
 
 def _build_human_takeover_response(
@@ -151,7 +234,7 @@ async def chat_endpoint(req: ChatRequest):
             message_text,
             user_profile=req.userProfile,
         )
-        await _emit_message_event(req.sessionId, user_msg, session)
+        await _emit_session_event(req.sessionId, "message", session, message=user_msg)
 
         # 2. 若当前会话已被人工接管，AI 暂停自主介入，直接返回坐席协同提示
         if session.get("status") in HUMAN_TAKEOVER_STATUSES:
@@ -210,7 +293,9 @@ async def chat_endpoint(req: ChatRequest):
             out_refund_no=out_refund_no,
         )
 
-    await _emit_message_event(req.sessionId, assistant_msg, updated_session)
+    await _emit_session_event(req.sessionId, "message", updated_session, message=assistant_msg)
+    if order_id and current_order and refund_draft.get("status") in ("SUBMITTED", "PENDING_AUDIT"):
+        await _emit_order_event(order_id, "chat_refund", current_order, session_id=req.sessionId)
 
     return ChatResponse(
         escalatedToHuman=handoff,
@@ -242,28 +327,14 @@ async def transfer_session_endpoint(session_id: str, req: TransferRequest):
         operator_note=req.operatorNote or "",
         trigger_type=req.triggerType or "user_requested"
     )
-    # 实时 WebSocket 广播：房间内发送完整补丁+新增系统消息，全局大厅仅推精简状态补丁
-    room_patch = memory_service.build_session_patch(session, include_context=True)
-    role_patch = memory_service.build_session_patch(session, include_context=False)
+    # 实时 WebSocket 广播：统一使用 session:update 信封
     last_msg = session["messages"][-1] if session.get("messages") else None
-    room_payload: Dict[str, Any] = {
-        "type": "session:update",
-        "sessionId": session_id,
-        "action": "transfer",
-        "sessionPatch": room_patch,
-    }
-    if last_msg:
-        room_payload["message"] = last_msg
-    await ws_manager.broadcast_to_session(session_id, room_payload)
-    await ws_manager.broadcast_to_roles(
-        ("agent", "supervisor", "dual_observer"),
-        {
-            "type": "session:update",
-            "sessionId": session_id,
-            "action": "transfer",
-            "sessionPatch": role_patch,
-        },
-        exclude_session=session_id,
+    await _emit_session_event(
+        session_id,
+        "transfer",
+        session,
+        message=last_msg,
+        latest_transfer=transfer_log,
     )
     return {
         "success": True,
@@ -281,29 +352,9 @@ async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
         agent_id=req.agentId or "agent_101",
         note=req.note or ""
     )
-    # 实时 WebSocket 广播状态流转（房间内附带新增系统消息与上下文补丁，全局大厅仅推精简状态补丁）
-    room_patch = memory_service.build_session_patch(session, include_context=True)
-    role_patch = memory_service.build_session_patch(session, include_context=False)
+    # 实时 WebSocket 广播状态流转（统一使用 session:update 信封）
     last_msg = session["messages"][-1] if session.get("messages") else None
-    room_payload: Dict[str, Any] = {
-        "type": "session:update",
-        "sessionId": session_id,
-        "action": req.action,
-        "sessionPatch": room_patch,
-    }
-    if last_msg:
-        room_payload["message"] = last_msg
-    await ws_manager.broadcast_to_session(session_id, room_payload)
-    await ws_manager.broadcast_to_roles(
-        ("agent", "supervisor", "dual_observer"),
-        {
-            "type": "session:update",
-            "sessionId": session_id,
-            "action": req.action,
-            "sessionPatch": role_patch,
-        },
-        exclude_session=session_id,
-    )
+    await _emit_session_event(session_id, req.action, session, message=last_msg)
     return {"success": True, "session": session}
 
 @router.post("/sessions/{session_id}/human-message", response_model=HumanMessageResponse)
@@ -318,7 +369,7 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
             text,
             agent_name=req.agentName,
         )
-    await _emit_message_event(session_id, msg, session)
+    await _emit_session_event(session_id, "message", session, message=msg)
     return HumanMessageResponse(
         message=msg,
         sessionPatch=memory_service.build_session_patch(session, include_context=True),
@@ -326,8 +377,10 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
 
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
-    """清空指定会话消息历史"""
+    """清空指定会话消息历史并同步广播各在线端"""
     session = memory_service.clear_session_messages(session_id)
+    if session:
+        await _emit_session_event(session_id, "clear", session)
     return {"success": True, "session": session}
 
 @router.get("/agents")
@@ -342,25 +395,57 @@ async def get_transfer_logs():
 
 @router.get("/metrics")
 async def get_dashboard_metrics():
-    """获取监控大屏指标数据"""
+    """获取监控大屏真实聚合指标数据"""
     sessions = memory_service.list_sessions()
     total_sessions = len(sessions)
     total_messages = sum(len(s.get("messages", [])) for s in sessions)
-    human_intervened = sum(1 for s in sessions if s.get("status") in ["HUMAN_INTERVENED", "RESOLVED"])
-    ai_resolved_rate = round(((total_sessions - human_intervened) / max(1, total_sessions)) * 100, 1)
+
+    ai_handling = sum(1 for s in sessions if s.get("status") == "AI_HANDLING")
+    needs_intervention = sum(1 for s in sessions if s.get("status") == "NEEDS_INTERVENTION")
+    human_intervened = sum(
+        1 for s in sessions if s.get("status") in ("HUMAN_INTERVENED", "TRANSFERRED", "TRANSFERRED_TO_HUMAN", "RESOLVED")
+    )
+
+    ai_resolution_rate = round(((total_sessions - human_intervened) / max(1, total_sessions)) * 100, 1)
+    human_intervention_rate = round(((human_intervened + needs_intervention) / max(1, total_sessions)) * 100, 1)
+
+    latencies = [float((s.get("metrics") or {}).get("avgLatencyMs", 0)) for s in sessions if s.get("metrics")]
+    confidences = [float((s.get("metrics") or {}).get("avgConfidence", 0.0)) for s in sessions if s.get("metrics")]
+    avg_latency_ms = int(round(sum(latencies) / len(latencies))) if latencies else 0
+    avg_confidence = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
+
+    sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0, "frustrated": 0}
+    for s in sessions:
+        raw_sent = str((s.get("customerProfile") or {}).get("sentiment") or "neutral").lower()
+        if raw_sent in sentiment_counts:
+            sentiment_counts[raw_sent] += 1
+        elif raw_sent in ("angry",):
+            sentiment_counts["frustrated"] += 1
+        else:
+            sentiment_counts["neutral"] += 1
+
+    kb_doc_count = len(qdrant_store.list_all_documents())
 
     return {
         "totalSessions": total_sessions,
+        "needsIntervention": needs_intervention,
+        "humanIntervened": human_intervened,
+        "aiHandling": ai_handling,
+        "totalTurns": total_messages,
         "totalMessages": total_messages,
-        "aiResolvedRate": f"{ai_resolved_rate}%",
-        "avgResponseTime": "32ms",
-        "qdrantHitRate": "98.4%",
-        "deepseekTokenUsage": "14,280 tokens",
+        "avgLatencyMs": avg_latency_ms,
+        "avgConfidence": avg_confidence,
+        "humanInterventionRate": human_intervention_rate,
+        "aiResolutionRate": ai_resolution_rate,
+        "aiResolvedRate": f"{ai_resolution_rate}%",
+        "sentimentCounts": sentiment_counts,
+        "kbDocCount": kb_doc_count,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "llmModel": settings.DEEPSEEK_MODEL,
         "embeddingModel": f"Ollama / {settings.OLLAMA_EMBED_MODEL} (1024-dim)",
         "ollamaEndpoint": settings.OLLAMA_BASE_URL,
         "vectorDatabase": "Qdrant",
-        "collection": settings.QDRANT_COLLECTION
+        "collection": settings.QDRANT_COLLECTION,
     }
 
 @router.get("/orders")
@@ -415,42 +500,29 @@ async def create_or_update_order(order_data: Dict[str, Any]):
     return {"success": True, "order": saved}
 
 @router.put("/orders/{order_id}/status")
-async def update_order_status_endpoint(order_id: str, payload: Dict[str, Any]):
+async def update_order_status_endpoint(order_id: str, req: OrderStatusUpdateRequest):
     """更新指定订单状态并固化到磁盘"""
-    status = payload.get("status")
-    status_text = payload.get("statusText")
-    if not status:
-        raise HTTPException(status_code=400, detail="Missing required field 'status'")
-    updated = order_service.update_order_status(order_id, status, status_text)
+    updated = order_service.update_order_status(order_id, req.status, req.statusText)
     if not updated:
         raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在")
+    await _emit_order_event(order_id, "status", updated)
     return {"success": True, "order": updated}
 
 @router.post("/orders/{order_id}/refund")
-async def request_order_refund_endpoint(order_id: str, payload: Dict[str, Any] = {}):
+async def request_order_refund_endpoint(order_id: str, req: Optional[OrderRefundRequest] = None):
     """
     提交订单退款申请：
     金额 < AUTO_REFUND_LIMIT_YUAN 直接秒退 (AUTO_REFUNDED)
     金额 >= AUTO_REFUND_LIMIT_YUAN 需人工审核 (PENDING_HUMAN_AUDIT)
     """
-    reason = payload.get("reason", "7天无理由退货")
-    amount = payload.get("refundAmount")
-    if amount is not None:
-        try:
-            amount = float(amount)
-        except (ValueError, TypeError):
-            amount = None
-            
+    body = req or OrderRefundRequest()
     try:
-        updated = order_service.process_refund_request(order_id, reason=reason, refund_amount=amount)
-        await ws_manager.broadcast_to_roles(
-            ("agent", "supervisor", "dual_observer"),
-            {
-                "type": "order:update",
-                "orderId": order_id,
-                "order": updated,
-            },
+        updated = order_service.process_refund_request(
+            order_id,
+            reason=body.reason,
+            refund_amount=body.refundAmount,
         )
+        await _emit_order_event(order_id, "refund", updated)
         return {"success": True, "order": updated}
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -458,28 +530,19 @@ async def request_order_refund_endpoint(order_id: str, payload: Dict[str, Any] =
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/orders/{order_id}/refund/audit")
-async def audit_order_refund_endpoint(order_id: str, payload: Dict[str, Any]):
+async def audit_order_refund_endpoint(order_id: str, req: OrderRefundAuditRequest):
     """
     人工坐席审核退款申请：
     action: approve (同意退款) / reject (驳回申请)
     """
-    action = payload.get("action")
-    if not action:
-        raise HTTPException(status_code=400, detail="Missing required parameter 'action'")
-    
-    operator = payload.get("operatorName", "陈浩")
-    note = payload.get("note", "")
-
     try:
-        updated = order_service.audit_refund(order_id, action=action, operator_name=operator, note=note)
-        await ws_manager.broadcast_to_roles(
-            ("agent", "supervisor", "dual_observer"),
-            {
-                "type": "order:update",
-                "orderId": order_id,
-                "order": updated,
-            },
+        updated = order_service.audit_refund(
+            order_id,
+            action=req.action,
+            operator_name=req.operatorName,
+            note=req.note,
         )
+        await _emit_order_event(order_id, "audit", updated)
         return {"success": True, "order": updated}
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -500,14 +563,7 @@ async def reset_order_status_endpoint(order_id: str):
         order["afterSales"]["requiresHumanAudit"] = False
         order["afterSales"]["refundAmount"] = 0.0
     saved = order_service.save_order(order)
-    await ws_manager.broadcast_to_roles(
-        ("agent", "supervisor", "dual_observer"),
-        {
-            "type": "order:update",
-            "orderId": order_id,
-            "order": saved,
-        },
-    )
+    await _emit_order_event(order_id, "reset", saved)
     return {"success": True, "message": f"订单 {order_id} 已重置为已签收状态，可重新进行退款前门槛卡片测试", "order": saved}
 
 @router.get("/customers")

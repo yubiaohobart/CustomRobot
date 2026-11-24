@@ -101,13 +101,13 @@ function AppContent() {
   useEffect(() => {
     checkAlerts();
     return subscribe((payload) => {
-      if (payload.type === "session:update" || payload.type === "message:new") {
+      if (payload.type === "session:update") {
         const sid = payload.sessionId;
-        const status = payload.sessionPatch?.status;
+        const status = payload.data.sessionPatch?.status;
         if (sid && status) {
           statusMapRef.current.set(sid, status);
           updateCountFromMap();
-        } else if (payload.type === "session:update") {
+        } else {
           checkAlerts();
         }
       }

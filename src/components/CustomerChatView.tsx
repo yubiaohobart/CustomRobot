@@ -149,6 +149,18 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
   const [agentTyping, setAgentTyping] = useState<string | null>(null);
   const { isConnected, joinSession, sendJson, subscribe } = useWebSocket();
+  const lastTypingSentAtRef = useRef<number>(0);
+
+  const emitCustomerTyping = (isTyping: boolean) => {
+    const now = Date.now();
+    if (isTyping && now - lastTypingSentAtRef.current < 1000) return;
+    lastTypingSentAtRef.current = isTyping ? now : 0;
+    sendJson({
+      type: "typing",
+      sessionId: currentSessionId,
+      data: { isTyping },
+    });
+  };
 
   const fetchSession = async () => {
     try {
@@ -185,29 +197,31 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
   }, [currentSessionId, joinSession]);
 
   useEffect(() => {
-    let typingTimer: any = null;
+    let typingTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = subscribe((payload) => {
-      if (payload.type === "message:new" && payload.message) {
-        if (!payload.sessionId || payload.sessionId === currentSessionId) {
-          setMessages((prev) => mergeServerMessages(prev, [payload.message], false));
-          if (payload.sessionPatch) {
-            const patch = payload.sessionPatch;
-            setSession((prev) => (prev ? applySessionPatch(prev, patch) : prev));
-          }
+      if (payload.sessionId !== currentSessionId) return;
+
+      if (payload.type === "session:update") {
+        const { action, message, sessionPatch, latestTransfer } = payload.data;
+        if (action === "clear") {
+          setMessages([]);
+        } else if (message) {
+          setMessages((prev) => mergeServerMessages(prev, [message], false));
         }
-      } else if (payload.type === "session:update" && payload.sessionId === currentSessionId) {
-        if (payload.sessionPatch) {
-          const patch = payload.sessionPatch;
-          setSession((prev) => (prev ? applySessionPatch(prev, patch) : prev));
-        }
-        if (payload.message) {
-          setMessages((prev) => mergeServerMessages(prev, [payload.message!], false));
-        }
-      } else if (payload.type === "typing" && (!payload.sessionId || payload.sessionId === currentSessionId)) {
-        if (payload.role === "agent") {
-          setAgentTyping(payload.isTyping ? (payload.name || "客服专员") : null);
-          clearTimeout(typingTimer);
-          if (payload.isTyping) {
+        setSession((prev) =>
+          prev
+            ? applySessionPatch(prev, sessionPatch, undefined, {
+                latestTransfer,
+                updatedAt: payload.timestamp,
+              })
+            : prev
+        );
+      } else if (payload.type === "typing") {
+        const { role, name, isTyping } = payload.data;
+        if (role === "agent") {
+          setAgentTyping(isTyping ? (name || "客服专员") : null);
+          if (typingTimer) clearTimeout(typingTimer);
+          if (isTyping) {
             typingTimer = setTimeout(() => setAgentTyping(null), 4000);
           }
         }
@@ -216,7 +230,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
 
     return () => {
       unsubscribe();
-      clearTimeout(typingTimer);
+      if (typingTimer) clearTimeout(typingTimer);
     };
   }, [currentSessionId, subscribe]);
 
@@ -283,6 +297,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
     if (!text || loading) return;
 
     setInputMessage("");
+    emitCustomerTyping(false);
     setLoading(true);
     shouldAutoScrollRef.current = true;
 
@@ -1189,13 +1204,7 @@ export const CustomerChatView: React.FC<CustomerChatViewProps> = ({
               }}
               onChange={(e) => {
                 setInputMessage(e.target.value);
-                sendJson({
-                  type: "typing",
-                  sessionId: currentSessionId,
-                  role: "customer",
-                  name: session?.customerProfile?.name || "客户",
-                  isTyping: e.target.value.length > 0,
-                });
+                emitCustomerTyping(e.target.value.length > 0);
               }}
               placeholder={isHumanServing ? "已接通人工坐席，客服正在查看您的上下文背景，可直接在此发送（Shift+Enter 换行，右下角可拖拽拉大）..." : "请输入您想咨询的问题（例如：申请退款、补开发票、物流查询；Shift+Enter 换行，右下角可拖拽拉大）..."}
               className="flex-1 min-w-0 min-h-[76px] max-h-[280px] px-4 py-3 bg-slate-100 hover:bg-slate-100/80 focus:bg-white text-sm text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-y transition-colors leading-relaxed"

@@ -2,17 +2,9 @@
 Pydantic 业务请求与响应模型定义 (Schemas)
 """
 
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
-class KnowledgeDocItem(BaseModel):
-    id: str
-    title: str
-    category: str = "售后政策"
-    content: str
-    tags: List[str] = Field(default_factory=list)
-    keywords: Optional[List[str]] = Field(default_factory=list)
-    updatedAt: str = "2026-01-15T09:00:00Z"
 
 class ChatRequest(BaseModel):
     sessionId: str = Field(default="session_user_001", description="客户端会话唯一标识")
@@ -22,11 +14,13 @@ class ChatRequest(BaseModel):
     refundOrderId: Optional[str] = Field(default=None, description="待确认退款的目标订单号（用于断点恢复或重入防串单）")
     outRefundNo: Optional[str] = Field(default=None, description="商户退款申请单号 / 幂等流水号（防止重复提交）")
 
+
 class ChatResponse(BaseModel):
     escalatedToHuman: bool = False
     userMessage: Optional[Dict[str, Any]] = None
     assistantMessage: Optional[Dict[str, Any]] = None
     sessionPatch: Optional[Dict[str, Any]] = None
+
 
 class TransferRequest(BaseModel):
     targetAgentId: str = Field(default="agent_101", description="指派目标坐席工号")
@@ -34,10 +28,12 @@ class TransferRequest(BaseModel):
     operatorNote: Optional[str] = Field(default="", description="前台坐席补充备忘")
     triggerType: Optional[str] = Field(default="user_requested", description="触发类型：user_requested / low_confidence / emotion_warning")
 
+
 class InterveneRequest(BaseModel):
     action: str = Field(..., description="'takeover' (人工接管) 或 'release' (交还AI)")
     agentId: Optional[str] = Field(default="agent_101")
     note: Optional[str] = Field(default="")
+
 
 class HumanMessageRequest(BaseModel):
     message: Optional[str] = None
@@ -45,18 +41,38 @@ class HumanMessageRequest(BaseModel):
     agentId: Optional[str] = Field(default="agent_101")
     agentName: Optional[str] = None
 
+
 class HumanMessageResponse(BaseModel):
     message: Dict[str, Any]
     sessionPatch: Optional[Dict[str, Any]] = None
+
+
+class OrderStatusUpdateRequest(BaseModel):
+    status: str = Field(..., min_length=1, description="目标订单状态码")
+    statusText: Optional[str] = Field(default=None, description="展示状态文本")
+
+
+class OrderRefundRequest(BaseModel):
+    reason: str = Field(default="7天无理由退货", description="退款原因")
+    refundAmount: Optional[float] = Field(default=None, ge=0.0, description="退款金额(元)")
+
+
+class OrderRefundAuditRequest(BaseModel):
+    action: str = Field(..., min_length=1, description="审核动作：approve / reject")
+    operatorName: str = Field(default="陈浩", description="审核坐席姓名")
+    note: str = Field(default="", description="审核备注")
+
 
 class KnowledgeSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="检索文本")
     topK: int = Field(default=3, ge=1, le=10, description="召回 Top-K 数量")
     minScore: float = Field(default=0.0, ge=0.0, le=1.0, description="最低相似度过滤阈值")
 
+
 class GenerateSuggestionRequest(BaseModel):
     sessionId: str = Field(default="session_user_001")
     context: Optional[str] = Field(default=None)
+
 
 class TestRequest(BaseModel):
     query: Optional[str] = Field(default="黄金会员退货免运费怎么申请？", description="待测试的提问文本")

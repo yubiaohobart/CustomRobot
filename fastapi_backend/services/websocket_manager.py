@@ -8,6 +8,7 @@ FastAPI 原生 WebSocket 连接池与实时广播管理器 (WebSocket Connection
 """
 
 import asyncio
+import datetime
 import json
 import time
 from typing import Any, Collection, Dict, List, Optional, Set
@@ -23,6 +24,25 @@ DEFAULT_ROLE_NAMES: Dict[str, str] = {
     "supervisor": "客服主管",
     "dual_observer": "同屏观测台",
 }
+
+
+def build_ws_event(
+    event_type: str,
+    data: Optional[Dict[str, Any]] = None,
+    *,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """构建全站统一的 WebSocket 下行事件信封: { type, sessionId?, timestamp, data }"""
+    envelope: Dict[str, Any] = {
+        "type": event_type,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z"),
+        "data": data if data is not None else {},
+    }
+    if session_id is not None:
+        envelope["sessionId"] = session_id
+    return envelope
 
 
 class WebSocketConnectionManager:
@@ -60,15 +80,19 @@ class WebSocketConnectionManager:
     def _summarize_payload(payload: Dict[str, Any]) -> str:
         """生成脱敏的广播日志摘要（避免将客户/坐席完整聊天原文打印到日志）"""
         m_type = payload.get("type", "message")
-        if m_type == "message:new":
-            msg = payload.get("message") or {}
-            content_len = len(str(msg.get("content") or ""))
-            return f"新消息[{msg.get('role', 'unknown')}] ({content_len} 字符)"
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         if m_type == "session:update":
-            patch = payload.get("sessionPatch") or {}
-            return f"状态变更[{payload.get('action', 'update')}] -> {patch.get('status', 'UPDATE')}"
+            action = data.get("action", "update")
+            msg = data.get("message") or {}
+            if action == "message" and isinstance(msg, dict) and msg:
+                content_len = len(str(msg.get("content") or ""))
+                return f"新消息[{msg.get('role', 'unknown')}] ({content_len} 字符)"
+            patch = data.get("sessionPatch") or {}
+            return f"状态变更[{action}] -> {patch.get('status', 'UPDATE')}"
         if m_type == "typing":
-            return f"[{payload.get('role', 'unknown')}] 正在输入: {bool(payload.get('isTyping'))}"
+            return f"[{data.get('role', 'unknown')}] 正在输入: {bool(data.get('isTyping'))}"
+        if m_type == "order:update":
+            return f"订单更新[{data.get('action', 'update')}] -> {data.get('orderId', '')}"
         return f"事件: {m_type}"
 
     async def _send_text_safe(self, connection: WebSocket, text: str) -> bool:
@@ -154,12 +178,11 @@ class WebSocketConnectionManager:
                 f"全双工长连接已就绪 (角色: {meta['role']}, 来源: {client_addr}, 在线连接数: {len(self.all_connections)})",
             )
 
-            ack_payload = {
-                "type": "subscribed",
-                "sessionId": meta["session_id"],
-                "role": meta["role"],
-                "name": meta["name"],
-            }
+            ack_payload = build_ws_event(
+                "joined",
+                {"role": meta["role"], "name": meta["name"]},
+                session_id=meta["session_id"],
+            )
             ack_text = json.dumps(ack_payload, ensure_ascii=False)
             lock = self._send_locks[websocket]
             async with lock:
@@ -276,10 +299,7 @@ class WebSocketConnectionManager:
     ) -> int:
         """向特定会话房间内的订阅者并发广播消息"""
         targets = list(self.session_connections.get(session_id, set()))
-        echo_back = bool(payload.get("echoBack", False))
-        recipients = [
-            conn for conn in targets if not (conn == exclude and not echo_back)
-        ]
+        recipients = [conn for conn in targets if conn != exclude]
         if not recipients:
             return 0
 

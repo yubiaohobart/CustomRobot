@@ -10,50 +10,62 @@ WebSocket 独立路由模块 (WebSocket Route & Event Dispatcher)
 from typing import Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from services.websocket_manager import ws_manager
+from services.websocket_manager import ws_manager, build_ws_event
 from core.logger import log
 
 ws_router = APIRouter(tags=["WebSocket 实时通信"])
 
 
+def _extract_event_data(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """提取客户端消息体（优先读取统一信封 data 字段，兼容平铺传参）"""
+    nested = payload.get("data")
+    return nested if isinstance(nested, dict) else payload
+
+
 # ==================== 事件处理器 (Event Handlers) ====================
 
-async def handle_join_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str) -> str:
+async def handle_join_event(websocket: WebSocket, payload: Dict[str, Any], meta: Dict[str, Any], current_session_id: str) -> str:
     """处理终端加入/切换会话事件"""
-    target_session_id = data.get("sessionId") or current_session_id
-    role = data.get("role") or meta.get("role", "customer")
-    name = data.get("name") or meta.get("name", "")
+    body = _extract_event_data(payload)
+    target_session_id = payload.get("sessionId") or body.get("sessionId") or current_session_id
+    role = body.get("role") or meta.get("role", "customer")
+    name = body.get("name") if "name" in body else meta.get("name", "")
 
     registered = ws_manager.register_session(websocket, session_id=target_session_id, role=role, name=name)
 
-    await ws_manager.send_to_connection(websocket, {
-        "type": "subscribed",
-        "sessionId": registered["session_id"],
-        "role": registered["role"],
-        "name": registered["name"],
-    })
+    await ws_manager.send_to_connection(
+        websocket,
+        build_ws_event(
+            "joined",
+            {"role": registered["role"], "name": registered["name"]},
+            session_id=registered["session_id"],
+        ),
+    )
     return registered["session_id"]
 
 
 async def handle_ping_event(websocket: WebSocket) -> None:
     """处理心跳探活"""
-    await ws_manager.send_to_connection(websocket, {"type": "pong"})
+    await ws_manager.send_to_connection(websocket, build_ws_event("pong", {}))
 
 
-async def handle_typing_event(websocket: WebSocket, data: Dict[str, Any], meta: Dict[str, Any], current_session_id: str) -> None:
+async def handle_typing_event(websocket: WebSocket, payload: Dict[str, Any], meta: Dict[str, Any], current_session_id: str) -> None:
     """处理输入状态实时同步 (正在输入...)"""
-    target_session_id = data.get("sessionId") or current_session_id
-    role = data.get("role") or meta.get("role", "unknown")
-    name = data.get("name") or meta.get("name", "")
-    is_typing = bool(data.get("isTyping", False))
+    body = _extract_event_data(payload)
+    target_session_id = payload.get("sessionId") or body.get("sessionId") or current_session_id
+    role = body.get("role") or meta.get("role", "unknown")
+    name = body.get("name") or meta.get("name", "")
+    is_typing = bool(body.get("isTyping", False))
 
-    await ws_manager.broadcast_to_session(target_session_id, {
-        "type": "typing",
-        "sessionId": target_session_id,
-        "role": role,
-        "name": name,
-        "isTyping": is_typing,
-    }, exclude=websocket)
+    await ws_manager.broadcast_to_session(
+        target_session_id,
+        build_ws_event(
+            "typing",
+            {"role": role, "name": name, "isTyping": is_typing},
+            session_id=target_session_id,
+        ),
+        exclude=websocket,
+    )
 
 
 # ==================== WebSocket 连接主循环 ====================
@@ -70,6 +82,10 @@ async def handle_websocket_loop(websocket: WebSocket, initial_session_id: str):
         while True:
             data = await websocket.receive_json()
             ws_manager.touch(websocket)
+            if not isinstance(data, dict):
+                log.warning(f"收到非对象 JSON WebSocket 帧，已忽略: {type(data).__name__}")
+                continue
+
             msg_type = data.get("type", "")
             meta = ws_manager.get_connection_meta(websocket)
             current_session_id = meta.get("session_id", current_session_id)

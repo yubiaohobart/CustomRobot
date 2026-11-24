@@ -23,7 +23,10 @@ let desiredJoin: JoinParams | null = null;
 let lastSentJoinKey = "";
 let pendingCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let providerActiveCount = 0;
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 const messageListeners = new Set<(payload: WsServerEvent) => void>();
 const statusListeners = new Set<(connected: boolean) => void>();
@@ -40,19 +43,36 @@ function getWsUrl(): string {
   return `${protocol}//${hostname}${port}/ws`;
 }
 
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startHeartbeat(ws: WebSocket) {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (sharedSocket === ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping", data: {} } satisfies WsClientEvent));
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
 function sendJoinIfNeeded(force = false) {
   if (!sharedSocket || sharedSocket.readyState !== WebSocket.OPEN || !desiredJoin) return;
-  const key = `${desiredJoin.sessionId}::${desiredJoin.role}`;
+  const key = `${desiredJoin.sessionId}::${desiredJoin.role}::${desiredJoin.name || ""}`;
   if (!force && key === lastSentJoinKey) return;
   lastSentJoinKey = key;
-  sharedSocket.send(
-    JSON.stringify({
-      type: "join",
-      sessionId: desiredJoin.sessionId,
+  const joinFrame: WsClientEvent = {
+    type: "join",
+    sessionId: desiredJoin.sessionId,
+    data: {
       role: desiredJoin.role,
       name: desiredJoin.name || "",
-    })
-  );
+    },
+  };
+  sharedSocket.send(JSON.stringify(joinFrame));
 }
 
 function connectSharedSocket() {
@@ -89,12 +109,13 @@ function connectSharedSocket() {
       lastSentJoinKey = "";
       notifyStatus(true);
       sendJoinIfNeeded(true);
+      startHeartbeat(ws);
     };
 
     ws.onmessage = (evt) => {
       if (sharedSocket !== ws) return;
       try {
-        const payload = JSON.parse(evt.data);
+        const payload = JSON.parse(evt.data) as WsServerEvent;
         messageListeners.forEach((listener) => {
           try {
             listener(payload);
@@ -111,6 +132,7 @@ function connectSharedSocket() {
       if (sharedSocket === ws) {
         sharedSocket = null;
         lastSentJoinKey = "";
+        stopHeartbeat();
         notifyStatus(false);
         if (providerActiveCount > 0 && !reconnectTimer) {
           reconnectTimer = setTimeout(() => {
@@ -132,6 +154,7 @@ function scheduleCloseIfUnused() {
   pendingCloseTimer = setTimeout(() => {
     pendingCloseTimer = null;
     if (providerActiveCount > 0) return;
+    stopHeartbeat();
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -173,13 +196,13 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     sendJoinIfNeeded(false);
   }, []);
 
-  const sendJson = useCallback((payload: Record<string, any>) => {
+  const sendJson = useCallback((payload: WsClientEvent) => {
     if (sharedSocket && sharedSocket.readyState === WebSocket.OPEN) {
       sharedSocket.send(JSON.stringify(payload));
     }
   }, []);
 
-  const subscribe = useCallback((listener: (payload: any) => void) => {
+  const subscribe = useCallback((listener: (payload: WsServerEvent) => void) => {
     messageListeners.add(listener);
     return () => {
       messageListeners.delete(listener);

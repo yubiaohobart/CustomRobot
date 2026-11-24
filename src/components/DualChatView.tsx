@@ -136,6 +136,22 @@ export const DualChatView: React.FC = () => {
   const { isConnected, joinSession, sendJson, subscribe } = useWebSocket();
   const sessionRef = useRef<ConversationSession | null>(null);
   sessionRef.current = session;
+  const lastTypingSentRef = useRef<{ customer: number; agent: number }>({ customer: 0, agent: 0 });
+
+  const emitDualTyping = (role: "customer" | "agent", isTyping: boolean, name?: string) => {
+    const now = Date.now();
+    if (isTyping && now - lastTypingSentRef.current[role] < 1000) return;
+    lastTypingSentRef.current[role] = isTyping ? now : 0;
+    sendJson({
+      type: "typing",
+      sessionId: selectedSessionId,
+      data: {
+        isTyping,
+        role,
+        ...(name ? { name } : {}),
+      },
+    });
+  };
   const customerMessagesEndRef = useRef<HTMLDivElement>(null);
   const agentMessagesEndRef = useRef<HTMLDivElement>(null);
   const customerScrollRef = useRef<HTMLDivElement>(null);
@@ -211,69 +227,75 @@ export const DualChatView: React.FC = () => {
       name: "同屏双向观测台",
     });
 
-    let agentTypingTimeout: any = null;
-    let customerTypingTimeout: any = null;
+    let agentTypingTimeout: ReturnType<typeof setTimeout> | null = null;
+    let customerTypingTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const unsubscribe = subscribe((payload) => {
-      if (payload.type === "message:new" && payload.sessionId === selectedSessionId) {
-        const patch = payload.sessionPatch;
-        if (payload.message.card?.type === "order") {
-          setCurrentOrder(payload.message.card.order);
+      if (payload.type === "session:update" && payload.sessionId === selectedSessionId) {
+        const { action, message, sessionPatch, latestTransfer } = payload.data;
+        if (!sessionRef.current) {
+          loadSession(selectedSessionId, false);
+          return;
+        }
+        if (message?.card?.type === "order") {
+          setCurrentOrder(message.card.order);
         }
         setSession((prev) => {
           if (!prev) return prev;
-          const merged = mergeServerMessages(prev.messages || [], [payload.message], false);
-          return applySessionPatch(prev, patch, merged);
+          const nextMsgs =
+            action === "clear"
+              ? []
+              : message
+              ? mergeServerMessages(prev.messages || [], [message], false)
+              : prev.messages || [];
+          return applySessionPatch(prev, sessionPatch, nextMsgs, {
+            latestTransfer,
+            updatedAt: payload.timestamp,
+          });
         });
-        if (!sessionRef.current) {
-          loadSession(selectedSessionId, false);
-        }
-        if (payload.message.role === "human_agent") {
-          showToast(`🎧 人工坐席【${payload.message.senderName || patch?.assignedAgent || "陈浩"}】已回复客户`);
-        } else if (payload.message.role === "user") {
-          showToast(`👤 收到客户【${sessionRef.current?.customerProfile?.name || "客户"}】新提问`);
+        if (action === "message" && message) {
+          if (message.role === "human_agent") {
+            showToast(`🎧 人工坐席【${message.senderName || sessionPatch?.assignedAgent || "陈浩"}】已回复客户`);
+          } else if (message.role === "user") {
+            showToast(`👤 收到客户【${sessionRef.current?.customerProfile?.name || "客户"}】新提问`);
+          }
         }
       } else if (payload.type === "order:update") {
-        if (payload.order) {
+        const { orderId, order } = payload.data;
+        if (order) {
           setCurrentOrder((prev) => {
-            if (!prev || prev.orderId === payload.orderId || payload.orderId === (sessionRef.current?.customerProfile?.orderId || "ORD-2026-88992")) {
-              return payload.order;
+            const belongsToSession = payload.sessionId === selectedSessionId;
+            const matchesCurrentOrder = prev?.orderId === orderId;
+            const matchesProfileOrder = orderId === (sessionRef.current?.customerProfile?.orderId || "ORD-2026-88992");
+            if (!prev || belongsToSession || matchesCurrentOrder || matchesProfileOrder) {
+              return order;
             }
             return prev;
           });
-          if (payload.order.status === "REFUND_PENDING_AUDIT") {
-            showToast(`⚠️ 收到订单【${payload.order.orderId}】退款申请（¥${payload.order.paidAmount.toFixed(2)}），待人工坐席审核！`);
-          } else if (payload.order.status === "REFUNDED") {
-            showToast(`✅ 订单【${payload.order.orderId}】退款审核通过，款项已原路退回！`);
+          if (order.status === "REFUND_PENDING_AUDIT") {
+            showToast(`⚠️ 收到订单【${order.orderId}】退款申请（¥${order.paidAmount.toFixed(2)}），待人工坐席审核！`);
+          } else if (order.status === "REFUNDED") {
+            showToast(`✅ 订单【${order.orderId}】退款审核通过，款项已原路退回！`);
           }
         }
-      } else if (payload.type === "session:update" && payload.sessionId === selectedSessionId) {
-        const patch = payload.sessionPatch;
-        const incomingMsgs = payload.message ? [payload.message] : [];
-        setSession((prev) => {
-          if (!prev) return prev;
-          const nextMsgs = incomingMsgs.length > 0
-            ? mergeServerMessages(prev.messages || [], incomingMsgs, false)
-            : prev.messages || [];
-          return applySessionPatch(prev, patch, nextMsgs);
-        });
       } else if (payload.type === "typing" && payload.sessionId === selectedSessionId) {
-        if (payload.role === "agent") {
-          setAgentTypingNotice(payload.isTyping ? "人工坐席正在输入..." : null);
-          clearTimeout(agentTypingTimeout);
-          if (payload.isTyping) agentTypingTimeout = setTimeout(() => setAgentTypingNotice(null), 3500);
-        } else if (payload.role === "customer") {
-          setCustomerTypingNotice(payload.isTyping ? "客户正在输入..." : null);
-          clearTimeout(customerTypingTimeout);
-          if (payload.isTyping) customerTypingTimeout = setTimeout(() => setCustomerTypingNotice(null), 3500);
+        const { role, isTyping } = payload.data;
+        if (role === "agent") {
+          setAgentTypingNotice(isTyping ? "人工坐席正在输入..." : null);
+          if (agentTypingTimeout) clearTimeout(agentTypingTimeout);
+          if (isTyping) agentTypingTimeout = setTimeout(() => setAgentTypingNotice(null), 3500);
+        } else if (role === "customer") {
+          setCustomerTypingNotice(isTyping ? "客户正在输入..." : null);
+          if (customerTypingTimeout) clearTimeout(customerTypingTimeout);
+          if (isTyping) customerTypingTimeout = setTimeout(() => setCustomerTypingNotice(null), 3500);
         }
       }
     });
 
     return () => {
       unsubscribe();
-      clearTimeout(agentTypingTimeout);
-      clearTimeout(customerTypingTimeout);
+      if (agentTypingTimeout) clearTimeout(agentTypingTimeout);
+      if (customerTypingTimeout) clearTimeout(customerTypingTimeout);
     };
   }, [selectedSessionId, joinSession, subscribe]);
 
@@ -320,6 +342,7 @@ export const DualChatView: React.FC = () => {
     if (!text || customerLoading) return;
 
     setCustomerInput("");
+    emitDualTyping("customer", false);
     setCustomerLoading(true);
     customerAutoScrollRef.current = true;
 
@@ -417,6 +440,7 @@ export const DualChatView: React.FC = () => {
           return applySessionPatch(prev, data.sessionPatch, nextMsgs);
         });
         setAgentInput("");
+        emitDualTyping("agent", false, session?.assignedAgent || "陈浩");
         setCopilotDraft(null);
         showToast("已成功向客户发送人工答复！");
       }
@@ -1035,12 +1059,7 @@ export const DualChatView: React.FC = () => {
                 }}
                 onChange={(e) => {
                   setCustomerInput(e.target.value);
-                  sendJson({
-                    type: "typing",
-                    sessionId: selectedSessionId,
-                    role: "customer",
-                    isTyping: e.target.value.length > 0,
-                  });
+                  emitDualTyping("customer", e.target.value.length > 0);
                 }}
                 placeholder={isHumanActive ? "人工客服已接听，请输入您的需求（Shift+Enter 换行，右下角可拖拽拉大）..." : "请输入您想咨询的问题（输入【转人工】可呼叫人工客服；Shift+Enter 换行）..."}
                 className="flex-1 min-h-[72px] max-h-[240px] px-3.5 py-2.5 text-xs bg-slate-100 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-500 resize-y transition-colors leading-relaxed"
@@ -1406,13 +1425,7 @@ export const DualChatView: React.FC = () => {
                 }}
                 onChange={(e) => {
                   setAgentInput(e.target.value);
-                  sendJson({
-                    type: "typing",
-                    sessionId: selectedSessionId,
-                    role: "agent",
-                    name: session?.assignedAgent || "陈浩",
-                    isTyping: e.target.value.length > 0,
-                  });
+                  emitDualTyping("agent", e.target.value.length > 0, session?.assignedAgent || "陈浩");
                 }}
                 placeholder="人工坐席回复输入框（回车发送，Shift+Enter 换行，右下角可拖拽拉大）..."
                 className="flex-1 min-h-[72px] max-h-[240px] px-3 py-2.5 text-xs bg-slate-50 focus:bg-white text-slate-800 rounded-xl border border-slate-200 focus:outline-hidden focus:border-amber-500 resize-y transition-colors leading-relaxed"

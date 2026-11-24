@@ -3,6 +3,7 @@ FastAPI 主服务启动入口 (Main Application Entrypoint)
 基于 FastAPI + LangGraph + Qdrant + BGE-M3 + DeepSeek 构建
 """
 
+import asyncio
 import sys
 import os
 from contextlib import asynccontextmanager
@@ -24,7 +25,17 @@ from core.llm import deepseek_client
 from core.database import dispose_engine
 from core.logger import log, cprint, LogColor
 from services.storage_service import storage_service
+from services.websocket_manager import ws_manager
 from workflow.graph import init_postgres_checkpointer, close_postgres_checkpointer
+
+async def _ws_prune_loop() -> None:
+    """周期性清理超时未活跃的僵尸 WebSocket 连接"""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await ws_manager.prune_stale_connections(max_idle_seconds=120.0)
+        except Exception as exc:
+            log.warning(f"WebSocket 僵尸连接清理异常: {exc}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -70,9 +81,16 @@ async def lifespan(app: FastAPI):
     cprint(f"🌐 服务监听地址: http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}", LogColor.BRIGHT_CYAN)
     cprint(f"📖 Swagger 交互文档: http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/docs\n", LogColor.BRIGHT_CYAN)
     
+    prune_task = asyncio.create_task(_ws_prune_loop())
+
     try:
         yield
     finally:
+        prune_task.cancel()
+        try:
+            await prune_task
+        except asyncio.CancelledError:
+            pass
         cprint.warning("服务正常关闭中，释放连接池与 HTTP 客户端资源...")
         await deepseek_client.close()
         bge_m3_engine.close()

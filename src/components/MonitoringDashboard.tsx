@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Activity, 
   AlertTriangle, 
@@ -27,6 +27,7 @@ import {
   Package
 } from "lucide-react";
 import { MetricsData, ConversationSession, TransferLog, StorageStatus } from "../types";
+import { useWebSocket } from "../contexts/WebSocketContext";
 
 interface MonitoringDashboardProps {
   onNavigateToWorkbench: (sessionId?: string) => void;
@@ -42,8 +43,10 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
   const [pendingRefundCount, setPendingRefundCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [inspectingLog, setInspectingLog] = useState<TransferLog | null>(null);
+  const { isConnected, subscribe } = useWebSocket();
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async () => {
     try {
       const [resMetrics, resSessions, resLogs, resStorage, resOrders] = await Promise.all([
         fetch("/api/metrics"),
@@ -63,7 +66,7 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
       }
       if (resLogs.ok) {
         const lData = await resLogs.json();
-        setTransferLogs(lData.transferLogs || []);
+        setTransferLogs(lData.logs || []);
       }
       if (resStorage.ok) {
         const strData = await resStorage.json();
@@ -81,13 +84,33 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchMetrics();
-    const interval = setInterval(fetchMetrics, 3000);
+  }, [fetchMetrics]);
+
+  // WebSocket 实时事件驱动刷新（合并 300ms 内连续事件，替代每 3 秒高频轮询）
+  useEffect(() => {
+    const unsubscribe = subscribe((payload) => {
+      if (payload.type === "session:update" || payload.type === "order:update") {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => {
+          fetchMetrics();
+        }, 300);
+      }
+    });
+    return () => {
+      unsubscribe();
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, [subscribe, fetchMetrics]);
+
+  // 断线时 5 秒兜底轮询；在线时 30 秒低频同步库表统计
+  useEffect(() => {
+    const interval = setInterval(fetchMetrics, isConnected ? 30000 : 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isConnected, fetchMetrics]);
 
   const needsInterventionList = sessions.filter((s) => s.status === "NEEDS_INTERVENTION");
   const humanServingList = sessions.filter((s) => s.status === "HUMAN_INTERVENED");
@@ -101,7 +124,7 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
             <h1 className="text-xl font-bold text-slate-900">智能客服实时监控与运行大盘</h1>
             <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              实时监控中 (3s轮询)
+              {isConnected ? "实时事件驱动 (WS)" : "断线轮询兜底 (5s)"}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
@@ -376,12 +399,12 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
             <div>
               <div className="flex justify-between text-xs mb-1">
                 <span className="text-emerald-700 font-medium">积极满意 (Positive)</span>
-                <span className="text-slate-500">{metrics?.sentimentCounts?.positive ?? 1} 会话</span>
+                <span className="text-slate-500">{metrics?.sentimentCounts?.positive ?? 0} 会话</span>
               </div>
               <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                 <div 
                   className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
-                  style={{ width: `${Math.min(100, ((metrics?.sentimentCounts?.positive ?? 1) / Math.max(1, metrics?.totalSessions ?? 1)) * 100)}%` }}
+                  style={{ width: `${Math.min(100, ((metrics?.sentimentCounts?.positive ?? 0) / Math.max(1, metrics?.totalSessions ?? 1)) * 100)}%` }}
                 ></div>
               </div>
             </div>
@@ -389,12 +412,12 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
             <div>
               <div className="flex justify-between text-xs mb-1">
                 <span className="text-slate-700 font-medium">平静常规 (Neutral)</span>
-                <span className="text-slate-500">{metrics?.sentimentCounts?.neutral ?? 2} 会话</span>
+                <span className="text-slate-500">{metrics?.sentimentCounts?.neutral ?? 0} 会话</span>
               </div>
               <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                 <div 
                   className="bg-blue-500 h-full rounded-full transition-all duration-500" 
-                  style={{ width: `${Math.min(100, ((metrics?.sentimentCounts?.neutral ?? 2) / Math.max(1, metrics?.totalSessions ?? 1)) * 100)}%` }}
+                  style={{ width: `${Math.min(100, ((metrics?.sentimentCounts?.neutral ?? 0) / Math.max(1, metrics?.totalSessions ?? 1)) * 100)}%` }}
                 ></div>
               </div>
             </div>
@@ -459,7 +482,9 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
             <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                <span className="font-semibold text-slate-800">大模型生成推理引擎 (Gemini 3.8 Flash)</span>
+                <span className="font-semibold text-slate-800">
+                  大模型生成推理引擎 ({metrics?.llmModel || "DeepSeek"})
+                </span>
               </div>
               <span className="text-slate-500 font-mono text-[11px]">Ready / Grounded Generation</span>
             </div>
@@ -467,7 +492,7 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
         </div>
       </div>
 
-      {/* SQLite Relational Database & Entity Models Panel */}
+      {/* PostgreSQL Relational Database & Entity Models Panel */}
       <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -491,8 +516,10 @@ export const MonitoringDashboard: React.FC<MonitoringDashboardProps> = ({
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-500 font-mono bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
             <HardDrive className="w-3.5 h-3.5 text-indigo-500" />
-            <span>目标 DB: {storageStatus?.databaseTarget || "postgresql://.../intelliserve"}</span>
-            <span className="text-emerald-600 font-semibold">(连接池 Pool: 10/20)</span>
+            <span>目标 DB: {storageStatus?.databaseUrlTarget || "postgresql://.../intelliserve"}</span>
+            <span className="text-emerald-600 font-semibold">
+              (连接池 Pool: {storageStatus?.poolConfig ? `${storageStatus.poolConfig.poolSize}/${storageStatus.poolConfig.maxOverflow}` : "10/20"})
+            </span>
           </div>
         </div>
 

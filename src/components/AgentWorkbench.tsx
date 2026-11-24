@@ -162,6 +162,21 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   const { isConnected, joinSession, sendJson, subscribe } = useWebSocket();
   const activeSessionIdRef = useRef<string | undefined>(undefined);
   activeSessionIdRef.current = activeSession?.id;
+  const sessionsRef = useRef<ConversationSession[]>([]);
+  sessionsRef.current = sessions;
+  const lastTypingSentAtRef = useRef<number>(0);
+
+  const emitAgentTyping = (isTyping: boolean) => {
+    if (!activeSession?.id) return;
+    const now = Date.now();
+    if (isTyping && now - lastTypingSentAtRef.current < 1000) return;
+    lastTypingSentAtRef.current = isTyping ? now : 0;
+    sendJson({
+      type: "typing",
+      sessionId: activeSession.id,
+      data: { isTyping },
+    });
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -207,7 +222,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       ]);
       if (resLogs.ok) {
         const data = await resLogs.json();
-        setTransferLogs(data.transferLogs || []);
+        setTransferLogs(data.logs || []);
       }
       if (resAgents.ok) {
         const data = await resAgents.json();
@@ -231,46 +246,77 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
   }, [currentSessionId, joinSession]);
 
   useEffect(() => {
-    let typingTimer: any = null;
+    let typingTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = subscribe((payload) => {
       const currentActiveId = activeSessionIdRef.current;
-      if (payload.type === "message:new") {
-        if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
-          setActiveSession((prev) => {
-            if (!prev) return prev;
-            const hasMsg = prev.messages.some((m) => m.id === payload.message.id);
-            const nextMsgs = hasMsg ? prev.messages : [...prev.messages, payload.message];
-            return applySessionPatch(prev, payload.sessionPatch, nextMsgs);
-          });
-        }
-        fetchSessions();
-      } else if (payload.type === "session:update") {
-        if (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId) {
+      if (payload.type === "session:update") {
+        const sid = payload.sessionId;
+        if (!sid) return;
+        const { action, message, sessionPatch, latestTransfer } = payload.data;
+        const updatedAt = payload.timestamp;
+
+        if (sid === currentSessionId || currentActiveId === sid) {
           setActiveSession((prev) => {
             if (!prev) return prev;
             const nextMsgs =
-              payload.message && !prev.messages.some((m) => m.id === payload.message!.id)
-                ? [...prev.messages, payload.message]
+              action === "clear"
+                ? []
+                : message && !prev.messages.some((m) => m.id === message.id)
+                ? [...prev.messages, message]
                 : prev.messages;
-            return applySessionPatch(prev, payload.sessionPatch, nextMsgs);
+            return applySessionPatch(prev, sessionPatch, nextMsgs, { latestTransfer, updatedAt });
           });
         }
-        fetchSessions();
-        if (payload.action === "transfer") {
+
+        // 原地更新左侧会话列表摘要并置顶，仅当遇到全新未缓存的 sessionId 时才回源拉列表
+        if (sessionsRef.current.some((s) => s.id === sid)) {
+          setSessions((prev) => {
+            const idx = prev.findIndex((s) => s.id === sid);
+            if (idx === -1) return prev;
+            const target = prev[idx];
+            const nextMsgs =
+              action === "clear" ? [] : message ? [message] : target.messages;
+            const updatedItem = applySessionPatch(target, sessionPatch, nextMsgs, {
+              latestTransfer,
+              updatedAt,
+            });
+            const nextList = prev.slice();
+            nextList.splice(idx, 1);
+            return [updatedItem, ...nextList];
+          });
+        } else {
+          fetchSessions();
+        }
+        if (action === "transfer") {
           fetchTransferData();
+          if (sid === currentSessionId || currentActiveId === sid) {
+            fetchActiveSession(sid);
+          }
+        }
+      } else if (payload.type === "order:update") {
+        const { orderId, order } = payload.data;
+        if (order) {
+          setCustomerOrders((prev) => {
+            const idx = prev.findIndex((o) => o.orderId === orderId);
+            if (idx === -1) return prev;
+            const next = prev.slice();
+            next[idx] = order;
+            return next;
+          });
         }
       } else if (payload.type === "typing") {
-        if (payload.role === "customer" && (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId)) {
-          setCustomerTyping(payload.isTyping ? "客户正在输入..." : null);
-          clearTimeout(typingTimer);
-          if (payload.isTyping) typingTimer = setTimeout(() => setCustomerTyping(null), 3500);
+        const { role, isTyping } = payload.data;
+        if (role === "customer" && (payload.sessionId === currentSessionId || currentActiveId === payload.sessionId)) {
+          setCustomerTyping(isTyping ? "客户正在输入..." : null);
+          if (typingTimer) clearTimeout(typingTimer);
+          if (isTyping) typingTimer = setTimeout(() => setCustomerTyping(null), 3500);
         }
       }
     });
 
     return () => {
       unsubscribe();
-      clearTimeout(typingTimer);
+      if (typingTimer) clearTimeout(typingTimer);
     };
   }, [currentSessionId, subscribe]);
 
@@ -370,7 +416,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       if (res.ok) {
         const data = await res.json();
         setActiveSession(data.session);
-        fetchSessions();
+        if (!isConnected) fetchSessions();
         showToast("已成功接管会话，现在您可以直接与客户沟通");
       }
     } catch (e) {
@@ -389,7 +435,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
       if (res.ok) {
         const data = await res.json();
         setActiveSession(data.session);
-        fetchSessions();
+        if (!isConnected) fetchSessions();
         showToast("人工介入已结束，会话已无缝交还给智能客服(AI Agent)托管");
       }
     } catch (e) {
@@ -425,8 +471,8 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
           return applySessionPatch(prev, data.sessionPatch, nextMsgs);
         });
         setAgentInput("");
+        emitAgentTyping(false);
         setCopilotSuggestion(null);
-        fetchSessions();
       }
     } catch (e) {
       console.error(e);
@@ -945,13 +991,7 @@ export const AgentWorkbench: React.FC<AgentWorkbenchProps> = ({
                   value={agentInput}
                   onChange={(e) => {
                     setAgentInput(e.target.value);
-                    sendJson({
-                      type: "typing",
-                      sessionId: activeSession.id,
-                      role: "agent",
-                      name: activeSession.assignedAgent || "人工坐席",
-                      isTyping: e.target.value.length > 0,
-                    });
+                    emitAgentTyping(e.target.value.length > 0);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
