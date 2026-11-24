@@ -7,6 +7,7 @@ __all__ = [
     "QdrantKnowledgeStore",
     "deepseek_client",
     "DeepSeekLLMClient",
+    "LLMResult",
 ]
 
 
@@ -17,7 +18,7 @@ def __getattr__(name: str) -> Any:
     if name in ("qdrant_store", "QdrantKnowledgeStore"):
         from . import qdrant_store
         return getattr(qdrant_store, name)
-    if name in ("deepseek_client", "DeepSeekLLMClient"):
+    if name in ("deepseek_client", "DeepSeekLLMClient", "LLMResult"):
         from . import llm
         return getattr(llm, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -174,6 +174,7 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
     session_id = state.get("session_id")
     session_data = storage_service.get_session(session_id) if session_id else None
     memory_summary = (session_data or {}).get("summaryMemory", "")
+    recent_messages = (session_data or {}).get("messages", [])
 
     order_id = state.get("order_id")
     business_facts = ""
@@ -182,19 +183,22 @@ async def deepseek_generate_node(state: AgentState) -> Dict[str, Any]:
         if target_order:
             business_facts = order_service.format_order_summary_text(target_order)
 
-    reply = await deepseek_client.generate_response(
+    llm_result = await deepseek_client.generate_completion(
         user_message=state.get("user_message", ""),
         hits=state.get("hits", []),
         memory_summary=memory_summary,
         user_profile=state.get("user_profile", {}),
         business_facts=business_facts,
         order_id=order_id,
+        recent_messages=recent_messages,
+        mode="customer",
     )
     duration = int((time.time() - t0) * 1000)
+    status_label = f"降级兜底({llm_result.error})" if llm_result.is_fallback else f"生成答复 ({len(llm_result.content)} 字)"
     return {
-        "reply": reply,
+        "reply": llm_result.content,
         "handoff": False,
-        "trace": [f"deepseek_generate: 生成答复 ({len(reply)} 字) ({duration}ms)"],
+        "trace": [f"deepseek_generate: {status_label} ({duration}ms)"],
     }
 
 

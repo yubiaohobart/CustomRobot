@@ -637,17 +637,29 @@ async def generate_suggestion(req: GenerateSuggestionRequest):
 
     hits = qdrant_store.similarity_search(last_user_msg, k=2)
     docs = [h["doc"] for h in hits]
+    profile = session.get("customerProfile") if session else None
+    order_id = (profile or {}).get("orderId")
+    business_facts = ""
+    if order_id:
+        target_order = order_service.get_owned_order(order_id, profile)
+        if target_order:
+            business_facts = order_service.format_order_summary_text(target_order)
 
-    suggestion = await deepseek_client.generate_response(
+    llm_result = await deepseek_client.generate_completion(
         user_message=last_user_msg,
-        retrieved_docs=docs,
-        summary_memory=session["summaryMemory"] if session else "",
-        user_profile=session["customerProfile"] if session else None
+        hits=docs,
+        memory_summary=session.get("summaryMemory", "") if session else "",
+        user_profile=profile,
+        business_facts=business_facts,
+        order_id=order_id,
+        recent_messages=session.get("messages", []) if session else None,
+        mode="copilot",
     )
 
     return {
-        "suggestion": suggestion,
-        "matchedClauses": [d.get("title", "") for d in docs]
+        "suggestion": llm_result.content,
+        "isFallback": llm_result.is_fallback,
+        "matchedClauses": [d.get("title", "") for d in docs],
     }
 
 @router.get("/test")
@@ -797,14 +809,17 @@ async def system_test_post(req: TestRequest):
     # 3. LLM 生成测试 (可选)
     if req.testLLM:
         t2 = time.time()
-        reply = await deepseek_client.generate_response(
+        llm_result = await deepseek_client.generate_completion(
             user_message=query,
-            retrieved_docs=retrieved_docs
+            hits=retrieved_docs,
         )
         result["llm"] = {
             "model": settings.DEEPSEEK_MODEL,
-            "reply": reply,
-            "latency_ms": round((time.time() - t2) * 1000, 2)
+            "ok": llm_result.ok,
+            "is_fallback": llm_result.is_fallback,
+            "reply": llm_result.content,
+            "usage": llm_result.usage,
+            "latency_ms": round((time.time() - t2) * 1000, 2),
         }
 
     result["total_latency_ms"] = round((time.time() - t_start) * 1000, 2)
