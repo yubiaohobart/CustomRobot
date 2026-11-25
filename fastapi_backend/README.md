@@ -141,9 +141,11 @@ npm run dev
 
 ### 3. Docker 容器化运行
 
+推荐使用项目根目录的 `docker compose up -d --build` 一键拉起全栈；若仅单独构建后端镜像：
+
 ```bash
-docker build -f Dockerfile.fastapi -t intelliserve-fastapi:latest .
-docker run -d -p 5000:5000 -e DEEPSEEK_API_KEY="your_key" intelliserve-fastapi:latest
+docker build -t intelliserve-backend:latest .
+docker run -d -p 8000:8000 -e DEEPSEEK_API_KEY="your_key" intelliserve-backend:latest
 ```
 
 ---
