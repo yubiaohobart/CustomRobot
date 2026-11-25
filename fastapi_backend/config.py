@@ -16,6 +16,14 @@ for env_path in (current_dir / ".env", current_dir.parent / ".env", Path.cwd() /
     if env_path.exists():
         load_dotenv(dotenv_path=env_path, override=False)
 
+# 避免本机代理软件拦截 localhost / 127.0.0.1 导致 Qdrant、Ollama 返回 502 Bad Gateway
+for _proxy_key in ("NO_PROXY", "no_proxy"):
+    _hosts = [h.strip() for h in os.environ.get(_proxy_key, "").split(",") if h.strip()]
+    for _local in ("localhost", "127.0.0.1"):
+        if _local not in _hosts:
+            _hosts.append(_local)
+    os.environ[_proxy_key] = ",".join(_hosts)
+
 class Settings(BaseModel):
     # 服务端基础配置
     APP_NAME: str = "IntelliServe 智能客服系统"
