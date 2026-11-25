@@ -64,8 +64,8 @@ class Settings(BaseModel):
     AUTO_REFUND_LIMIT_YUAN: float = float(os.getenv("AUTO_REFUND_LIMIT_YUAN", "3.00"))  # 退款自动秒退与人工审核分界阈值(元)
     LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45.0"))
 
-    # Redis 分布式会话锁配置（未配置 REDIS_URL 时自动降级为本地 WeakValueDictionary 锁）
-    REDIS_URL: Optional[str] = os.getenv("REDIS_URL", None)
+    # Redis 分布式会话锁配置 (Redis 7.2.3)
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     SESSION_LOCK_TIMEOUT_SECONDS: float = float(os.getenv("SESSION_LOCK_TIMEOUT_SECONDS", "5.0"))
     SESSION_LOCK_TTL_SECONDS: float = float(os.getenv("SESSION_LOCK_TTL_SECONDS", "60.0"))
 
