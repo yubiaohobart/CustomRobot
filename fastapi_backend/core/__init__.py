@@ -8,6 +8,9 @@ __all__ = [
     "deepseek_client",
     "DeepSeekLLMClient",
     "LLMResult",
+    "acquire_session_lock",
+    "session_lock_manager",
+    "SessionLockTimeoutError",
 ]
 
 
@@ -21,4 +24,7 @@ def __getattr__(name: str) -> Any:
     if name in ("deepseek_client", "DeepSeekLLMClient", "LLMResult"):
         from . import llm
         return getattr(llm, name)
+    if name in ("acquire_session_lock", "session_lock_manager", "SessionLockTimeoutError"):
+        from . import session_lock
+        return getattr(session_lock, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

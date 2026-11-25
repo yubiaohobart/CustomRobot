@@ -64,6 +64,11 @@ class Settings(BaseModel):
     AUTO_REFUND_LIMIT_YUAN: float = float(os.getenv("AUTO_REFUND_LIMIT_YUAN", "3.00"))  # 退款自动秒退与人工审核分界阈值(元)
     LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45.0"))
 
+    # Redis 分布式会话锁配置（未配置 REDIS_URL 时自动降级为本地 WeakValueDictionary 锁）
+    REDIS_URL: Optional[str] = os.getenv("REDIS_URL", None)
+    SESSION_LOCK_TIMEOUT_SECONDS: float = float(os.getenv("SESSION_LOCK_TIMEOUT_SECONDS", "5.0"))
+    SESSION_LOCK_TTL_SECONDS: float = float(os.getenv("SESSION_LOCK_TTL_SECONDS", "60.0"))
+
     @property
     def auto_refund_limit_cents(self) -> int:
         """退款自动秒退阈值（单位：分，避免浮点精度误差）"""

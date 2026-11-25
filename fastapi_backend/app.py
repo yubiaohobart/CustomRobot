@@ -7,8 +7,9 @@ import asyncio
 import sys
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 
 # 将当前目录加入系统路径以支持子包清晰导入
@@ -22,6 +23,7 @@ from api.websocket_routes import ws_router
 from core.qdrant_store import qdrant_store
 from core.embedding import bge_m3_engine
 from core.llm import deepseek_client
+from core.session_lock import session_lock_manager, SessionLockTimeoutError
 from core.database import dispose_engine
 from core.logger import log, cprint, LogColor
 from services.storage_service import storage_service
@@ -93,6 +95,7 @@ async def lifespan(app: FastAPI):
             pass
         cprint.warning("服务正常关闭中，释放连接池与 HTTP 客户端资源...")
         await deepseek_client.close()
+        await session_lock_manager.close()
         bge_m3_engine.close()
         dispose_engine()
         await close_postgres_checkpointer()
@@ -103,6 +106,11 @@ app = FastAPI(
     description="基于 FastAPI + LangGraph + Qdrant (BGE-M3) + DeepSeek 的现代化智能客服与人机协同中枢",
     lifespan=lifespan
 )
+
+
+@app.exception_handler(SessionLockTimeoutError)
+async def session_lock_timeout_handler(_request: Request, exc: SessionLockTimeoutError):
+    return JSONResponse(status_code=429, content={"detail": str(exc)})
 
 # 配置全局跨域支持
 app.add_middleware(

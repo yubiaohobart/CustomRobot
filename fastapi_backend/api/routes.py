@@ -29,7 +29,8 @@ from core.llm import deepseek_client
 from services.memory_service import memory_service
 from services.order_service import order_service
 from services.websocket_manager import ws_manager, build_ws_event
-from workflow.runner import run_customer_service_graph, get_session_lock
+from workflow.runner import run_customer_service_graph
+from core.session_lock import acquire_session_lock
 from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
 
@@ -227,7 +228,7 @@ async def chat_endpoint(req: ChatRequest):
     if not message_text:
         raise HTTPException(status_code=422, detail="消息内容不能为空")
 
-    async with get_session_lock(req.sessionId):
+    async with acquire_session_lock(req.sessionId):
         # 1. 记录客户输入与最新画像（单次持久化）并推送至 WebSocket
         user_msg, session = memory_service.record_user_turn(
             req.sessionId,
@@ -241,7 +242,7 @@ async def chat_endpoint(req: ChatRequest):
             cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
             return _build_human_takeover_response(session, user_msg)
 
-        # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入死锁）
+        # 3. 执行 LangGraph 状态机（会话锁天然支持同任务可重入）
         final_state = await run_customer_service_graph(
             session_id=req.sessionId,
             message=message_text,
@@ -249,7 +250,6 @@ async def chat_endpoint(req: ChatRequest):
             session=session,
             refund_order_id=req.refundOrderId,
             out_refund_no=req.outRefundNo,
-            acquire_lock=False,
         )
 
         latency_ms = int((time.time() - t_start) * 1000)
@@ -319,14 +319,15 @@ async def get_single_session(session_id: str):
 
 @router.post("/sessions/{session_id}/transfer")
 async def transfer_session_endpoint(session_id: str, req: TransferRequest):
-    """人工转接：打包交接上下文快照并冻结移交给指定坐席"""
-    transfer_log, session = memory_service.transfer_session(
-        session_id=session_id,
-        target_agent_id=req.targetAgentId,
-        reason=req.reason,
-        operator_note=req.operatorNote or "",
-        trigger_type=req.triggerType or "user_requested"
-    )
+    """人工转接：加会话锁打包交接上下文快照并冻结移交给指定坐席"""
+    async with acquire_session_lock(session_id):
+        transfer_log, session = memory_service.transfer_session(
+            session_id=session_id,
+            target_agent_id=req.targetAgentId,
+            reason=req.reason,
+            operator_note=req.operatorNote or "",
+            trigger_type=req.triggerType or "user_requested"
+        )
     # 实时 WebSocket 广播：统一使用 session:update 信封
     last_msg = session["messages"][-1] if session.get("messages") else None
     await _emit_session_event(
@@ -345,13 +346,14 @@ async def transfer_session_endpoint(session_id: str, req: TransferRequest):
 
 @router.post("/sessions/{session_id}/intervene")
 async def intervene_session_endpoint(session_id: str, req: InterveneRequest):
-    """人工主动接管或交还 AI 服务"""
-    session = memory_service.intervene_session(
-        session_id=session_id,
-        action=req.action,
-        agent_id=req.agentId or "agent_101",
-        note=req.note or ""
-    )
+    """人工主动接管或交还 AI 服务（加会话锁防止与 AI 响应并发覆盖）"""
+    async with acquire_session_lock(session_id):
+        session = memory_service.intervene_session(
+            session_id=session_id,
+            action=req.action,
+            agent_id=req.agentId or "agent_101",
+            note=req.note or ""
+        )
     # 实时 WebSocket 广播状态流转（统一使用 session:update 信封）
     last_msg = session["messages"][-1] if session.get("messages") else None
     await _emit_session_event(session_id, req.action, session, message=last_msg)
@@ -363,7 +365,7 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
     text = (req.message or req.content or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
-    async with get_session_lock(session_id):
+    async with acquire_session_lock(session_id):
         msg, session = memory_service.record_human_turn(
             session_id,
             text,
@@ -377,8 +379,9 @@ async def send_human_agent_message(session_id: str, req: HumanMessageRequest):
 
 @router.post("/sessions/{session_id}/clear")
 async def clear_session_messages(session_id: str):
-    """清空指定会话消息历史并同步广播各在线端"""
-    session = memory_service.clear_session_messages(session_id)
+    """清空指定会话消息历史（加会话锁防止并发写入竞态）并同步广播各在线端"""
+    async with acquire_session_lock(session_id):
+        session = memory_service.clear_session_messages(session_id)
     if session:
         await _emit_session_event(session_id, "clear", session)
     return {"success": True, "session": session}

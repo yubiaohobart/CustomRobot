@@ -9,16 +9,9 @@ from contextlib import nullcontext
 from typing import Dict, Any, Optional
 from langgraph.types import Command
 from core.logger import cprint
+from core.session_lock import acquire_session_lock
 from workflow.state import InputState
 from workflow.graph import get_customer_service_graph
-
-# 按 session_id 维护的异步互斥锁，确保同一会话的 Checkpointer 读写串行化，防止并发消息产生状态竞争
-_session_locks: Dict[str, asyncio.Lock] = {}
-
-
-def get_session_lock(session_id: str) -> asyncio.Lock:
-    """获取按 session_id 隔离的异步互斥锁"""
-    return _session_locks.setdefault(session_id, asyncio.Lock())
 
 
 def build_input_state(
@@ -186,7 +179,7 @@ async def run_customer_service_graph(
     """执行指定会话的 LangGraph 状态图，统一处理中断挂起与 Command 唤醒"""
     input_state = build_input_state(session_id, message, confirm_action, session)
 
-    lock_ctx = get_session_lock(session_id) if acquire_lock else nullcontext()
+    lock_ctx = acquire_session_lock(session_id) if acquire_lock else nullcontext()
     async with lock_ctx:
         return await _execute_graph(
             session_id,
