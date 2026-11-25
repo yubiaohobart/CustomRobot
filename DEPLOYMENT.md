@@ -179,48 +179,61 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
-## 四、方案三：Docker 容器化一键部署
+## 四、方案三：Docker Compose 一键全栈容器化部署
 
-### 1. 构建与运行 FastAPI 后端容器
+项目根目录已提供完整的 `docker-compose.yml`，编排了 **Nginx 前端 (`frontend`) + FastAPI 后端 (`backend`) + PostgreSQL 16 (`postgres`) + Redis 7.2.3 (`redis`) + Qdrant (`qdrant`)** 五个核心服务（以及可选的 `ollama` profile）。
+
+### 1. 准备环境变量
 
 ```bash
-cd fastapi_backend
-
-# 构建镜像
-docker build -f Dockerfile.fastapi -t intelliserve-api:latest .
-
-# 启动容器
-docker run -d \
-  --name intelliserve-api \
-  -p 5000:5000 \
-  -e FASTAPI_PORT=5000 \
-  -e GEMINI_API_KEY="your_api_key" \
-  --restart always \
-  intelliserve-api:latest
+cp .env.example .env
+# 编辑 .env，至少填入 DEEPSEEK_API_KEY
 ```
 
-### 2. 构建与运行完整宿主容器
+- 若宿主机已安装并运行 Ollama（推荐，需已拉取 `bge-m3`）：保持默认 `OLLAMA_BASE_URL=http://host.docker.internal:11434`。
+- 若希望 Ollama 也跑在 Docker 内：在 `.env` 中设置 `OLLAMA_BASE_URL=http://ollama:11434`，并使用 `--profile ollama` 启动。
+
+### 2. 启动全栈服务
 
 ```bash
-# 在项目根目录下
-docker build -t intelliserve-all:latest .
-docker run -d -p 3000:3000 --name intelliserve-all intelliserve-all:latest
+# 标准启动（复用宿主机 Ollama）
+docker compose up -d --build
+
+# 若需同时启动容器版 Ollama（首次需拉取 bge-m3 模型）
+# docker compose --profile ollama up -d --build
+# docker exec -it intelliserve_ollama ollama pull bge-m3
+```
+
+启动后访问：
+- 前端工作台：`http://localhost:3000`
+- 后端健康检查：`http://localhost:8000/api/health`
+- Swagger 文档：`http://localhost:3000/docs` 或 `http://localhost:8000/docs`
+
+### 3. 常用运维命令
+
+```bash
+docker compose ps                   # 查看容器与健康检查状态
+docker compose logs -f backend      # 查看 FastAPI 后端日志
+docker compose exec backend pytest  # 在后端容器内执行测试
+docker compose down                 # 停止并移除容器（./docker_data 数据目录保留）
 ```
 
 ---
 
 ## 五、环境变量配置清单
 
-可在 `.env` 文件或容器环境中注入以下变量：
+可在根目录 `.env` 文件或容器环境中注入以下变量（完整说明见 `.env.example`）：
 
 | 变量名 | 默认值 | 作用说明 |
 | :--- | :--- | :--- |
-| `FASTAPI_PORT` | `5000` | Python FastAPI 后端监听端口 |
-| `DEEPSEEK_API_KEY` | - | DeepSeek 大模型 API Key（用于问答与 Copilot 坐席辅助） |
-| `QDRANT_LOCATION` | `:memory:` | Qdrant 运行模式：纯内存模式，**无需使用 Docker 部署独立容器** |
-| `BACKEND_URL` | `http://127.0.0.1:5000` | 前端开发服务器反代目标后端地址 |
-| `PORT` | `3000` | 前端宿主托管服务端口 |
-| `NODE_ENV` | `production` | 生产环境标识 |
+| `FRONTEND_PORT` | `3000` | Nginx 前端对外暴露端口 |
+| `FASTAPI_PORT` | `8000` | Python FastAPI 后端监听端口 |
+| `DEEPSEEK_API_KEY` | - | DeepSeek 大模型 API Key |
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama 服务地址（容器内访问宿主机默认走 `host.docker.internal`） |
+| `OLLAMA_EMBED_MODEL` | `bge-m3` | 向量嵌入模型名称（1024 维） |
+| `DATABASE_URL` | `postgresql+psycopg://postgres:postgres@postgres:5432/intelliserve` | PostgreSQL 16 连接串 |
+| `REDIS_URL` | `redis://redis:6379/0` | Redis 7.2.3 分布式会话锁连接串 |
+| `QDRANT_HOST` / `QDRANT_PORT` | `qdrant` / `6333` | Qdrant 向量数据库服务地址与端口 |
 
 ---
 

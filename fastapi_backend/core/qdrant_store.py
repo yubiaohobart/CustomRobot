@@ -19,7 +19,7 @@ def _create_qdrant_client() -> QdrantClient:
         return QdrantClient(
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT,
-            api_key=settings.QDRANT_API_KEY,
+            api_key=settings.QDRANT_API_KEY or None,
         )
     return QdrantClient(location=settings.QDRANT_LOCATION)
 
