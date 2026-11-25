@@ -242,7 +242,7 @@ async def chat_endpoint(req: ChatRequest):
             cprint.warning(f"会话 [{req.sessionId}] 当前处于人工接管状态，AI 暂停自动介入，消息已直达人工坐席工作台")
             return _build_human_takeover_response(session, user_msg)
 
-        # 3. 执行 LangGraph 状态机（会话锁天然支持同任务可重入）
+        # 3. 执行 LangGraph 状态机（外层已持有会话锁，传入 acquire_lock=False 避免重入）
         final_state = await run_customer_service_graph(
             session_id=req.sessionId,
             message=message_text,
@@ -250,6 +250,7 @@ async def chat_endpoint(req: ChatRequest):
             session=session,
             refund_order_id=req.refundOrderId,
             out_refund_no=req.outRefundNo,
+            acquire_lock=False,
         )
 
         latency_ms = int((time.time() - t_start) * 1000)

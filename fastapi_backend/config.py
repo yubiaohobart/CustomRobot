@@ -67,7 +67,7 @@ class Settings(BaseModel):
     # Redis 分布式会话锁配置 (Redis 7.2.3)
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     SESSION_LOCK_TIMEOUT_SECONDS: float = float(os.getenv("SESSION_LOCK_TIMEOUT_SECONDS", "5.0"))
-    SESSION_LOCK_TTL_SECONDS: float = float(os.getenv("SESSION_LOCK_TTL_SECONDS", "60.0"))
+    SESSION_LOCK_TTL_SECONDS: float = float(os.getenv("SESSION_LOCK_TTL_SECONDS", "90.0"))
 
     @property
     def auto_refund_limit_cents(self) -> int:
