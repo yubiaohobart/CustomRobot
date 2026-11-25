@@ -56,17 +56,14 @@ def get_engine():
             return _engine
 
         target_url = POSTGRES_URL
-        pool_size = getattr(settings, "DB_POOL_SIZE", 10)
-        max_overflow = getattr(settings, "DB_MAX_OVERFLOW", 20)
-
         _engine = create_engine(
             target_url,
             poolclass=QueuePool,
-            pool_size=pool_size,
-            max_overflow=max_overflow,
+            pool_size=settings.DB_POOL_SIZE,
+            max_overflow=settings.DB_MAX_OVERFLOW,
             pool_pre_ping=True,
             pool_recycle=3600,
-            echo=getattr(settings, "DB_ECHO", False),
+            echo=settings.DB_ECHO,
         )
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 

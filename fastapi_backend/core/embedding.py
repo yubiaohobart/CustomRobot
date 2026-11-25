@@ -52,32 +52,15 @@ class BGEM3EmbeddingEngine:
             return []
 
         client = self._get_client()
-        errors: List[str] = []
-
-        # 1. 优先调用 Ollama 官方原生 /api/embed 接口
         url = f"{self.ollama_base_url}/api/embed"
         resp = client.post(url, json={"model": self.model_name, "input": texts})
-        if resp.status_code == 200:
-            raw_vecs = resp.json().get("embeddings", [])
-            if len(raw_vecs) == len(texts):
-                return [self._validate_and_normalize(v) for v in raw_vecs]
-            errors.append(f"/api/embed 返回向量条数不匹配: expected={len(texts)}, actual={len(raw_vecs)}")
-        else:
-            errors.append(f"/api/embed HTTP {resp.status_code}: {resp.text[:120]}")
+        if resp.status_code != 200:
+            raise RuntimeError(f"Ollama embedding failed ({resp.status_code}): {resp.text[:160]}")
 
-        # 2. 备用 OpenAI 兼容接口 /v1/embeddings
-        v1_url = f"{self.ollama_base_url}/v1/embeddings"
-        resp_v1 = client.post(v1_url, json={"model": self.model_name, "input": texts})
-        if resp_v1.status_code == 200:
-            items = resp_v1.json().get("data", [])
-            raw_vecs = [item.get("embedding", []) for item in items]
-            if len(raw_vecs) == len(texts):
-                return [self._validate_and_normalize(v) for v in raw_vecs]
-            errors.append(f"/v1/embeddings 返回向量条数不匹配: expected={len(texts)}, actual={len(raw_vecs)}")
-        else:
-            errors.append(f"/v1/embeddings HTTP {resp_v1.status_code}: {resp_v1.text[:120]}")
-
-        raise RuntimeError(f"Ollama embedding failed for model {self.model_name}: {'; '.join(errors)}")
+        raw_vecs = resp.json().get("embeddings", [])
+        if len(raw_vecs) != len(texts):
+            raise RuntimeError(f"Ollama /api/embed 向量条数不匹配: expected={len(texts)}, actual={len(raw_vecs)}")
+        return [self._validate_and_normalize(v) for v in raw_vecs]
 
     def _validate_and_normalize(self, vec: List[float]) -> List[float]:
         """校验向量维度并执行 L2 范数归一化，确保 Qdrant 余弦相似度计算准确"""

@@ -825,12 +825,3 @@ async def system_test_post(req: TestRequest):
     result["total_latency_ms"] = round((time.time() - t_start) * 1000, 2)
     return result
 
-
-# ==================== WebSocket 独立路由重导出 (保持向后兼容) ====================
-from api.websocket_routes import (
-    websocket_session_endpoint,
-    websocket_default_endpoint,
-    handle_websocket_loop
-)
-
-

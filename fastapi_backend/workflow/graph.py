@@ -113,7 +113,7 @@ async def init_postgres_checkpointer():
         pool = AsyncConnectionPool(
             conninfo=db_uri,
             min_size=1,
-            max_size=max(2, getattr(settings, "DB_POOL_SIZE", 10)),
+            max_size=max(2, settings.DB_POOL_SIZE),
             open=False,
             kwargs={
                 "autocommit": True,

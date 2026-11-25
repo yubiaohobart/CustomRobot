@@ -3,7 +3,6 @@ DeepSeek 大语言模型异步客户端 (基于官方 openai AsyncOpenAI SDK)
 内置连接池、自动指数退避重试、结构化 JSON 输出、客服对话生成与 L2 意图路由。
 """
 
-import asyncio
 from dataclasses import dataclass
 import json
 import time
@@ -120,15 +119,14 @@ class DeepSeekLLMClient:
         self._max_retries = max(0, max_retries)
 
         self._client: Optional[AsyncOpenAI] = None
-        self._client_key: Optional[Tuple[asyncio.AbstractEventLoop, str, str, float]] = None
+        self._client_key: Optional[Tuple[str, str, float]] = None
 
     async def _get_client(self, api_key: str, base_url: str, timeout: float) -> AsyncOpenAI:
-        loop = asyncio.get_running_loop()
-        key = (loop, api_key, base_url, timeout)
+        key = (api_key, base_url, timeout)
         if self._client is not None and self._client_key == key:
             return self._client
 
-        if self._client is not None and self._client_key and self._client_key[0] is loop:
+        if self._client is not None:
             await self._client.close()
 
         self._client = AsyncOpenAI(
@@ -142,16 +140,11 @@ class DeepSeekLLMClient:
 
     async def close(self) -> None:
         """优雅关闭底层 AsyncOpenAI 客户端"""
-        client, client_key = self._client, self._client_key
+        client = self._client
         self._client = None
         self._client_key = None
         if client is not None:
-            try:
-                running_loop = asyncio.get_running_loop()
-            except RuntimeError:
-                running_loop = None
-            if client_key is None or running_loop is client_key[0]:
-                await client.close()
+            await client.close()
 
     @staticmethod
     def _fallback(

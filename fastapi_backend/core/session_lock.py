@@ -3,7 +3,6 @@
 直接复用官方 client.lock() 原语实现跨进程互斥与阻塞超时快速失败 (HTTP 429)。
 """
 
-import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
@@ -14,37 +13,33 @@ from redis.exceptions import LockError
 from config import settings
 
 _redis_client: Optional[aioredis.Redis] = None
-_redis_loop_id: Optional[int] = None
 
 
-async def _get_redis() -> aioredis.Redis:
-    global _redis_client, _redis_loop_id
-    loop_id = id(asyncio.get_running_loop())
-    if _redis_client is None or _redis_loop_id != loop_id:
+def _get_redis() -> aioredis.Redis:
+    global _redis_client
+    if _redis_client is None:
         _redis_client = aioredis.from_url(
             settings.REDIS_URL.strip(),
             decode_responses=True,
             socket_connect_timeout=2.0,
             socket_timeout=5.0,
         )
-        _redis_loop_id = loop_id
     return _redis_client
 
 
 async def close_session_lock_redis() -> None:
     """应用关闭时释放 Redis 异步连接池"""
-    global _redis_client, _redis_loop_id
-    client, loop_id = _redis_client, _redis_loop_id
+    global _redis_client
+    client = _redis_client
     _redis_client = None
-    _redis_loop_id = None
-    if client is not None and loop_id == id(asyncio.get_running_loop()):
+    if client is not None:
         await client.aclose()
 
 
 @asynccontextmanager
 async def acquire_session_lock(session_id: str) -> AsyncIterator[None]:
     """按 session_id 加 Redis 分布式锁（TTL 默认 90s 覆盖单轮最大耗时）"""
-    client = await _get_redis()
+    client = _get_redis()
     lock = client.lock(
         f"intelliserve:lock:session:{session_id}",
         timeout=settings.SESSION_LOCK_TTL_SECONDS,

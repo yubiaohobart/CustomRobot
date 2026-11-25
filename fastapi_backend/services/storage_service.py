@@ -64,10 +64,6 @@ class StorageService:
             if self._initialized:
                 return
             engine = get_engine()
-            if engine is None:
-                log.warning("SQLAlchemy 引擎未就绪")
-                return
-
             Base.metadata.create_all(bind=engine)
             cprint("[StorageService] SQLAlchemy ORM 架构初始化完毕，当前方言引擎: postgresql", LogColor.GREEN)
             self._seed_initial_data()
@@ -372,8 +368,6 @@ class StorageService:
     def clear_sessions_and_transfers(self) -> None:
         """清空会话与转接日志表（专供测试夹具在用例前后重置持久化状态）"""
         engine = get_engine()
-        if engine is None:
-            return
         Base.metadata.create_all(bind=engine)
         with db_session_scope() as session:
             session.query(TransferLogEntity).delete()
@@ -401,8 +395,8 @@ class StorageService:
                 "databaseDialect": "postgresql",
                 "databaseUrlTarget": target_pg,
                 "poolConfig": {
-                    "poolSize": getattr(settings, "DB_POOL_SIZE", 10),
-                    "maxOverflow": getattr(settings, "DB_MAX_OVERFLOW", 20),
+                    "poolSize": settings.DB_POOL_SIZE,
+                    "maxOverflow": settings.DB_MAX_OVERFLOW,
                     "prePing": True,
                 },
                 "tables": {
