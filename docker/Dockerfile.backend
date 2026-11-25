@@ -8,10 +8,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FASTAPI_HOST=0.0.0.0 \
     FASTAPI_PORT=8000
 
-COPY requirements.txt .
+COPY fastapi_backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY fastapi_backend/ .
 
 EXPOSE 8000
 

@@ -54,10 +54,13 @@
 │   │   └── websocket_routes.py         # ⚡ 全双工 WebSocket 实时通信路由
 │   ├── app.py                          # 🚀 FastAPI 主服务启动入口与生命周期管理
 │   ├── requirements.txt                # 📦 Python 核心依赖清单 (FastAPI/SQLAlchemy/PostgreSQL/LangGraph/Qdrant)
-│   ├── Dockerfile                      # 🐳 容器化构建文件
 │   └── README.md                       # 📖 后端完整开发指南与架构说明
 │
-├── server.ts                           # 前端反向代理与静态资源宿主服务 (端口 3000 -> 代理至 5000)
+├── docker/                             # 🐳 容器构建与 Nginx 代理配置
+│   ├── Dockerfile.backend              # FastAPI 后端镜像
+│   ├── Dockerfile.frontend             # Nginx + React 前端镜像
+│   └── nginx.conf                      # SPA 静态托管与 /api、/ws 反向代理
+├── server.ts                           # 前端开发预览宿主服务
 ├── package.json                        # 前端构建依赖与 NPM 启动脚本
 ├── vite.config.ts                      # Vite 构建配置
 ├── docker-compose.yml                  # Docker 容器编排文件

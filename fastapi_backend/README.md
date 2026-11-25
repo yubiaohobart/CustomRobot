@@ -57,7 +57,6 @@ fastapi_backend/
 │   └── run_tests.py          # 一键免配置测试驱动
 ├── app.py                    # 🚀 FastAPI 主服务启动入口与生命周期管理
 ├── requirements.txt          # 📦 Python 核心依赖清单 (FastAPI/SQLAlchemy/PostgreSQL/LangGraph/Qdrant)
-├── Dockerfile                # 🐳 容器化构建文件
 └── README.md                 # 📖 后端完整开发指南与架构说明
 ```
 
@@ -141,10 +140,10 @@ npm run dev
 
 ### 3. Docker 容器化运行
 
-推荐使用项目根目录的 `docker compose up -d --build` 一键拉起全栈；若仅单独构建后端镜像：
+推荐使用项目根目录的 `docker compose up -d --build` 一键拉起全栈；若仅在项目根目录单独构建后端镜像：
 
 ```bash
-docker build -t intelliserve-backend:latest .
+docker build -f docker/Dockerfile.backend -t intelliserve-backend:latest .
 docker run -d -p 8000:8000 -e DEEPSEEK_API_KEY="your_key" intelliserve-backend:latest
 ```
 

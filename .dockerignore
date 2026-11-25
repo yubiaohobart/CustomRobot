@@ -9,7 +9,13 @@ coverage
 !.env.example
 .DS_Store
 *.log
-fastapi_backend
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.venv
+venv
+env
 data/*.db
 docker_data
 .aistudio
