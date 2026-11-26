@@ -6,7 +6,7 @@ import asyncio
 import re
 import time
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 
 from config import settings, HUMAN_TAKEOVER_STATUSES, DETERMINISTIC_FLOW_CONFIDENCE
 from models.schemas import (
@@ -33,6 +33,7 @@ from workflow.runner import run_customer_service_graph
 from core.session_lock import acquire_session_lock
 from services.storage_service import storage_service
 from core.logger import log, cprint, LogColor
+from data.faq_document import parse_docx_bytes
 
 router = APIRouter(prefix="/api")
 
@@ -191,8 +192,11 @@ async def get_storage_status_endpoint():
 @router.get("/health")
 async def health_check():
     """系统健康检查与引擎状态探测"""
-    docs_count = len(qdrant_store.list_all_documents())
-    ollama_info = bge_m3_engine.get_status()
+    docs, ollama_info = await asyncio.gather(
+        asyncio.to_thread(qdrant_store.list_all_documents),
+        asyncio.to_thread(bge_m3_engine.get_status),
+    )
+    docs_count = len(docs)
     return {
         "status": "ok",
         "app": settings.APP_NAME,
@@ -428,7 +432,7 @@ async def get_dashboard_metrics():
         else:
             sentiment_counts["neutral"] += 1
 
-    kb_doc_count = len(qdrant_store.list_all_documents())
+    kb_doc_count = len(await asyncio.to_thread(qdrant_store.list_all_documents))
 
     return {
         "totalSessions": total_sessions,
@@ -593,8 +597,56 @@ async def save_customer_endpoint(customer_data: Dict[str, Any]):
 @router.get("/knowledge")
 async def get_knowledge_documents():
     """获取 Qdrant 知识库中的全部切片文档"""
-    docs = qdrant_store.list_all_documents()
+    docs = await asyncio.to_thread(qdrant_store.list_all_documents)
     return {"docs": docs, "total": len(docs)}
+
+
+_MAX_UPLOAD_DOCX_BYTES = 20 * 1024 * 1024
+
+
+@router.post("/knowledge/upload")
+async def upload_knowledge_docx(files: List[UploadFile] = File(...)):
+    """
+    上传一个或多个 .docx 公司文档，解析切片后清空旧 Qdrant 集合并重建混合向量索引
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="请至少选择一个 .docx 文件")
+
+    t0 = time.time()
+    all_chunks: List[Dict[str, Any]] = []
+    uploaded_names: List[str] = []
+
+    for upload in files:
+        filename = (upload.filename or "").strip()
+        if not filename.lower().endswith(".docx"):
+            raise HTTPException(status_code=400, detail=f"仅支持 .docx 格式文件，不支持: {filename or '未知文件'}")
+
+        raw_bytes = await upload.read()
+        if not raw_bytes:
+            raise HTTPException(status_code=400, detail=f"文件内容为空: {filename}")
+        if len(raw_bytes) > _MAX_UPLOAD_DOCX_BYTES:
+            raise HTTPException(status_code=400, detail=f"单文件大小超过 20MB 限制: {filename}")
+
+        try:
+            chunks = await asyncio.to_thread(parse_docx_bytes, raw_bytes, filename)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"解析 .docx 文件失败 ({filename}): {exc}")
+
+        all_chunks.extend(chunks)
+        uploaded_names.append(filename)
+
+    if not all_chunks:
+        raise HTTPException(status_code=400, detail="未能从上传的 .docx 文档中提取到有效文本内容")
+
+    chunk_count = await asyncio.to_thread(qdrant_store.replace_collection_with_chunks, all_chunks)
+    latency_ms = int((time.time() - t0) * 1000)
+    return {
+        "success": True,
+        "files": uploaded_names,
+        "chunkCount": chunk_count,
+        "latencyMs": latency_ms,
+    }
+
 
 @router.post("/knowledge/search")
 async def search_knowledge(req: KnowledgeSearchRequest):
@@ -603,10 +655,11 @@ async def search_knowledge(req: KnowledgeSearchRequest):
     使用 BGE-M3 (1024 维) 在 Qdrant 中对 XX商城 FAQ 进行余弦相似度匹配
     """
     t0 = time.time()
-    hits = qdrant_store.similarity_search(
+    hits = await asyncio.to_thread(
+        qdrant_store.similarity_search,
         query=req.query,
         k=req.topK,
-        score_threshold=req.minScore
+        score_threshold=req.minScore,
     )
     latency_ms = int((time.time() - t0) * 1000)
 
@@ -615,7 +668,7 @@ async def search_knowledge(req: KnowledgeSearchRequest):
         results.append({
             "doc": h["doc"],
             "score": h["score"],
-            "snippet": h["content"][:150] + "..."
+            "snippet": h["doc"].get("content", "")[:150] + "..."
         })
 
     return {
@@ -639,7 +692,7 @@ async def generate_suggestion(req: GenerateSuggestionRequest):
                 last_user_msg = m["content"]
                 break
 
-    hits = qdrant_store.similarity_search(last_user_msg, k=2)
+    hits = await asyncio.to_thread(qdrant_store.similarity_search, last_user_msg, k=2)
     docs = [h["doc"] for h in hits]
     profile = session.get("customerProfile") if session else None
     order_id = (profile or {}).get("orderId")
@@ -679,8 +732,10 @@ async def system_test_get():
     # 1. 测试向量化引擎 (本地 Ollama BGE-M3)
     t0 = time.time()
     try:
-        vec = bge_m3_engine.embed_query(test_query)
-        ollama_status = bge_m3_engine.get_status()
+        vec, ollama_status = await asyncio.gather(
+            asyncio.to_thread(bge_m3_engine.embed_query, test_query),
+            asyncio.to_thread(bge_m3_engine.get_status),
+        )
         results["embedding_engine"] = {
             "status": "pass",
             "model": settings.OLLAMA_EMBED_MODEL,
@@ -702,17 +757,20 @@ async def system_test_get():
     # 2. 测试 Qdrant 向量检索
     t1 = time.time()
     try:
-        hits = qdrant_store.similarity_search(test_query, k=2)
+        hits, all_docs = await asyncio.gather(
+            asyncio.to_thread(qdrant_store.similarity_search, test_query, k=2),
+            asyncio.to_thread(qdrant_store.list_all_documents),
+        )
         results["vector_database_qdrant"] = {
             "status": "pass",
             "mode": "In-Memory (:memory: 纯内存模式)",
             "collection": settings.QDRANT_COLLECTION,
-            "total_documents": len(qdrant_store.list_all_documents()),
+            "total_documents": len(all_docs),
             "matched_chunks": [
                 {
                     "title": h["doc"].get("title"),
                     "score": round(h["score"], 4),
-                    "snippet": h["content"][:80] + "..."
+                    "snippet": h["doc"].get("content", "")[:80] + "..."
                 } for h in hits
             ],
             "latency_ms": round((time.time() - t1) * 1000, 2)
@@ -776,8 +834,10 @@ async def system_test_post(req: TestRequest):
     # 1. 向量化测试
     if req.testOllama:
         t0 = time.time()
-        vec = bge_m3_engine.embed_query(query)
-        ollama_status = bge_m3_engine.get_status()
+        vec, ollama_status = await asyncio.gather(
+            asyncio.to_thread(bge_m3_engine.embed_query, query),
+            asyncio.to_thread(bge_m3_engine.get_status),
+        )
         result["embedding"] = {
             "engine": ollama_status["provider"],
             "model": settings.OLLAMA_EMBED_MODEL,
@@ -791,7 +851,7 @@ async def system_test_post(req: TestRequest):
     retrieved_docs = []
     if req.testQdrant:
         t1 = time.time()
-        hits = qdrant_store.similarity_search(query, k=3)
+        hits = await asyncio.to_thread(qdrant_store.similarity_search, query, k=3)
         retrieved_docs = [h["doc"] for h in hits]
         result["qdrant"] = {
             "collection": settings.QDRANT_COLLECTION,
@@ -800,7 +860,7 @@ async def system_test_post(req: TestRequest):
                 {
                     "title": h["doc"].get("title"),
                     "score": round(h["score"], 4),
-                    "snippet": h["content"][:120] + "..."
+                    "snippet": h["doc"].get("content", "")[:120] + "..."
                 } for h in hits
             ],
             "latency_ms": round((time.time() - t1) * 1000, 2)

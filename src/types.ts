@@ -5,9 +5,10 @@ export type MessageRole = "user" | "assistant" | "human_agent" | "system";
 export interface KnowledgeDoc {
   id: string;
   title: string;
-  category: "售后政策" | "账单发票" | "配送物流" | "账户安全" | "产品使用" | "VIP服务";
+  category: string;
   content: string;
   tags: string[];
+  source?: string;
   updatedAt: string;
 }
 

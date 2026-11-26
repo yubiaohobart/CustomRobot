@@ -44,10 +44,7 @@ class Settings(BaseModel):
     # 默认连接本地 Ollama 服务: http://localhost:11434，拉取 bge-m3 即可一键使用
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", os.getenv("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
     OLLAMA_EMBED_MODEL: str = os.getenv("OLLAMA_EMBED_MODEL", "bge-m3")
-    EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME", "bge-m3")
     EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "1024"))  # BGE-M3 标准 dense 向量维度 1024
-    EMBEDDING_API_URL: Optional[str] = os.getenv("EMBEDDING_API_URL", None)
-    EMBEDDING_API_KEY: Optional[str] = os.getenv("EMBEDDING_API_KEY", None)
 
     # 向量数据库配置 (Qdrant In-Memory 内存模式，无需 Docker 部署)
     # 采用进程内纯内存 (:memory:) 模式，随应用启动即时加载，零外部运维依赖
@@ -67,8 +64,9 @@ class Settings(BaseModel):
     DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "20"))
 
     # 业务决策阈值与模型超时配置
-    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))  # 低于此分流转人工或提示低置信度
+    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))  # 低于此值分流转人工或低置信度提示
     TOP_K_RETRIEVAL: int = int(os.getenv("TOP_K_RETRIEVAL", "3"))
+    HYBRID_PREFETCH_LIMIT: int = int(os.getenv("HYBRID_PREFETCH_LIMIT", "10"))  # Hybrid 检索每路召回候选数
     AUTO_REFUND_LIMIT_YUAN: float = float(os.getenv("AUTO_REFUND_LIMIT_YUAN", "3.00"))  # 退款自动秒退与人工审核分界阈值(元)
     LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45.0"))
 

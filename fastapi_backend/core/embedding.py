@@ -7,11 +7,46 @@ BGE-M3 向量嵌入模型引擎 (BGE-M3 Embedding Engine)
 代码精简直观，直接使用 httpx 调用 Ollama BGE-M3 向量接口。
 """
 
+from collections import Counter
 import math
+import re
 import threading
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
+import zlib
 import httpx
 from config import settings
+
+_UNIT_NUM_RE = re.compile(r"\d+(?:\.\d+)?[a-z\u4e00-\u9fff]{1,4}")
+_ALNUM_RE = re.compile(r"[a-z0-9]+")
+_CJK_SPAN_RE = re.compile(r"[\u4e00-\u9fff]+")
+
+
+def build_sparse_vector(text: str) -> Tuple[List[int], List[float]]:
+    """
+    构造适配 Qdrant Sparse(IDF) 的词法稀疏向量：
+    提取数字+单位（如 15天、48小时）、英文词元及中文单字/双字切片，计算 sublinear TF 权重。
+    """
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return [], []
+
+    tokens: List[str] = []
+    tokens.extend(_UNIT_NUM_RE.findall(lowered))
+    tokens.extend(_ALNUM_RE.findall(lowered))
+    for span in _CJK_SPAN_RE.findall(lowered):
+        tokens.extend(span)
+        tokens.extend(span[i : i + 2] for i in range(len(span) - 1))
+
+    if not tokens:
+        return [], []
+
+    buckets: Dict[int, float] = {}
+    for tok, count in Counter(tokens).items():
+        idx = zlib.crc32(tok.encode("utf-8")) & 0xFFFFFFFF
+        buckets[idx] = buckets.get(idx, 0.0) + (1.0 + math.log(count))
+
+    sorted_items = sorted(buckets.items())
+    return [idx for idx, _ in sorted_items], [round(val, 4) for _, val in sorted_items]
 
 
 class BGEM3EmbeddingEngine:

@@ -3,6 +3,7 @@ from typing import Any
 __all__ = [
     "bge_m3_engine",
     "BGEM3EmbeddingEngine",
+    "build_sparse_vector",
     "qdrant_store",
     "QdrantKnowledgeStore",
     "deepseek_client",
@@ -14,7 +15,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name in ("bge_m3_engine", "BGEM3EmbeddingEngine"):
+    if name in ("bge_m3_engine", "BGEM3EmbeddingEngine", "build_sparse_vector"):
         from . import embedding
         return getattr(embedding, name)
     if name in ("qdrant_store", "QdrantKnowledgeStore"):

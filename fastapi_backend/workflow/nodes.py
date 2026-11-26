@@ -3,6 +3,7 @@ LangGraph 状态图执行节点与路由定义 (Workflow Nodes - 轻量化编排
 具体业务规则与决策收口至 services/ 目录，节点仅负责状态流转、interrupt 断点控制与 trace 记账。
 """
 
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 import time
 from langgraph.types import interrupt
@@ -160,11 +161,11 @@ def order_refund_node(state: AgentState) -> Dict[str, Any]:
 
 
 @trace_node("qdrant_retrieve", "BGE-M3 向量编码与 Qdrant FAQ 检索")
-def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
+async def qdrant_retrieve_node(state: AgentState) -> Dict[str, Any]:
     """4. 基于 BGE-M3 向量嵌入检索 FAQ 条款（优先消费上下文改写 query，保留完整切片）"""
     t0 = time.time()
     query = state.get("rewritten_query") or state.get("user_message", "")
-    hits = qdrant_store.similarity_search(query, k=settings.TOP_K_RETRIEVAL)
+    hits = await asyncio.to_thread(qdrant_store.similarity_search, query, k=settings.TOP_K_RETRIEVAL)
     top_score = hits[0]["score"] if hits else 0.0
     top_title = hits[0]["doc"].get("title", "无直接匹配") if hits else "无"
 

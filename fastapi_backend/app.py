@@ -64,16 +64,16 @@ async def lifespan(app: FastAPI):
         f"Ollama ({settings.OLLAMA_EMBED_MODEL}, {settings.OLLAMA_BASE_URL}, {settings.EMBEDDING_DIM}维)",
         LogColor.BRIGHT_BLUE,
     )
-    cprint.startup_item("向量数据库 (VDB):", qdrant_mode, LogColor.BRIGHT_GREEN)
+    cprint.startup_item("向量数据库 (VDB):", f"{qdrant_mode} · Hybrid(Dense+Sparse RRF)", LogColor.BRIGHT_GREEN)
     cprint.startup_item("默认知识库:", "XX商城售后服务与退换货政策（2026版）", LogColor.WHITE)
     cprint.divider("=", 68, LogColor.BRIGHT_CYAN)
 
     # 初始化 PostgreSQL 业务表结构与初始种子数据
     storage_service.init_database()
 
-    # 确保 Qdrant 集合就绪
-    qdrant_store.init_collection_with_faq()
-    cprint.success("Qdrant 向量知识库初始化完成，FAQ 语义切片已注入！")
+    # 确保 Qdrant 集合就绪并执行内容哈希增量同步
+    await asyncio.to_thread(qdrant_store.init_collection_with_faq)
+    cprint.success("Qdrant 向量知识库初始化完成，FAQ 语义切片已同步！")
 
     # 初始化 LangGraph PostgreSQL Checkpointer（自动建表并绑定连接池）
     await init_postgres_checkpointer()

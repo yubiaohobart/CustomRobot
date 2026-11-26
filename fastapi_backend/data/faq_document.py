@@ -3,8 +3,14 @@
 严格录入 XX商城售后服务与退换货政策（2026版）并提供结构化切片与解析器
 """
 
+from datetime import datetime, timezone
+import hashlib
+import io
+import json
+from pathlib import Path
 import re
-from typing import List, Dict, Any
+import uuid
+from typing import List, Dict, Any, Tuple
 
 FAQ_MARKDOWN_DOC = """
 # XX商城售后服务与退换货政策（2026版）
@@ -36,30 +42,44 @@ FAQ_MARKDOWN_DOC = """
 - 保修期内因人为摔落、进水、私自拆修导致的损坏，不属于免费保修范围，需收取配件成本费。
 """.strip()
 
+
+def _compute_chunk_hash(chunk: Dict[str, Any]) -> str:
+    """对影响检索向量与展示的核心字段计算 SHA-256，用于 Qdrant 增量同步判定"""
+    canonical = json.dumps(
+        {
+            "title": chunk["title"],
+            "category": chunk["category"],
+            "content": chunk["content"],
+            "tags": chunk["tags"],
+            "keywords": chunk["keywords"],
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def parse_faq_markdown(doc_text: str = FAQ_MARKDOWN_DOC) -> List[Dict[str, Any]]:
     """
     将 FAQ Markdown 文档按照二级标题 `##` 进行层级解析和结构化切片
-    提取标题、内容、分类、检索标签和关键词，供 Qdrant 向量库持久化
+    提取稳定 UUID 主键、内容哈希、标题、分类、检索标签和关键词，供 Qdrant 增量同步
     """
     chunks: List[Dict[str, Any]] = []
-    
-    # 获取主标题
+
     main_title_match = re.search(r"^#\s+(.+)$", doc_text, re.MULTILINE)
     main_title = main_title_match.group(1).strip() if main_title_match else "售后服务与退换货政策"
 
-    # 按二级标题切分
     sections = re.split(r"(?m)^##\s+", doc_text)
-    
-    for i, section in enumerate(sections):
+
+    for section in sections:
         section = section.strip()
         if not section or section.startswith("# "):
             continue
-            
+
         lines = section.split("\n", 1)
         section_title = lines[0].strip()
         section_content = lines[1].strip() if len(lines) > 1 else ""
-        
-        # 归类与标签提取
+
         category = "售后政策"
         tags = ["XX商城", "2026新规"]
         keywords: List[str] = []
@@ -81,20 +101,182 @@ def parse_faq_markdown(doc_text: str = FAQ_MARKDOWN_DOC) -> List[Dict[str, Any]]
             tags.extend(["保修条款", "全国联保", "15天换新", "进水保修", "人为损坏"])
             keywords = ["保修", "维修", "全国联保", "1年", "一年", "换新", "15天", "人为损坏", "进水", "摔落", "配件费"]
 
-        doc_id = f"faq_chunk_{i}"
-        
-        chunks.append({
+        doc_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"intelliserve:faq:{main_title}:{section_title}"))
+        chunk: Dict[str, Any] = {
             "id": doc_id,
             "title": section_title,
-            "main_title": main_title,
             "category": category,
             "content": f"【{main_title} - {section_title}】\n{section_content}",
-            "raw_content": section_content,
             "tags": tags,
             "keywords": keywords,
-            "updatedAt": "2026-01-15T09:00:00Z"
-        })
-        
+            "source": "builtin_faq",
+            "updatedAt": "2026-01-15T09:00:00Z",
+        }
+        chunk["content_hash"] = _compute_chunk_hash(chunk)
+        chunks.append(chunk)
+
+    return chunks
+
+
+_CHUNK_MAX_CHARS = 500
+_CHUNK_OVERLAP_CHARS = 80
+
+
+def _split_body_with_overlap(text: str, max_chars: int = _CHUNK_MAX_CHARS, overlap: int = _CHUNK_OVERLAP_CHARS) -> List[str]:
+    """按段落优先切分超长章节，单段超限时按滑动窗口切分并保留上下文重叠"""
+    cleaned = text.strip()
+    if not cleaned:
+        return []
+    if len(cleaned) <= max_chars:
+        return [cleaned]
+
+    paragraphs = [p.strip() for p in cleaned.split("\n") if p.strip()]
+    chunks: List[str] = []
+    buf: List[str] = []
+    buf_len = 0
+
+    def _flush() -> None:
+        nonlocal buf, buf_len
+        if buf:
+            chunks.append("\n".join(buf))
+            buf = []
+            buf_len = 0
+
+    for para in paragraphs:
+        if len(para) > max_chars:
+            _flush()
+            step = max(1, max_chars - overlap)
+            for start in range(0, len(para), step):
+                part = para[start : start + max_chars].strip()
+                if part:
+                    chunks.append(part)
+                if start + max_chars >= len(para):
+                    break
+            continue
+
+        added = len(para) + (1 if buf else 0)
+        if buf and buf_len + added > max_chars:
+            prev_text = "\n".join(buf)
+            _flush()
+            tail = prev_text[-overlap:].strip() if overlap > 0 and len(prev_text) > overlap else ""
+            if tail and len(tail) + 1 + len(para) <= max_chars:
+                buf = [tail, para]
+                buf_len = len(tail) + 1 + len(para)
+                continue
+
+        buf.append(para)
+        buf_len += added
+
+    _flush()
+    return chunks
+
+
+def _format_docx_table(table: Any) -> str:
+    """将 Word 表格按行展开为语义文本，兼容合并单元格"""
+    rows_text: List[str] = []
+    headers: List[str] = []
+
+    for r_idx, row in enumerate(table.rows):
+        cells: List[str] = []
+        seen_tc = set()
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id in seen_tc:
+                continue
+            seen_tc.add(tc_id)
+            cells.append(" ".join(cell.text.split()))
+
+        if not any(cells):
+            continue
+        if r_idx == 0 and len(table.rows) > 1:
+            headers = cells
+            continue
+
+        if headers and len(headers) == len(cells):
+            pairs = [f"{h}: {c}" if h else c for h, c in zip(headers, cells) if c]
+            if pairs:
+                rows_text.append(" | ".join(pairs))
+        else:
+            non_empty = [c for c in cells if c]
+            if non_empty:
+                rows_text.append(" | ".join(non_empty))
+
+    if not rows_text and headers:
+        non_empty = [h for h in headers if h]
+        if non_empty:
+            rows_text.append(" | ".join(non_empty))
+    return "\n".join(rows_text)
+
+
+def parse_docx_bytes(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
+    """
+    解析上传的 .docx 企业文档字节流：
+    按阅读顺序提取段落与表格，依 Heading 标题及滑动窗口切片，返回可直接写入 Qdrant 的结构化分块
+    """
+    from docx import Document
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    doc = Document(io.BytesIO(file_bytes))
+    doc_stem = Path(filename).stem.strip() or "企业文档"
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    sections: List[Tuple[str, List[str]]] = []
+    current_title = doc_stem
+    current_blocks: List[str] = []
+
+    for child in doc.element.body.iterchildren():
+        if isinstance(child, CT_P):
+            para = Paragraph(child, doc)
+            text = para.text.strip()
+            if not text:
+                continue
+            style_name = (para.style.name if para.style else "") or ""
+            lower_style = style_name.lower()
+            is_heading = (
+                lower_style.startswith("heading")
+                or lower_style == "title"
+                or "标题" in style_name
+            )
+            if is_heading:
+                if current_blocks:
+                    sections.append((current_title, current_blocks))
+                current_title = text[:80]
+                current_blocks = []
+            else:
+                current_blocks.append(text)
+        elif isinstance(child, CT_Tbl):
+            table_text = _format_docx_table(Table(child, doc))
+            if table_text:
+                current_blocks.append(table_text)
+
+    if current_blocks:
+        sections.append((current_title, current_blocks))
+
+    chunks: List[Dict[str, Any]] = []
+    chunk_seq = 0
+    for sec_title, blocks in sections:
+        parts = _split_body_with_overlap("\n".join(blocks))
+        total_parts = len(parts)
+        for part_idx, body in enumerate(parts, start=1):
+            chunk_seq += 1
+            display_title = sec_title if total_parts == 1 else f"{sec_title} ({part_idx}/{total_parts})"
+            doc_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"intelliserve:upload:{filename}:{chunk_seq}:{display_title}"))
+            chunk: Dict[str, Any] = {
+                "id": doc_id,
+                "title": display_title,
+                "category": doc_stem,
+                "content": f"【{doc_stem} - {display_title}】\n{body}",
+                "tags": [doc_stem],
+                "keywords": [],
+                "source": f"upload:{filename}",
+                "updatedAt": now_iso,
+            }
+            chunk["content_hash"] = _compute_chunk_hash(chunk)
+            chunks.append(chunk)
+
     return chunks
 
 def get_default_faq_chunks() -> List[Dict[str, Any]]:
