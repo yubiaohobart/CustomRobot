@@ -10,7 +10,6 @@ from .schemas import (
     OrderRefundAuditRequest,
     KnowledgeSearchRequest,
     GenerateSuggestionRequest,
-    TestRequest,
 )
 from workflow.state import AgentState
 from .sql_models import (
@@ -33,7 +32,6 @@ __all__ = [
     "OrderRefundAuditRequest",
     "KnowledgeSearchRequest",
     "GenerateSuggestionRequest",
-    "TestRequest",
     "AgentState",
     "CustomerEntity",
     "AgentEntity",

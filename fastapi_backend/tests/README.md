@@ -28,20 +28,18 @@ fastapi_backend/tests/
 |:---:|:---|:---|:---|
 | **1** | `GET /` | `test_health_and_root.py` | 验证根路由欢迎信息、Swagger 文档链接与技术栈说明 |
 | **2** | `GET /api/health` | `test_health_and_root.py` | 验证系统存活状态、向量库连接状态及活跃会话计数 |
-| **3** | `GET /api/test` | `test_health_and_root.py` | 全链路一键自检（向量化、Qdrant 纯内存库、记忆服务、DeepSeek 配置） |
-| **4** | `POST /api/test` | `test_health_and_root.py` | 交互式自检诊断，支持自定义 query 与各子引擎独立开关 |
-| **5** | `GET /api/knowledge` | `test_knowledge_search.py` | 获取知识库全部切片文档，校验文档元数据（id, title, content, category） |
-| **6** | `POST /api/knowledge/search` | `test_knowledge_search.py` | 验证 BGE-M3 语义向量检索、相似度过滤与 Pydantic 入参合法性校验 |
-| **7** | `POST /api/generate-suggestion` | `test_knowledge_search.py` | 坐席副驾驶（Copilot）拟定话术推荐与匹配法规条款召回 |
-| **8** | `GET /api/sessions` | `test_sessions_and_human.py` | 获取所有活跃会话列表 |
-| **9** | `GET /api/sessions/{session_id}` | `test_sessions_and_human.py` | 验证会话详情获取及 404 Not Found 异常处理 |
-| **10** | `POST /api/sessions/{session_id}/transfer` | `test_sessions_and_human.py` | 验证转人工交接、不可变上下文快照打包、状态机流转与坐席指派 |
-| **11** | `POST /api/sessions/{session_id}/intervene` | `test_sessions_and_human.py` | 坐席主动接管（`takeover`）与释放交还 AI（`release`）双向状态切换 |
-| **12** | `POST /api/sessions/{session_id}/human-message` | `test_sessions_and_human.py` | 坐席工作台消息发送与会话历史追加 |
-| **13** | `GET /api/agents` | `test_sessions_and_human.py` | 校验客服坐席矩阵列表、技能专长与工号 |
-| **14** | `GET /api/transfer-logs` | `test_sessions_and_human.py` | 查询交接快照审计流水日志 |
-| **15** | `GET /api/metrics` | `test_sessions_and_human.py` | 监控大屏聚合统计数据（总会话数、总消息数、AI 自主解决率等） |
-| **16** | `POST /api/chat` | `test_chat_pipeline.py` | **核心主链路**：常规问答、VIP 会员画像联动、转人工意图熔断、多轮记忆连续性与空入参校验 |
+| **3** | `GET /api/knowledge` | `test_knowledge_search.py` | 获取知识库全部切片文档，校验文档元数据（id, title, content, category） |
+| **4** | `POST /api/knowledge/search` | `test_knowledge_search.py` | 验证 BGE-M3 语义向量检索、相似度过滤与 Pydantic 入参合法性校验 |
+| **5** | `POST /api/generate-suggestion` | `test_knowledge_search.py` | 坐席副驾驶（Copilot）拟定话术推荐与匹配法规条款召回 |
+| **6** | `GET /api/sessions` | `test_sessions_and_human.py` | 获取所有活跃会话列表 |
+| **7** | `GET /api/sessions/{session_id}` | `test_sessions_and_human.py` | 验证会话详情获取及 404 Not Found 异常处理 |
+| **8** | `POST /api/sessions/{session_id}/transfer` | `test_sessions_and_human.py` | 验证转人工交接、不可变上下文快照打包、状态机流转与坐席指派 |
+| **9** | `POST /api/sessions/{session_id}/intervene` | `test_sessions_and_human.py` | 坐席主动接管（`takeover`）与释放交还 AI（`release`）双向状态切换 |
+| **10** | `POST /api/sessions/{session_id}/human-message` | `test_sessions_and_human.py` | 坐席工作台消息发送与会话历史追加 |
+| **11** | `GET /api/agents` | `test_sessions_and_human.py` | 校验客服坐席矩阵列表、技能专长与工号 |
+| **12** | `GET /api/transfer-logs` | `test_sessions_and_human.py` | 查询交接快照审计流水日志 |
+| **13** | `GET /api/metrics` | `test_sessions_and_human.py` | 监控大屏聚合统计数据（总会话数、总消息数、AI 自主解决率等） |
+| **14** | `POST /api/chat` | `test_chat_pipeline.py` | **核心主链路**：常规问答、VIP 会员画像联动、转人工意图熔断、多轮记忆连续性与空入参校验 |
 
 ---
 
@@ -66,7 +64,6 @@ python tests/run_tests.py
 📂 【系统状态与自检 (Health & Diagnostics)】
   ✅ [PASS] test_root_endpoint                        (3.2ms) - 测试场景：访问根路径 GET /
   ✅ [PASS] test_health_check_endpoint                (2.1ms) - 测试场景：访问系统探活接口 GET /api/health
-  ✅ [PASS] test_system_test_get_diagnostics          (6.5ms) - 测试场景：触发全链路自检接口 GET /api/test
   ...
 ======================================================================
 📊 单元测试执行总结报告:

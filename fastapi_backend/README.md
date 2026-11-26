@@ -177,11 +177,7 @@ docker run -d -p 8000:8000 -e DEEPSEEK_API_KEY="your_key" intelliserve-backend:l
   ```
 - 返回 Qdrant 中匹配的【维修与保修条款】分块、相似度得分及切片信息。
 
-### 3. 系统全链路自检测试接口 (`GET /api/test` & `POST /api/test`)
-- `GET /api/test`：一键全链路自动探测。自动检测本地 Ollama (bge-m3) 探活与 1024 维向量生成、Qdrant 纯内存切片检索、会话记忆与 DeepSeek LLM 配置，返回各子系统诊断数据与响应耗时。
-- `POST /api/test`：自定义测试接口。支持请求体 `{"query": "黄金会员退货免运费怎么申请？", "testOllama": true, "testQdrant": true, "testLLM": false}`，返回向量维度、前5维预览、召回切片与可选的大模型答复。
-
-### 4. 会话与人工协同接口
+### 3. 会话与人工协同接口
 - `GET /api/sessions`：获取所有会话状态
 - `GET /api/sessions/{session_id}`：获取单个会话上下文详情
 - `POST /api/sessions/{session_id}/transfer`：转接人工并封存生成 `TransferContextSnapshot`

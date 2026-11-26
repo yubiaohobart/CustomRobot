@@ -73,9 +73,3 @@ class GenerateSuggestionRequest(BaseModel):
     sessionId: str = Field(default="session_user_001")
     context: Optional[str] = Field(default=None)
 
-
-class TestRequest(BaseModel):
-    query: Optional[str] = Field(default="黄金会员退货免运费怎么申请？", description="待测试的提问文本")
-    testOllama: bool = Field(default=True, description="是否测试本地 Ollama 向量化")
-    testQdrant: bool = Field(default=True, description="是否测试 Qdrant 纯内存检索")
-    testLLM: bool = Field(default=False, description="是否调用真实 DeepSeek 产生答复")
